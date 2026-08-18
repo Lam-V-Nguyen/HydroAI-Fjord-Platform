@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/src_frontend/images/logo16x16.png" />
+    <title>Hydro-AI Integrated Platform</title>
+    <!-- Third-party libraries -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.2.0/dist/gridstack.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- My styles -->
+    <link rel="stylesheet" href="/src_frontend/styles/index.css?v=0">
+    <link rel="stylesheet" href="/src_frontend/styles/gridLayout.css?v=0">
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="dashboard-header">
+      <!-- Left side -->
+      <div class="header-left">
+        <img src="/src_frontend/images/logo.png" alt="Logo" />
+        <h3>FjordFlow AI</h3>
+        <!-- <h3>DigiWater</h3> -->
+      </div>
+      <!-- Middle side -->
+      <div class="header-middle">
+        <h1>AI-Integrated Hydrodynamic Water Quality Modelling Platform</h1>
+        <!-- <h1>Digital Twin Platform</h1> -->
+      </div>
+      <!-- Right side -->
+      <div class="header-right">
+        <img id="widgetMenu" src="/src_frontend/images/addWidget.png" title="Add Component"/>
+        <div id="menu-container" class="menu-container hidden"></div>
+      </div>
+    </header>
+    <!-- Gridstack container -->
+    <div class="grid-stack" id="grid-stack"></div>
+    <!-- Loading screen -->
+    <div class="loading-container">
+      <div class="spinner"></div>
+      <div class="loading-text">Processing Data. Please wait...</div>
+    </div>
+    
+    <!-- GitHub last update -->
+    <div class="github-last-update">Loading last update...</div>
+    <div class="project-note"></div>
+    <script src="https://cdn.plot.ly/plotly-2.26.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gridstack@10.2.0/dist/gridstack-all.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script type="module" src="/src_frontend/services/mainManager.js?v=0"></script>
+  </body>
+</html>

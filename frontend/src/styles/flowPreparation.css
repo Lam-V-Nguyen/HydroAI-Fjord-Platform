@@ -1,0 +1,120 @@
+:root {
+  --bg: #10192c; --text: #e6eefc; --card: #0f1b30;
+}
+
+* { box-sizing: border-box; }
+html, body { 
+  margin: 0; padding: 0; overflow: auto;
+  box-sizing: border-box; height: 100%;
+  font-family: Arial, sans-serif;}
+body {
+  color: var(--text); display: flex; flex-direction: column;
+  background: radial-gradient(1200px 600px at 10% -10%, rgba(30,136,229,0.25), transparent),
+    radial-gradient(800px 600px at 100% 0%, rgba(21,101,192,0.25), transparent), var(--bg);
+}
+.wrapper { 
+  max-width: 100%; padding: 10px;  margin: 10px 0; height: 100%;
+}
+#project-name-wrapper {
+  display: flex; align-items: center; position: relative;
+  flex: 1 1 auto; min-width: 0;
+}
+#project-list {
+  position: absolute; bottom: 100%; left: 0; width: 100%;
+  margin: 5px; list-style: none; padding: 8px 6px; 
+  font-size: 15px; font-weight: normal; z-index: 10000;
+  align-items: center; justify-content: center;
+  background: var(--card); border-radius: 8px; display: none;
+  box-shadow: 0 6px 18px rgba(30,136,229,0.2);
+}
+#project-list li:hover { 
+  background: rgb(9, 48, 155); border-radius: 8px;
+  padding: 8px 6px; cursor: pointer;
+}
+#project-name { width: 100%; }
+ul { line-height: 1.4; font-size: 16px; text-align: center; }
+
+.pourpoint-container {
+  display: flex; flex-direction: column; align-items: center; width: 100%;
+}
+.pourpoint-group {
+  display: block; width: 100%; max-width: 100%; margin-top: -20px;
+}
+#pourpoint-lat, #pourpoint-lon { flex: 1; min-width: 0; }
+
+.field-inline {
+  display: flex; align-items: center; gap: 10px; width: 100%; flex-wrap: wrap;
+}
+.field-inline label, .field-inline button {
+  flex-shrink: 0;
+}
+.checkbox-group {
+  display: flex; align-items: center;
+  gap: 6px; flex-shrink: 0; white-space: nowrap;
+}
+
+.data-link {
+  margin-top: 10px; font-size: 15px; color: aqua; 
+  text-decoration: underline; cursor: pointer;
+}
+.data-link:hover {color: yellow;}
+
+.input-parameters { 
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  display: grid; gap: 10px 10px; width: 100%; column-gap: 20px;
+}
+.input-parameters h3 { grid-column: 1 / -1; }
+.input-parameters .single-row {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+}
+.input-parameters .single-row label {
+  width: 200px; flex-shrink: 0; font-size: 16px;
+}
+.input-parameters .single-row input {
+  flex: 1 1 auto; padding: 8px 12px; border-radius: 12px; width: 50px;
+  border: 1px solid var(--border); background: var(--card);
+  color: var(--text); outline: none; text-align: center; min-width: 0;
+}
+
+.radio-button {
+  display: flex; align-items: center; gap: 10px;
+  justify-content: space-between; width: 100%;
+}
+
+.radio-button .row-radio {
+  display: inline-flex; align-items: center; margin-top: 30px;
+  gap: 6px; line-height: 1; vertical-align: middle;
+}
+
+.section-title, .data-list { flex: 0 0 100%; margin: 5px 0 0 0; }
+
+.section-title {
+  font-weight: bold; font-size: 16px; 
+  color:rgb(209, 223, 16); margin-bottom: 0;
+}
+
+.data-list {
+  padding-left: 20px; margin-top: 0; text-align: left;
+}
+
+.data-list li {
+  margin-bottom: 10px; list-style-type: disc; margin-left: 30px;
+}
+
+#weather-download-container, .model-container, #soil-download-container {
+  display: none; flex-direction: column; margin-top: -10px; min-width: 0; 
+  justify-content: flex-start; align-items: stretch; height: 100%;
+}
+#weather-download-text, #model-text, #soil-download-text,
+#weather-text, #meteo-text { 
+  flex: 1 1 auto; width: 100%; resize: none; min-height: 0;
+  box-sizing: border-box; font-family: monospace; overflow: auto;
+}
+.model-container { 
+  display: flex; margin-top: 0; min-height: 300px;
+}
+
+.output-columns {
+  display: grid; gap: 10px 20px;
+  grid-template-columns: repeat(3, 1fr);
+}
