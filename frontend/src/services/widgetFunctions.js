@@ -2,6 +2,22 @@
 
 let gridInstance = null; 
 
+export function initGrid() { 
+    if (gridInstance) return gridInstance; 
+    const element = document.getElementById('grid-stack'); 
+    if (!element) return; 
+    gridInstance = GridStack.init({ 
+        cellHeight: 80, column: 12, 
+        draggable: { handle: '.widget-header' }, 
+        resizable: { handles: 'all' } , minRow: 1
+    }, element); 
+    gridInstance.on('change', saveWidget); 
+    gridInstance.on('added', saveWidget); 
+    gridInstance.on('removed', saveWidget); 
+    gridInstance.on('dragstop', saveWidget); 
+    gridInstance.on('resizestop', saveWidget); 
+    return gridInstance; 
+} 
 
 export function addWidget(w, h, title, id, iframeUrl=null) {
     const grid = initGrid(); 
@@ -13,6 +29,36 @@ export function addWidget(w, h, title, id, iframeUrl=null) {
     saveWidget(); 
 }
 
+export function loadWidget() { 
+    const saved = localStorage.getItem("grid-layout"); 
+    if (!saved) return; 
+    const layout = JSON.parse(saved), grid = initGrid(); 
+    grid.load(layout.map(item => ({ 
+        ...item, 
+        content: createWidgetHTML(item.title, item.id, item.iframeUrl) 
+    }))); 
+    // Init map 
+    setTimeout(() => { 
+        layout.forEach(item => { 
+            const el = document.querySelector(`[gs-id=${item.id}]`);
+            if (!el) return;
+            // Restore title 
+            el.querySelector('.widget-title').textContent = item.title; 
+            // Restore iframe 
+            const iframe = el.querySelector('.widget-iframe'); 
+            if (iframe) iframe.src = item.iframeUrl; 
+            // // Restore map 
+            // if (item.id.includes('-map')) {
+            //     initMap(item.id); 
+            //     if (item.mapState) { 
+            //         currentMap.setView(item.mapState.center, item.mapState.zoom); 
+            //         setTimeout(() => { currentMap.invalidateSize(); }, 100); 
+            //     } 
+            // } 
+        }); 
+    }, 100); 
+} 
+
 export function saveWidget() { 
     const layout = gridInstance.save();
     layout.forEach(item => { 
@@ -23,7 +69,7 @@ export function saveWidget() {
         // Iframe 
         const iframe = el.querySelector('.widget-iframe'); 
         if (iframe) item.iframeUrl = iframe?.src; 
-        // Map 
+        // // Map 
         // if (item.id.includes('-map') && currentMap) { 
         //     item.mapState = { 
         //         center: currentMap.getCenter(), zoom: currentMap.getZoom() 
@@ -32,7 +78,7 @@ export function saveWidget() {
         // } 
     }); 
     localStorage.setItem('grid-layout', JSON.stringify(layout)); 
-}
+} 
 
 function createWidgetHTML(title, id, iframeUrl) {
     return `

@@ -1,10 +1,12 @@
-// import { menuManager } from "./menuManager.js";
+import { menuManager } from "./menuManager.js";
 // import { projectMaker, projectModifier, pdfOpener } from "./projectManager.js";
-// import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
-import { addWidget, loadWidget } from "./widgetFunctions.js";
-// import { startLoading, stopLoading, jsonLoader, htmlLoader } from "./commonFunctions.js";
-import { htmlLoader } from "./commonFunctions.js";
-// import { setPendingRequest, clearPendingRequest, origin, getState, initState, setState } from "./constant.js";
+import { pdfOpener } from "./projectManager.js";
+// import { hasWidget } from "./widgetFunctions.js";
+import { initGrid, addWidget, loadWidget, saveWidget } from "./widgetFunctions.js";
+// import { startLoading, stopLoading } from "./commonFunctions.js";
+import { htmlLoader, jsonLoader } from "./commonFunctions.js";
+// import { setPendingRequest, clearPendingRequest, origin, initState, setState } from "./constant.js";
+import { initState, getState } from "./constant.js";
 // import { renderPreview } from "./mapManager.js";
 
 
@@ -18,7 +20,7 @@ let currentProject, waqModel, currentParams, isLoaded = false,
 
 // initRequestListener();
 
-await login(); await projectChecker(); //loadWidget();
+await login(); await projectChecker(); loadWidget();
 widgetMenuManager(); updateComponent(); 
 // // showGitHubLastUpdate('Lam-V-Nguyen', 'Hydro-AI-Platform', 'dev'); 
 
@@ -52,7 +54,7 @@ async function projectChecker() {
 function widgetMenuManager() {
     widgetMenu.addEventListener("mouseenter", (e) => {
         e.target.dispatchEvent(new Event('click'));
-    })
+    });
     widgetMenu.addEventListener("click", async () => { 
         if (!isLoaded) { 
             const res = await htmlLoader('getWidgetMenu'); 
@@ -64,20 +66,20 @@ function widgetMenuManager() {
             menuContainer.style.display = 'none';
         }
     }); 
-//     // Menu click handler 
-//     menuContainer.addEventListener("click", (e) => { 
-//         const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
-//         if (!item) return;
-//         const id = item.id; if (!id) return;
-//         const url = item.dataset?.url;
-//         let w = 11, h = 7, user = userName.split('/').shift();
-//         let title = item.textContent.replace(/▸|◂/g, '').trim();
-//         const closeMenu = () => { menuContainer.style.display = 'none'; saveWidget(); };
+    // Menu click handler
+    menuContainer.addEventListener("click", (e) => { 
+        const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
+        if (!item) return;
+        const id = item.id; if (!id) return;
+        const url = item.dataset?.url;
+        let w = 11, h = 7, user = userName.split('/').shift();
+        let title = item.textContent.replace(/▸|◂/g, '').trim();
+        const closeMenu = () => { menuContainer.style.display = 'none'; };
 //         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
 //         if (id === 'new-project') { projectMaker(); closeMenu(); return; }
 //         else if (id === 'open-project') { projectModifier(user, 'open'); closeMenu(); return; }
 //         else if (id === 'delete-project') { projectModifier(user, 'delete'); closeMenu(); return; }
-//         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
+        if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
 //         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
 //         else if (id === 'grid-generation') { w = 10; h = 8; }
 //         else if (id === 'visualization') { w = 12; h = 9; }
@@ -86,30 +88,41 @@ function widgetMenuManager() {
 //         } else if (id === 'preparation-hyd') { 
 //             w = 11; h = 9; title = 'Data Preparation for HYD Scenario'; 
 //         } else if (id === 'run-flow-model') { w = 16; h = 8; }
-//         else if (id === 'about') { w = 8; h = 5; }
-//         addWidget(w, h, title, id, url); closeMenu();
-//     });
-//     document.addEventListener("click", (e) => { 
-//         // Close button handler 
-//         if (e.target.classList.contains("remove-btn")) { 
-//             const widget = e.target.closest(".grid-stack-item");
-//             if (widget) {
-//                 const widgetId = widget.getAttribute("gs-id");
-//                 const mapEl = document.querySelector(`[gs-id=${widgetId}-map]`);
-//                 if (mapEl !== null) {
-//                     const mapEL_btn = mapEl.querySelector('.remove-btn');
-//                     if (mapEL_btn !== null) mapEL_btn.click();
-//                 }
-//                 initGrid().removeWidget(widget);
-//             } 
-//         } 
-//         // Edit title handler 
-//         if (e.target.classList.contains("widget-title")) { 
-//             const newTitle = prompt("Enter new title:", e.target.textContent); 
-//             if (newTitle) { e.target.textContent = newTitle; } 
-//         } 
-//         setTimeout(() => { saveWidget(); }, 10);
-//     });
+        else if (id === 'about') { w = 8; h = 5; }
+        addWidget(w, h, title, id, url); closeMenu();
+    });
+    document.addEventListener("click", (e) => { 
+        // Close button handler 
+        if (e.target.classList.contains("remove-btn")) { 
+            const widget = e.target.closest(".grid-stack-item");
+            if (widget) {
+                const widgetId = widget.getAttribute("gs-id");
+                saveWidget();  // Save grid layout before removing
+                const mapEl = document.querySelector(`[gs-id=${widgetId}-map]`);
+                if (mapEl !== null) {
+                    const mapEL_btn = mapEl.querySelector('.remove-btn');
+                    if (mapEL_btn !== null) mapEL_btn.click();
+                }
+                // Remove map if it exists
+                const grid = initGrid();
+                if (grid) {
+                    const widgetNode = document.querySelector(`[gs-id="${widgetId}"]`);
+                    if (widgetNode) {
+                        grid.removeWidget(widgetNode, true);
+                        setTimeout(() => { grid.update(); saveWidget(); }, 100);
+                    }
+                }
+            } 
+        } 
+        // Edit title handler 
+        if (e.target.classList.contains("widget-title")) { 
+            const newTitle = prompt("Enter new title:", e.target.textContent); 
+            if (newTitle) { 
+                e.target.textContent = newTitle; 
+                saveWidget();
+            } 
+        }
+    });
 //     // // Check whether widget exists and remove
 //     // const layoutStr = localStorage.getItem('grid-layout');
 //     // if (layoutStr) {
