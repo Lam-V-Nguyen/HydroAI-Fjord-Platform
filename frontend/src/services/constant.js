@@ -25,4 +25,11 @@ const loadState = (projectId) => {
 };
 
 export const getState = () => state;
+export function setMap(map) { mapInstance = map; }
+export function clearPendingRequest() { pendingRequest = null; }
+
+
+
+
+
 

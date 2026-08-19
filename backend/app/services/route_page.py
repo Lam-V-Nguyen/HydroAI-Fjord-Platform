@@ -7,7 +7,6 @@ from app.config import SOURCE_FRONTEND, PROJECT_ROOT
 
 router = APIRouter()
 htmls = Jinja2Templates(directory=os.path.normpath(os.path.join(SOURCE_FRONTEND, "htmls")))
-print('Route Page', SOURCE_FRONTEND)
 
 # ==================== Routes ====================
 # Home page

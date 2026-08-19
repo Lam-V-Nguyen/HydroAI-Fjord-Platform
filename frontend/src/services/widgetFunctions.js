@@ -19,13 +19,19 @@ export function initGrid() {
     return gridInstance; 
 } 
 
-export function addWidget(w, h, title, id, iframeUrl=null) {
+export function hasWidget(id) { 
     const grid = initGrid(); 
+    const nodes = grid.engine.nodes; 
+    return nodes.some(node => node.id === id); 
+}
+
+export function addWidget(w, h, title, id, iframeUrl=null) {
+    const grid = initGrid();
     grid.addWidget({ 
         x: 0, y: 0, w: w, h: h, id: id, minW:2, minH:2,
         content: createWidgetHTML(title, id, iframeUrl)
     }); 
-    // if (id.includes('-map')) { setTimeout(() => initMap(id), 50); } 
+    // if (id.includes('-map')) { setTimeout(() => initMap(id), 50); }
     saveWidget(); 
 }
 
@@ -37,7 +43,7 @@ export function loadWidget() {
         ...item, 
         content: createWidgetHTML(item.title, item.id, item.iframeUrl) 
     }))); 
-    // Init map 
+    // Restore items
     setTimeout(() => { 
         layout.forEach(item => { 
             const el = document.querySelector(`[gs-id=${item.id}]`);
@@ -63,7 +69,7 @@ export function saveWidget() {
     const layout = gridInstance.save();
     layout.forEach(item => { 
         const el = document.querySelector(`[gs-id=${item.id}]`); 
-        if (!el) return; 
+        if (!el) return;
         // Title 
         item.title = el.querySelector('.widget-title')?.textContent; 
         // Iframe 
@@ -118,7 +124,6 @@ function createWidgetHTML(title, id, iframeUrl) {
                             </div>
                         </div>
                     </div>
-
                 </div>` : 
                 `<iframe 
                     id="iframe-${id}" class="widget-iframe" 

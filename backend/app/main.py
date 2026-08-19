@@ -10,10 +10,10 @@ if backend_dir not in sys.path:
 
 # Import internally backend modules
 from config import SOURCE_BACKEND, SOURCE_FRONTEND, lifespan
-from services import route_page, project_manager
+from services import route_page, project_manager, data_download
 
     # , grid_preparation, \
-    # process_manager, sim_manager, data_preparation, hyd_functions, waq_funtions, \
+    # process_manager, sim_manager, hyd_functions, waq_funtions, \
     # flow_preparation
 # , wq_process, \
 #     run_simulation, flow_preparation
@@ -27,9 +27,9 @@ app.mount("/src_backend", StaticFiles(directory=SOURCE_BACKEND), name="src_backe
 
 # Mount routes
 all_routers = [
-    route_page.router, project_manager.router
+    route_page.router, project_manager.router, data_download.router
     # , grid_preparation.router, 
-    # process_manager.router, sim_manager.router, data_preparation.router,
+    # process_manager.router, sim_manager.router,
     # hyd_functions.router, waq_funtions.router, flow_preparation.router
 ]
 for router in all_routers:

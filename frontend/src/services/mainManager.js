@@ -1,12 +1,11 @@
 import { menuManager } from "./menuManager.js";
 // import { projectMaker, projectModifier, pdfOpener } from "./projectManager.js";
 import { pdfOpener } from "./projectManager.js";
-// import { hasWidget } from "./widgetFunctions.js";
-import { initGrid, addWidget, loadWidget, saveWidget } from "./widgetFunctions.js";
-// import { startLoading, stopLoading } from "./commonFunctions.js";
+import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
+import { startLoading, stopLoading } from "./commonFunctions.js";
 import { htmlLoader, jsonLoader } from "./commonFunctions.js";
-// import { setPendingRequest, clearPendingRequest, origin, initState, setState } from "./constant.js";
-import { initState, getState } from "./constant.js";
+// import { setPendingRequest, setState } from "./constant.js";
+import { initState, getState, clearPendingRequest, origin } from "./constant.js";
 // import { renderPreview } from "./mapManager.js";
 
 
@@ -28,8 +27,7 @@ widgetMenuManager(); updateComponent();
 async function login() {
     const data = await jsonLoader('auth_check', {}); 
     if (data.user === 'admin') { userName = ''; } else { userName = data.user; }
-    initState(userName);
-    currentProject = getState()?.currentProject || 'demo';
+    initState(userName); currentProject = getState()?.currentProject || 'demo';
     // waqModel = getState()?.waqModel || 'coliform', 
     // currentParams = getState()?.currentParams || 
     // ['FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'];
@@ -67,19 +65,20 @@ function widgetMenuManager() {
         }
     }); 
     // Menu click handler
+    widgetMenu.addEventListener("mouseenter", (e) => { e.target.dispatchEvent(new Event('click')); });
     menuContainer.addEventListener("click", (e) => { 
         const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
         if (!item) return;
         const id = item.id; if (!id) return;
         const url = item.dataset?.url;
-        let w = 11, h = 7, user = userName.split('/').shift();
+        let w = 6, h = 7, user = userName.split('/').shift();
         let title = item.textContent.replace(/▸|◂/g, '').trim();
         const closeMenu = () => { menuContainer.style.display = 'none'; };
-//         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
+        if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
 //         if (id === 'new-project') { projectMaker(); closeMenu(); return; }
 //         else if (id === 'open-project') { projectModifier(user, 'open'); closeMenu(); return; }
 //         else if (id === 'delete-project') { projectModifier(user, 'delete'); closeMenu(); return; }
-        if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
+        
 //         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
 //         else if (id === 'grid-generation') { w = 10; h = 8; }
 //         else if (id === 'visualization') { w = 12; h = 9; }
@@ -88,7 +87,9 @@ function widgetMenuManager() {
 //         } else if (id === 'preparation-hyd') { 
 //             w = 11; h = 9; title = 'Data Preparation for HYD Scenario'; 
 //         } else if (id === 'run-flow-model') { w = 16; h = 8; }
+        if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
+        else if (id === 'data-download') { w = 7; h = 12; }
         addWidget(w, h, title, id, url); closeMenu();
     });
     document.addEventListener("click", (e) => { 
@@ -118,43 +119,36 @@ function widgetMenuManager() {
         if (e.target.classList.contains("widget-title")) { 
             const newTitle = prompt("Enter new title:", e.target.textContent); 
             if (newTitle) { 
-                e.target.textContent = newTitle; 
-                saveWidget();
+                e.target.textContent = newTitle; saveWidget();
             } 
         }
     });
-//     // // Check whether widget exists and remove
-//     // const layoutStr = localStorage.getItem('grid-layout');
-//     // if (layoutStr) {
-//     //     let layout = JSON.parse(layoutStr);
-//     //     layout = layout.filter(item => !exits.includes(item.id));
-//     //     localStorage.setItem('grid-layout', JSON.stringify(layout));
-//     // }
 }
 
 function updateComponent() {
-//     clearPendingRequest();
-//     // Listen for state change
-//     window.addEventListener('message', async (event) => {
-//         if (event.data.type === 'addMapWidget') { // Add map
+    clearPendingRequest();
+    // Listen for state change
+    window.addEventListener('message', async (event) => {
+        if (event.data.type === 'GET_USER') { // Get project destination
+            const project = document.querySelector(".project-note");
+            if (!project) return;
+            const content = project.textContent.split(':').pop();
+            event.source.postMessage({ type: 'USER', content: content }, origin);
+
+//         } else if (event.data.type === 'addMapWidget') { // Add map
 //             const id = event.data.content.id;
 //             if (!hasWidget(id)) addWidget(12, 6, event.data.content.title, id);
-//         } else if (event.data.type === 'GET_USER') { // Get project destination
-//             const project = document.querySelector(".project-note");
-//             if (!project) return;
-//             const content = project.textContent.split(':').pop();
-//             event.source.postMessage({ type: 'USER', content: content }, origin);
 //         } else if (event.data.id === 'hyd-waq') {
 //             const req = { 
 //                 source: event.source, lineType: event.data.lineType,
 //                 requestId: event.data.requestId, content: event.data.content
 //             };
 //             setPendingRequest(req); renderPreview(req);
-//         } else if (event.data.type === 'showOverlay') { 
-//             startLoading(event.data.content);
-//             await new Promise(requestAnimationFrame);
-//         } else if (event.data.type === 'hideOverlay') { 
-//             stopLoading(); await new Promise(requestAnimationFrame);
+        } else if (event.data.type === 'showOverlay') { 
+            startLoading(event.data.content);
+            await new Promise(requestAnimationFrame);
+        } else if (event.data.type === 'hideOverlay') { 
+            stopLoading(); await new Promise(requestAnimationFrame);
 //         } else if (event.data.type === 'updateObsPoint') { 
 //             const req = { 
 //                 source: event.source, requestId: event.data.type, 
@@ -209,11 +203,8 @@ function updateComponent() {
 //                     content: event.data.content,
 //                 }, origin);
 //             }
-//         }
-//     });
-
-
-
+        }
+    });
 }
 
 // async function showGitHubLastUpdate(username, repo, branch = 'main') {

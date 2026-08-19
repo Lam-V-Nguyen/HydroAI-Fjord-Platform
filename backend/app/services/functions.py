@@ -34,3 +34,26 @@ def basic_auth(credentials: HTTPBasicCredentials=Depends(HTTPBasic())):
             detail="Not authorized", headers={"WWW-Authenticate": "Basic"}
         )
     return username
+
+def project_definer(old_name, username='admin'):
+    new_name = f'{username}/{old_name}' if username!='admin' else 'demo'
+    name_id = f'{new_name}/{uuid4()}'
+    if old_name == '': new_name = new_name.rstrip('/')
+    return new_name, name_id
+
+def safe_remove(path, retries=10, delay=1):
+    for _ in range(retries):
+        try:
+            os.remove(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    raise Exception(f"Cannot delete file: {path}")
+
+
+
+
+
+
+
+
