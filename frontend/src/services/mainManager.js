@@ -1,12 +1,14 @@
 import { menuManager } from "./menuManager.js";
-// import { projectMaker, projectModifier, pdfOpener } from "./projectManager.js";
+// import { projectMaker, projectModifier } from "./projectManager.js";
 import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
 import { startLoading, stopLoading } from "./commonFunctions.js";
 import { htmlLoader, jsonLoader } from "./commonFunctions.js";
-// import { setPendingRequest, setState } from "./constant.js";
-import { initState, getState, clearPendingRequest, origin } from "./constant.js";
-// import { renderPreview } from "./mapManager.js";
+// import { setState } from "./constant.js";
+import { 
+    setPendingRequest, initState, getState, clearPendingRequest, origin 
+} from "./constant.js";
+import { renderPreview } from "./mapManager.js";
 
 
 const widgetMenu = document.getElementById("widgetMenu"); 
@@ -21,7 +23,7 @@ let currentProject, waqModel, currentParams, isLoaded = false,
 
 await login(); await projectChecker(); loadWidget();
 widgetMenuManager(); updateComponent(); 
-// // showGitHubLastUpdate('Lam-V-Nguyen', 'Hydro-AI-Platform', 'dev'); 
+// showGitHubLastUpdate('Lam-V-Nguyen', 'Hydro-AI-Platform', 'dev'); 
 
 
 async function login() {
@@ -84,10 +86,11 @@ function widgetMenuManager() {
 //         else if (id === 'visualization') { w = 12; h = 9; }
 //         else if (id === 'flow-data-preparation') { 
 //             w = 11; h = 8; title = 'Data Preparation for Flow Estimation';
-//         } else if (id === 'preparation-hyd') { 
-//             w = 11; h = 9; title = 'Data Preparation for HYD Scenario'; 
-//         } else if (id === 'run-flow-model') { w = 16; h = 8; }
-        if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
+        if (id === 'preparation-hyd') { 
+            w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; 
+        }
+//         else if (id === 'run-flow-model') { w = 16; h = 8; }
+        else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
         else if (id === 'data-download') { w = 7; h = 12; }
         addWidget(w, h, title, id, url); closeMenu();
@@ -134,16 +137,15 @@ function updateComponent() {
             if (!project) return;
             const content = project.textContent.split(':').pop();
             event.source.postMessage({ type: 'USER', content: content }, origin);
-
-//         } else if (event.data.type === 'addMapWidget') { // Add map
-//             const id = event.data.content.id;
-//             if (!hasWidget(id)) addWidget(12, 6, event.data.content.title, id);
-//         } else if (event.data.id === 'hyd-waq') {
-//             const req = { 
-//                 source: event.source, lineType: event.data.lineType,
-//                 requestId: event.data.requestId, content: event.data.content
-//             };
-//             setPendingRequest(req); renderPreview(req);
+        } else if (event.data.type === 'addMapWidget') { // Add map
+            const id = event.data.content.id;
+            if (!hasWidget(id)) addWidget(12, 5, event.data.content.title, id);
+        } else if (event.data.id === 'hyd-waq') {
+            const req = { 
+                source: event.source, lineType: event.data.lineType,
+                requestId: event.data.requestId, content: event.data.content
+            };
+            setPendingRequest(req); renderPreview(req);
         } else if (event.data.type === 'showOverlay') { 
             startLoading(event.data.content);
             await new Promise(requestAnimationFrame);
@@ -181,28 +183,20 @@ function updateComponent() {
 //             renderPreview(req); setPendingRequest(req);
             
 
-
-
-
-
-
-
-
-
-//         } else if (event.data.type === 'updateUIState') {
-//             const { requestId, result } = event.data.content;
-//             if (requestId && pendingRequests.has(requestId)) {
-//                 const { source } = pendingRequests.get(requestId);
-//                 prevSource = source;
-//                 source.postMessage({ type: 'updateReturn', 
-//                     content: event.data.content, requestId: requestId
-//                 }, origin);
-//                 pendingRequests.delete(requestId);
-//             } else {
-//                 prevSource.postMessage({ type: 'updateUIDelay', 
-//                     content: event.data.content,
-//                 }, origin);
-//             }
+        } else if (event.data.type === 'updateUIState') {
+            const { requestId, result } = event.data.content;
+            if (requestId && pendingRequests.has(requestId)) {
+                const { source } = pendingRequests.get(requestId);
+                prevSource = source;
+                source.postMessage({ type: 'updateReturn', 
+                    content: event.data.content, requestId: requestId
+                }, origin);
+                pendingRequests.delete(requestId);
+            } else {
+                prevSource.postMessage({ type: 'updateUIDelay', 
+                    content: event.data.content,
+                }, origin);
+            }
         }
     });
 }

@@ -241,7 +241,124 @@ export function splitLines(pointContainer, polygonCentroids, subset_dis) {
     return interpolatedPoints;
 }
 
+export async function saveCSV(filename, headers, rows) {
+    const csv = [
+        headers.join(","), ...rows.map(r =>
+            r.map(v => `${String(v).replace(/"/g, '""')}`).join(",")
+        )].join("\n");
+    const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{description: "CSV file", accept: {"text/csv": [".csv"]}}]
+    });
+    const writable = await handle.createWritable();
+    await writable.write(csv); await writable.close();
+}
 
+export function updateLog(currentProject, info, seconds, key, onFinish){
+    const new_key = `${currentProject}_${key}`;
+    activeProject = new_key; lastOffset = 0;
+    async function loop() {
+        if (activeProject !== new_key) return;
+        try {
+            const res = await fetch(
+                `/log_tail_download/${currentProject}?offset=${lastOffset}&log_file=log.txt`
+            );
+            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.lines)) {
+                    for (const line of data.lines) { info.value += line + "\n"; }
+                }
+                lastOffset = data.offset;
+            }
+            if (statusRes.status !== "running") {
+                info.value += (statusRes.message || "") + "\n"; lastOffset = 0; 
+                if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
+                return;
+            }
+        } catch (error) { alert(error); return; }
+        setTimeout(loop, seconds * 1000);
+    }
+    loop();
+}
+
+export function iframeConnector(objBtn, objtarget, type, content = null, lineType='crossSection') {
+    if (objBtn.__handler) objBtn.removeEventListener('click', objBtn.__handler);
+    objBtn.__handler = async () => {
+        const freshData = typeof content === 'function' ? content() : content;
+        const result = await new Promise((resolve) => {
+            function listener(event) {
+                if (event.data?.requestId === type) {
+                    window.removeEventListener('message', listener);
+                    resolve(event.data.result);
+                }
+            }
+            window.addEventListener('message', listener);
+            const contents = {
+                id: 'hyd-waq', requestId: type, content: freshData, lineType
+            }
+            window.parent.postMessage( contents, origin);
+        });
+        if (type === 'pickLocation') { objtarget.value = result; 
+        } else if (type === 'pickPoint' || type === 'pickSource') {
+            const lat = Number(result.lat).toFixed(12);
+            const lon = Number(result.lng).toFixed(12);
+            objtarget[1].value = lat; objtarget[2].value = lon;
+            if (objtarget[0].value.trim() === '') {
+                let name = '';
+                if (type === 'pickPoint') {
+                    name = `Point_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`;
+                } else if (type === 'pickSource') { name = 'Source_Sink'; }
+                objtarget[0].value = name;
+            }
+        } else if (type === 'pickPath') {
+            let name = objtarget[0].value.trim();
+            if (name === '') {
+                if (lineType === 'crossSection') { name = 'Cross-Section'; } 
+                else if (lineType === 'boundary') { name = 'Boundary'; }
+                objtarget[0].value = name;
+            }
+            const table = objtarget[1], arr = []; deleteTable(table);
+            for (let i = 0; i < result.length; i++) {
+                const lat = Number(result[i].lat).toFixed(12);
+                const lon = Number(result[i].lng).toFixed(12);
+                const newName = `${name}_${i + 1}`;
+                arr.push([newName, lat, lon]);
+            }
+            fillTable(arr, table, true);
+            if (lineType === 'boundary') { // Update boundary option
+                const options = arr.map(row => `<option value="${row[0]}">${row[0]}</option>`).join(' ');
+                const defaultOption = `<option value="" selected>--- No selected ---</option>`;
+                objtarget[2].innerHTML = defaultOption + options;
+            }
+        } else if (type === 'waqPoint' || type === 'loadsPoint') {
+            const lat = Number(result.lat).toFixed(12);
+            const lon = Number(result.lng).toFixed(12);
+            const table = objtarget[1];
+            if (freshData.rows.length === 0) { deleteTable(table); } 
+            let name = objtarget[0].value.trim();
+            if (name === '') { 
+                if (type === 'waqPoint') {
+                    name = `Obs_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`;
+                } else if (type === 'loadsPoint') {
+                    name = `Loads_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`; 
+                }
+            }
+            addRowToTable(table, [name, lat, lon], true);
+        } else if (type === 'pickLatLon') {
+            const lat = objtarget[0], lon = objtarget[1];
+            lat.value = Number(result.lat).toFixed(1);
+            lon.value = Number(result.lng).toFixed(1);
+
+
+
+
+
+        }
+        return result;
+    };
+    objBtn.addEventListener('click', objBtn.__handler);
+}
 
 
 

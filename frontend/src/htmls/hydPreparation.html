@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css?v=0">
+    <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css?v=4">
+</head>
+<body>
+    <div class="wrapper">
+        <section class="main-tab" id="control-tab">
+            <div class="tab-header" id="main-tabs">
+                <div class="tabs-list">
+                    <button class="tab-btn" data-tab="hyd-tab-1">Hydrological Source</button>
+                    <button class="tab-btn" data-tab="hyd-tab-2">Meteo Parameters</button>
+                    <button class="tab-btn" data-tab="hyd-tab-3">Weather Parameters</button>
+                </div>
+            </div>
+            <div class="tabs-content">
+                <!-- Tab 1: Hydrological Source -->
+                <div class="tabpanel main-panel" data-panel="hyd-tab-1">
+                    <div class="grid">
+                        <div class="tile" style="grid-column: span 2;"><h3>Initial Settings</h3>
+                            <div class="row">
+                                <button type="button" id="hyd-source-picker-btn">Pick Location</button>
+                                <div class="field-inline">
+                                    <input type="text" id="hyd-source-lat" placeholder="Latitude (°)">
+                                    <input type="text" id="hyd-source-lon" placeholder="Longitude (°)">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <label for="hyd-source-salinity" style="min-width: 200px;">Initial Salinity (ppt):</label>
+                                <input type="text" id="hyd-source-salinity" placeholder="Salinity" value="0.02">
+                            </div>
+                            <div class="row">
+                                <label for="hyd-source-salinity" style="min-width: 200px;">Initial Contaminant (kg/m³):</label>
+                                <input type="text" id="hyd-source-salinity" placeholder="Salinity" value="0">
+                            </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 6;">
+                            <div class="row">
+                                <h3>Attribute Table</h3>
+                                <button type="button" id="hyd-source-save-btn"
+                                    style="margin-top: -20px; max-width: 200px;">Save Source Data</button>
+                            </div>
+                            <table class="attributes-table" id="hyd-source-table">
+                                <thead>
+                                    <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
+                                        <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                        <td><input type="text" placeholder="Discharge"></td>
+                                        <td><input type="text" placeholder="Salinity"></td>
+                                        <td><input type="text" placeholder="Temperature"></td>
+                                        <td><input type="text" placeholder="Contaminant"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 2: Meteo Parameters -->
+                <div class="tabpanel main-panel" data-panel="hyd-tab-2">
+                    <div class="grid">
+                        <div class="tile" style="grid-column: span 3;"><h3>Initial Settings</h3>
+                            <div class="row">
+                                <button type="button" id="meteo-picker-btn">Pick Location</button>
+                                <div class="field-inline">
+                                    <input type="text" id="meteo-lat" placeholder="Latitude (°)">
+                                    <input type="text" id="meteo-lon" placeholder="Longitude (°)">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <label for="hyd-meteo-start-date">Start time:</label>
+                                <input type="text" class="datetime" id="hyd-meteo-start-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                            </div>
+                            <div class="row">
+                                <label for="hyd-meteo-end-date">End time:</label>
+                                <input type="text" class="datetime" id="hyd-meteo-end-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                            </div>
+                            <div class="row" id="hyd-meteo-station-container">
+                                <label for="hyd-meteo-station">Source:</label>
+                                <select id="hyd-meteo-station" style="width: 100%;">
+                                    <option value="era5" selected>Climate Data Store - ERA5</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <button type="button" id="meteo-download-btn">Download Data</button>
+                            </div>
+                            <div class="row">
+                                <a style="margin-top: 8px;">References:</a>
+                                <a class="data-link" href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
+                                    target="_blank">ERA5 - Hourly Data
+                                </a>
+                            </div>
+                        </div>
+                        <div class="tile model-container" style="grid-column: span 5;"><h3>Process Log</h3>
+                            <textarea wrap="off" id="meteo-text" placeholder="Logs..." readonly></textarea>
+                        </div>
+                        <div class="tile" style="grid-column: span 8;">
+                            <div class="row">
+                                <h3>Attribute Table</h3>
+                                <button type="button" id="meteo-save-btn"
+                                    style="margin-top: -20px; max-width: 200px;">Save Meteo Data</button>
+                            </div>
+                            <table class="attributes-table" id="meteo-table">
+                                <thead>
+                                    <tr><th>Time</th><th>Humidity (%)</th><th>Air temperature (°C)</th>
+                                        <th>Cloud coverage (%)</th><th>Solar radiation (W/m²)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                        <td><input type="text" placeholder="Humidity"></td>
+                                        <td><input type="text" placeholder="Air temperature"></td>
+                                        <td><input type="text" placeholder="Cloud coverage"></td>
+                                        <td><input type="text" placeholder="Solar radiation"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 3: Weather Parameters -->
+                <div class="tabpanel main-panel" data-panel="hyd-tab-3">
+                    <div class="grid">
+                        <div class="tile" style="grid-column: span 2;"><h3>Initial Settings</h3>
+                            <div class="row">
+                                <button type="button" id="weather-picker-btn">Pick Location</button>
+                                <div class="field-inline">
+                                    <input type="text" id="weather-lat" placeholder="Latitude (°)">
+                                    <input type="text" id="weather-lon" placeholder="Longitude (°)">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <label for="hyd-weather-start-date">Start time:</label>
+                                <input type="text" class="datetime" id="hyd-weather-start-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                            </div>
+                            <div class="row">
+                                <label for="hyd-weather-end-date">End time:</label>
+                                <input type="text" class="datetime" id="hyd-weather-end-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                            </div>
+                            <div class="row" id="hyd-weather-station-container">
+                                <label for="hyd-weather-station">Source:</label>
+                                <select id="hyd-weather-station" style="width: 100%;">
+                                    <option value="era5" selected>Climate Data Store - ERA5</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <button type="button" id="weather-download-btn">Download Data</button>
+                            </div>
+                            <div class="row">
+                                <a style="margin-top: 8px;">References:</a>
+                                <a class="data-link" href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
+                                    target="_blank">ERA5 - Hourly Data
+                                </a>
+                            </div>
+                        </div>
+                        <div class="tile model-container" style="grid-column: span 3;"><h3>Process Log</h3>
+                            <textarea wrap="off" id="weather-text" placeholder="Logs..." readonly></textarea>
+                        </div>
+                        <div class="tile" style="grid-column: span 3;">
+                            <div class="row">
+                                <h3>Attribute Table</h3>
+                                <button type="button" id="weather-save-btn"
+                                    style="margin-top: -20px; max-width: 200px;">Save Weather Data</button>
+                            </div>
+                            <table class="attributes-table" id="weather-table">
+                                <thead>
+                                    <tr><th>Time</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                        <td><input type="text" placeholder="Magnitude"></td>
+                                        <td><input type="text" placeholder="Direction"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr(".datetime", {
+            enableTime: true, enableSeconds: true, dateFormat: "Y-m-d H:i:S", time_24hr: true,
+            defaultHour: 0, defaultMinute: 0, defaultSecond: 0
+        });
+    </script>
+    <script type="module" src="/src_frontend/services/hydPreparation.js"></script>
+</body>
+</html>

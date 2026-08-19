@@ -1,4 +1,4 @@
-
+import { initMap, currentMap } from "./mapManager.js"; 
 
 let gridInstance = null; 
 
@@ -31,7 +31,7 @@ export function addWidget(w, h, title, id, iframeUrl=null) {
         x: 0, y: 0, w: w, h: h, id: id, minW:2, minH:2,
         content: createWidgetHTML(title, id, iframeUrl)
     }); 
-    // if (id.includes('-map')) { setTimeout(() => initMap(id), 50); }
+    if (id.includes('-map')) { setTimeout(() => initMap(id), 50); }
     saveWidget(); 
 }
 
@@ -53,14 +53,14 @@ export function loadWidget() {
             // Restore iframe 
             const iframe = el.querySelector('.widget-iframe'); 
             if (iframe) iframe.src = item.iframeUrl; 
-            // // Restore map 
-            // if (item.id.includes('-map')) {
-            //     initMap(item.id); 
-            //     if (item.mapState) { 
-            //         currentMap.setView(item.mapState.center, item.mapState.zoom); 
-            //         setTimeout(() => { currentMap.invalidateSize(); }, 100); 
-            //     } 
-            // } 
+            // Restore map 
+            if (item.id.includes('-map')) {
+                initMap(item.id); 
+                if (item.mapState) { 
+                    currentMap.setView(item.mapState.center, item.mapState.zoom); 
+                    setTimeout(() => { currentMap.invalidateSize(); }, 100); 
+                } 
+            } 
         }); 
     }, 100); 
 } 
@@ -75,13 +75,13 @@ export function saveWidget() {
         // Iframe 
         const iframe = el.querySelector('.widget-iframe'); 
         if (iframe) item.iframeUrl = iframe?.src; 
-        // // Map 
-        // if (item.id.includes('-map') && currentMap) { 
-        //     item.mapState = { 
-        //         center: currentMap.getCenter(), zoom: currentMap.getZoom() 
-        //     }; 
-        //     setTimeout(() => { currentMap.invalidateSize(); }, 100); 
-        // } 
+        // Map 
+        if (item.id.includes('-map') && currentMap) { 
+            item.mapState = { 
+                center: currentMap.getCenter(), zoom: currentMap.getZoom() 
+            }; 
+            setTimeout(() => { currentMap.invalidateSize(); }, 100); 
+        } 
     }); 
     localStorage.setItem('grid-layout', JSON.stringify(layout)); 
 } 

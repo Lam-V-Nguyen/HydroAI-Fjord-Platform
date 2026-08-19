@@ -35,7 +35,6 @@ def check_redis_running(host="localhost", port=6379, timeout=1):
     try:
         sock.connect((host, port))
         sock.close()
-        print("Redis server is running.")
         return True
     except Exception: return False
 
