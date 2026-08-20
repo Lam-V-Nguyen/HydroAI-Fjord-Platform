@@ -16,3 +16,5 @@ venv.bak/
 # Folder
 /backend/softs
 /backend/projects
+backend/src/lakes_database
+backend/src/allowed_users.json

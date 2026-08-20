@@ -23,7 +23,7 @@ let currentProject, waqModel, currentParams, isLoaded = false,
 
 await login(); await projectChecker(); loadWidget();
 widgetMenuManager(); updateComponent(); 
-// showGitHubLastUpdate('Lam-V-Nguyen', 'Hydro-AI-Platform', 'dev'); 
+showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
 
 async function login() {
@@ -73,8 +73,7 @@ function widgetMenuManager() {
         if (!item) return;
         const id = item.id; if (!id) return;
         const url = item.dataset?.url;
-        let w = 6, h = 7, user = userName.split('/').shift();
-        let title = item.textContent.replace(/▸|◂/g, '').trim();
+        let w = 6, h = 7, title = item.textContent.replace(/▸|◂/g, '').trim();
         const closeMenu = () => { menuContainer.style.display = 'none'; };
         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
 //         if (id === 'new-project') { projectMaker(); closeMenu(); return; }
@@ -82,13 +81,14 @@ function widgetMenuManager() {
 //         else if (id === 'delete-project') { projectModifier(user, 'delete'); closeMenu(); return; }
         
 //         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
-//         else if (id === 'grid-generation') { w = 10; h = 8; }
+
 //         else if (id === 'visualization') { w = 12; h = 9; }
 //         else if (id === 'flow-data-preparation') { 
 //             w = 11; h = 8; title = 'Data Preparation for Flow Estimation';
         if (id === 'preparation-hyd') { 
             w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; 
         }
+        else if (id === 'grid-generation') { w = 12; h = 10; }
 //         else if (id === 'run-flow-model') { w = 16; h = 8; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
@@ -201,33 +201,32 @@ function updateComponent() {
     });
 }
 
-// async function showGitHubLastUpdate(username, repo, branch = 'main') {
-//     const url = `https://api.github.com/repos/${username}/${repo}/commits?sha=${branch}&per_page=1`;
-//     const key = `${username}/${repo}/${branch}`;
-//     if (githubCache[key]) {
-//         document.querySelector('.github-last-update').textContent = githubCache[key];
-//         return;
-//     }
-//     const displayDiv = document.querySelector('.github-last-update');
-//     if (!displayDiv) return;
-//     try {
-//         const header = {
-//             "Accept": "application/vnd.github+json",
-//             "User-Agent": "Hydro-AI-Platform"
-//         }
-//         const response = await fetch(url, { headers: header });
-//         if (!response.ok) throw new Error('GitHub API error');
-//         const data = await response.json();
-//         if (data.length > 0) {
-//             const date = new Date(data[0].commit.committer.date);
-//             const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-//             const text = `Branch: ${branch} | Last update: ${formatted}`;
-//             githubCache[key] = text; displayDiv.textContent = text;
-//         } else {
-//             displayDiv.textContent = 'Last update: unknown';
-//         }
-//     } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
-// }
+async function showGitHubLastUpdate(username, repo, branch = 'main') {
+    const url = `https://api.github.com/repos/${username}/${repo}/commits?sha=${branch}&per_page=1`;
+    const key = `${username}/${repo}/${branch}`;
+    if (githubCache[key]) {
+        document.querySelector('.github-last-update').textContent = githubCache[key];
+        return;
+    }
+    const displayDiv = document.querySelector('.github-last-update');
+    if (!displayDiv) return;
+    try {
+        const header = {
+            "Accept": "application/vnd.github+json", "User-Agent": repo
+        }
+        const response = await fetch(url, { headers: header });
+        if (!response.ok) throw new Error('GitHub API error');
+        const data = await response.json();
+        if (data.length > 0) {
+            const date = new Date(data[0].commit.committer.date);
+            const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            const text = `Branch: ${branch} | Last update: ${formatted}`;
+            githubCache[key] = text; displayDiv.textContent = text;
+        } else {
+            displayDiv.textContent = 'Last update: unknown';
+        }
+    } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
+}
 
 export function showNotes(note) {
     const noteDiv = document.querySelector('.project-note');

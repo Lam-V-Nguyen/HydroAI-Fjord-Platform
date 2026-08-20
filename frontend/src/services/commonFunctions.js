@@ -282,6 +282,27 @@ export function updateLog(currentProject, info, seconds, key, onFinish){
     loop();
 }
 
+export function addRowToTable(table, list, fillValue=false){
+    const tbody = table.querySelector("tbody");
+    const tr = document.createElement('tr');
+    list.forEach(text => {
+        const td = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'text'; input.placeholder = text;
+        if (fillValue) input.value = text;
+        td.appendChild(input); tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+}
+
+export function nameChecker(name) {
+    return !/^[A-Za-z0-9_-]+$/.test(name);
+}
+
+
+
+
+
 export function iframeConnector(objBtn, objtarget, type, content = null, lineType='crossSection') {
     if (objBtn.__handler) objBtn.removeEventListener('click', objBtn.__handler);
     objBtn.__handler = async () => {
