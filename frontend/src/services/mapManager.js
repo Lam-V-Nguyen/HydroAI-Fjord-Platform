@@ -105,7 +105,7 @@ function lineAdd(pointContainer, map, lineType) {
 
 export async function renderPreview(request=null) {
     currentPoints.length = 0; if (!request) return;
-    const type = request.type;
+    const type = request.type; console.log(request);
     if (type === 'pickPoint' || type === 'updateObsPoint') {
         const iconUrl = `/src_frontend/images/station.png?v=${Date.now()}`;
         iconAdd(iconUrl, markersObs, currentMap, request.content.rows);
@@ -114,10 +114,10 @@ export async function renderPreview(request=null) {
         const pointList = request.content.rows, lineType = request.content.lineType;
         if (!pointList || pointList.length === 0) return;
         lineAdd(pointList, currentMap, lineType);
-    } else if (type === 'updateObsPoint') {
-        const pointList = request.content.rows, lineType = request.lineType;
-        if (!pointList || pointList.length === 0) return;
-        lineAdd(pointList, currentMap, lineType);
+    // } else if (type === 'updateObsPoint') {
+    //     const pointList = request.content.rows, lineType = request.lineType;
+    //     if (!pointList || pointList.length === 0) return;
+    //     lineAdd(pointList, currentMap, lineType);
     } else if (type === 'clearCrossSection') {
         if (pathCrossSection) {
             pathCrossSection.remove(); pathCrossSection = null;
@@ -138,6 +138,7 @@ export async function renderPreview(request=null) {
         currentPointsBoundary.length = 0; currentPoints.length = 0;    
     } else if (type === 'waqPoint' || type === 'loadsPoint' 
         || type === 'waqUpdate' || type === 'loadsUpdate') {
+        
         let iconUrl = null;
         if (type === 'waqPoint' || type === 'waqUpdate') {
             iconUrl =`/src_frontend/images/waq_obs.png?v=${Date.now()}`
@@ -253,7 +254,6 @@ export async function renderPreview(request=null) {
         } else if (key === 'invalidCheck') {
             const layerKey = request.content.layerKey;
             const config = layerConfig[layerKey];
-            const inputType = request.content.type;
             if (!config) {
                 content.message = 'Layer not found';
                 signalSender('updateUIState', content); return;
@@ -264,9 +264,8 @@ export async function renderPreview(request=null) {
             setTimeout(() => { 
                 existing.eachLayer((layer) => { 
                     const props = layer.feature?.properties; 
-                    let check = false, values = null;
+                    let check = !river || river === '' || river === 'None';
                     const river = (props.width ?? '').toString().trim();
-                    check = !river || river === '' || river === 'None';
                     // Highlight invalid polygons
                     if (check) {
                         layer.setStyle({ color: 'yellow', weight: 3 });
@@ -423,7 +422,7 @@ export function initMap(mapId='map') {
             }
             
 
-        } else if (req.requestId === 'updateObsPoint') { 
+        } else if (req.type === 'updateObsPoint') { 
             mapContainer.style.cursor = 'grab'; return;
         }
         hoverTooltip.setLatLng(e.latlng).setContent(html);

@@ -2,8 +2,9 @@ import { menuManager } from "./menuManager.js";
 // import { projectMaker, projectModifier } from "./projectManager.js";
 import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
-import { startLoading, stopLoading } from "./commonFunctions.js";
-import { htmlLoader, jsonLoader } from "./commonFunctions.js";
+import { startLoading, stopLoading, htmlLoader, jsonLoader,
+    // initRequestListener
+} from "./commonFunctions.js";
 // import { setState } from "./constant.js";
 import { 
     setPendingRequest, initState, getState, clearPendingRequest, origin 
@@ -80,7 +81,7 @@ function widgetMenuManager() {
 //         else if (id === 'open-project') { projectModifier(user, 'open'); closeMenu(); return; }
 //         else if (id === 'delete-project') { projectModifier(user, 'delete'); closeMenu(); return; }
         
-//         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
+        
 
 //         else if (id === 'visualization') { w = 12; h = 9; }
 //         else if (id === 'flow-data-preparation') { 
@@ -89,6 +90,9 @@ function widgetMenuManager() {
             w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; 
         }
         else if (id === 'grid-generation') { w = 12; h = 10; }
+        else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
+        else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
+
 //         else if (id === 'run-flow-model') { w = 16; h = 8; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
@@ -151,16 +155,16 @@ function updateComponent() {
             await new Promise(requestAnimationFrame);
         } else if (event.data.type === 'hideOverlay') { 
             stopLoading(); await new Promise(requestAnimationFrame);
-//         } else if (event.data.type === 'updateObsPoint') { 
-//             const req = { 
-//                 source: event.source, requestId: event.data.type, 
-//                 content: event.data.content
-//             };
-//             setPendingRequest(req); renderPreview(req);
-//         } else if (event.data.type === 'clearCrossSection') { 
-//             renderPreview({ requestId: event.data.type });
-//         } else if (event.data.type === 'clearBoundary') { 
-//             renderPreview({ requestId: event.data.type });
+        } else if (event.data.type === 'updateObsPoint') { 
+            const req = { 
+                source: event.source, type: event.data.type, 
+                content: event.data.content.content
+            };
+            setPendingRequest(req); renderPreview(req);
+        } else if (event.data.type === 'clearCrossSection') { 
+            renderPreview({ type: event.data.type });
+        } else if (event.data.type === 'clearBoundary') { 
+            renderPreview({ type: event.data.type });
 //         } else if (event.data.type === 'clearGridMap') { 
 //             renderPreview({ source: event.source, requestId: event.data.type });
 //         } else if (event.data.type === 'colorbarOption') { 
@@ -184,7 +188,7 @@ function updateComponent() {
             
 
         } else if (event.data.type === 'updateUIState') {
-            const { requestId, result } = event.data.content;
+            const { requestId } = event.data.content;
             if (requestId && pendingRequests.has(requestId)) {
                 const { source } = pendingRequests.get(requestId);
                 prevSource = source;

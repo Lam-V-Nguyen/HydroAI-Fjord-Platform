@@ -41,9 +41,9 @@ let currentProject = null, lakeMap = null, mapContainer = null,
     dataLake = null, dataDepth = null, timeCounter = null,
     drawSelection = false, drawChecked = false, entireNorway = false,
     depthLayer = null, lakeLayer = null, gridLayer = null, orthoLayer = null,
-    pointLayer = null, refineChecked = false, pointContainer = [], html = null,
-    moveChecked = false, deleteChecked = false, levelValue = null, tempLine = null,
-    activeProject = null, isRunning = false, logInterval = null;
+    refineChecked = false, pointContainer = [], html = null, tempLine = null,
+    moveChecked = false, deleteChecked = false, levelValue = null,
+    activeProject = null, isRunning = false, logInterval = null, pointLayer = null;
 
 const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
@@ -80,6 +80,7 @@ async function initMap() {
             baseMapPopup.classList.remove('show'); 
         } 
     });
+    pointLayer = L.layerGroup().addTo(lakeMap);
     lakeMap.on('mousemove', function (e) { 
         mapContainer.style.cursor = "grab";
         if (refineChecked) {
@@ -88,7 +89,9 @@ async function initMap() {
             lakeMap.openTooltip(hoverTooltip);
         }
         else if (deleteChecked) {
-            if (pointContainer.length === 0) { html = "Select start point to delete"; }
+            if (pointContainer.length === 0) { 
+                html = "Select start point to delete.<br>Start point <= end point"; 
+            }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
         }
@@ -112,9 +115,10 @@ async function initMap() {
             mapContainer.style.cursor = "crosshair";
             html = `Finish drawing with the right mouse button`;
             // Add marker
-            L.circleMarker(e.latlng, {
+            const marker = L.circleMarker(e.latlng, {
                 radius: 5, color: 'red', fillColor: 'pink', fillOpacity: 0.9
-            }).addTo(lakeMap);
+            });
+            marker.addTo(pointLayer);
             pointContainer.push([e.latlng.lat, e.latlng.lng]);
             // Plot polygon
             if (tempLine) { tempLine.setLatLngs(pointContainer);
@@ -335,12 +339,12 @@ function unGridManager() {
         }
     });
     obj.vertexesBtn.addEventListener('click', async () => {
-        resetMap(); obj.colorBarContainer.style.display = 'none';
+        obj.colorBarContainer.style.display = 'none';
         signalSender('showOverlay', 'Generating Vertexes.\nPlease wait...');
-        const response = await jsonLoader('vertex_generator', { projectName: currentProject }); 
-        signalSender('hideOverlay');
+        const lakeContent = { projectName: currentProject, polygon: lakeLayer.toGeoJSON() };
+        const response = await jsonLoader('vertex_generator', lakeContent); 
+        signalSender('hideOverlay'); resetMap(); 
         if (response.status === "error") { alert(response.message); return; }
-        if (pointLayer) pointLayer = clearMap(pointLayer, lakeMap);
         pointLayer = addPointLayer(response.content, false);
         if (!obj.polygonCheckbox.checked) obj.polygonCheckbox.checked = true;
         obj.polygonCheckbox.dispatchEvent(new Event('change'));
@@ -734,10 +738,13 @@ async function pointRemoval(pointIds) {
     obj.orthoCheckbox.dispatchEvent(new Event('change'));
 }
 
-function resetMap(){
+async function resetMap(){
+    pointContainer = []; tempLine = clearMap(tempLine, lakeMap);
     lakeLayer = clearMap(lakeLayer, lakeMap); depthLayer = clearMap(depthLayer, lakeMap);
     gridLayer = clearMap(gridLayer, lakeMap); orthoLayer = clearMap(orthoLayer, lakeMap);
-    pointLayer = clearMap(pointLayer, lakeMap); obj.colorBarContainer.style.display = 'none';
+    obj.colorBarContainer.style.display = 'none';
+    if (pointLayer) { pointLayer.clearLayers(); }
+    if (hoverTooltip) lakeMap.closeTooltip(hoverTooltip);
 }
 
 function updateLog(project, chartDiv, progress_bar, progress_text, seconds){

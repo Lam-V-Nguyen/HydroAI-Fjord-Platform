@@ -55,6 +55,9 @@ async def load_lakes(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         lake = body.get('lakeName')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
+
+
+
         project_cache = request.app.state.project_cache.setdefault(project_name, {})
         if not project_cache:
             print("Project is not available in memory. Creating a new one...")
@@ -183,14 +186,18 @@ async def start_grid_optimization(request: Request, user=Depends(functions.basic
             gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(points[:, 1], points[:, 0]), crs="EPSG:4326")
             crs = depth.estimate_utm_crs()
             gdf, depth = gdf.to_crs(crs), depth.to_crs(crs)
-            polygon = GeometryList(gdf.geometry.x, gdf.geometry.y)
+            x = np.array(gdf.geometry.x.to_numpy(), dtype=np.float64, copy=True)
+            y = np.array(gdf.geometry.y.to_numpy(), dtype=np.float64, copy=True)
+            polygon = GeometryList(x, y)
             params = {
                 "level": [level_from, level_to], 'mode': ['auto', 'custom'],
                 "outer_iterations": [1, 10], "boundary_iterations": [1, 50],
                 "inner_iterations": [1, 50], "smoothing_factor": [0, 1]
             }
-            processes[project_name] = {"status": "running", "progress": 0.0, "history": [], "grid": None,
-                                       "message": 'Preparing data for optimization ...', "stop": False}
+            processes[project_name] = {
+                "status": "running", "progress": 0.0, "history": [], "grid": None,
+                "message": 'Preparing data for optimization ...', "stop": False
+            }
             # Run the process
             def run():
                 try:
@@ -209,8 +216,10 @@ async def start_grid_optimization(request: Request, user=Depends(functions.basic
                                     progress_callback=update_progress, stop_checker=stop_checker)
                     info = processes.get(project_name)
                     if not info: return
-                    notice = info["message"].split("[")[1].split("(")[0]
+                    notice = info.get("message", "Optimization completed")
+                    if "[" in notice: notice = notice.split("[", 1)[1].split("(", 1)[0]
                     info["status"], info["message"] = 'finalizing', "Generating final grid..."
+                    print(polygon.x_coordinates, polygon.y_coordinates)
                     mk = grid_functions.mk_from_params(best_params, polygon)
                     project_cache["mk"] = mk
                     grid_uds = grid_functions.netCDF_creator(mk, depth)
@@ -225,6 +234,7 @@ async def start_grid_optimization(request: Request, user=Depends(functions.basic
                     notice += f" - Best parameters: {best_params})"
                     if info.get("stop"): info["status"], info["message"] = "stopped", notice
                     else: info["status"], info["message"] = "finished", notice
+                    project_cache['grid_uds'] = grid_uds
                 except Exception as e:
                     info = processes.get(project_name)
                     if info: info["status"], info["message"], info["grid"] = "failed", f"Error: {e}", None
@@ -267,16 +277,19 @@ async def vertex_generator(request: Request, user=Depends(functions.basic_auth))
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        project_cache = request.app.state.project_cache.setdefault(project_name)
-        if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory."})
-        lake_db = project_cache.get('lake')
-        project_cache['polygon'], coords, polygon = lake_db, [], lake_db["geometry"].iloc[0]
+        # project_cache = request.app.state.project_cache.setdefault(project_name)
+        # if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory."})
+        # lake_db = project_cache.get('lake')
+        # project_cache['polygon'], coords, polygon = lake_db, [], lake_db["geometry"].iloc[0]
+        polygon = gpd.GeoDataFrame.from_features(body.get('polygon')["features"], crs="EPSG:4326")
+        coords, polygon = [], polygon["geometry"].iloc[0]
+
         if polygon.geom_type == "Polygon": coords = list(polygon.exterior.coords)
         elif polygon.geom_type == "MultiPolygon":
             for poly in polygon.geoms:
                 coords.extend(list(poly.exterior.coords))
         vertices = [{"id": i, "coord": Point((coord[0], coord[1]))} for i, coord in enumerate(coords)]
-        point = gpd.GeoDataFrame(vertices, geometry="coord", crs=lake_db.crs)
+        point = gpd.GeoDataFrame(vertices, geometry="coord", crs="EPSG:4326")
         return JSONResponse({'status': 'ok', 'content': json.loads(point.to_json())})
     except Exception as e:
         print('/vertex_generator:\n==============')
@@ -392,7 +405,16 @@ async def vertex_remover(request: Request, user=Depends(functions.basic_auth)):
         if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory."})
         start_point, end_point = int(body.get('startPoint')), int(body.get('endPoint'))
         polygon = body.get('polygon', None)
-        polygon_new = polygon[:start_point] + polygon[end_point+1:]
+        if not polygon or len(polygon) < 3:
+            return JSONResponse({"status": "error", "message": "Invalid polygon."})
+        n = len(polygon)
+        if not (0 <= start_point < n and 0 <= end_point < n):
+            return JSONResponse({"status": "error", "message": "Invalid start or end point index."})
+        if start_point <= end_point:
+            polygon_new = polygon[:start_point + 1] + polygon[end_point:]
+        else: polygon_new = polygon[:end_point + 1] + polygon[start_point:]
+        if len(polygon_new) < 3:
+            return JSONResponse({"status": "error", "message": "Polygon must have at least 3 vertices."})
         vertices = [{"id": i, "geometry": Point((coord[1], coord[0]))} for i, coord in enumerate(polygon_new)]
         point = gpd.GeoDataFrame(vertices, geometry="geometry", crs="EPSG:4326")
         poly_new = Polygon([(p.x, p.y) for p in point['geometry'].values])
@@ -431,7 +453,8 @@ async def grid_saver(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         project_cache = request.app.state.project_cache.setdefault(project_name)
-        if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory."}) 
+        if not project_cache: 
+            return JSONResponse({"status": "error", "message": "Project is not available in memory."}) 
         grid_uds = project_cache.get('grid_uds')
         grid_dir = os.path.join(PROJECT_ROOT, project_name, "grids")
         grid_path = os.path.normpath(os.path.join(grid_dir, body.get('gridName')))

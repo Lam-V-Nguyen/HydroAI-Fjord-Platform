@@ -1,3 +1,6 @@
+import { toUTC } from "./projectSaver.js";
+import { origin } from "./constant.js";
+
 
 const pendingRequests = new Map();
 
@@ -295,9 +298,163 @@ export function addRowToTable(table, list, fillValue=false){
     tbody.appendChild(tr);
 }
 
-export function nameChecker(name) {
-    return !/^[A-Za-z0-9_-]+$/.test(name);
+export function nameChecker(name) { return !/^[A-Za-z0-9_-]+$/.test(name); }
+
+export function copyPaste(table, nCols){
+    const tbody = table.querySelector('tbody');
+    table.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.Clipboard).getData('text'); // Get clipboard data
+        const rows = text.split(/\r?\n/).filter(r => r.trim() !== ''); // Split into rows 
+        if (!rows.length) return;
+        // Get the first row
+        const firstLine = rows[0];
+        const columns = firstLine.split(/\t|,/);
+        if (columns.length !== nCols) { 
+            alert(`The current table has ${columns.length} columns.\nNumber of columns must be ${nCols}.`); 
+            return; }
+        tbody.innerHTML = '';
+        const data_arr = rows.map(row => row.split(/\t|,/).slice(0, nCols)); // Split into columns
+        fillTable(data_arr, table);
+    });
 }
+
+export async function csvUploader(event, targetText, table,
+    nCols, isIgnoreHeader=true, objName=null, latitude=null, longitude=null){
+    return new Promise((resolve, reject) => {
+        const file = event.target.files[0];
+        if (!file) { resolve(); return; }
+        targetText.value = file.name;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+                const lines = text.split('\n').map(line => line.trim()).filter(line => line !== '');
+                const parts = lines[0].split(',').map(item => item.trim());
+                if (parts.length !== nCols) { 
+                    alert('Number of columns should be ' + nCols + '.'); 
+                    target.value = ''; resolve(); return; 
+                }
+                let dataLines = lines;
+                if (isIgnoreHeader) dataLines = dataLines.slice(1); // Skip header
+                dataLines.forEach((line, idx) => {
+                    const parts = line.split(',').map(item => item.trim());
+                    let data_arr = [];
+                    if (parts.length === 2) {
+                        data_arr = [[parts[0], parseFloat(parts[1])]];
+                    } else if (parts.length === 3) {
+                        data_arr = [[parts[0], parseFloat(parts[1]), parseFloat(parts[2])]];
+                    } else if (parts.length === 5) {
+                        if (objName && latitude && longitude) {
+                            objName.value = file.name.replace('.csv', ''); 
+                            if (idx === 0) {
+                                latitude.value = parts[0]; longitude.value = parts[1];
+                            } else if (idx === 1) { return;
+                            } else {
+                                data_arr = [[parts[0], parseFloat(parts[1]), parseFloat(parts[2]), 
+                                    parseFloat(parts[3]), parseFloat(parts[4])]];
+                            }
+                        } else {
+                            data_arr = [[parts[0], parseFloat(parts[1]), parseFloat(parts[2]), 
+                                parseFloat(parts[3]), parseFloat(parts[4])]];
+                        }
+                    } else {
+                        data_arr = [[parts[0], ...parts.slice(1).map(item => parseFloat(item))]];
+                    }
+                    if (data_arr.length === 0) return;
+                    fillTable(data_arr, table, false);
+                });
+                resolve();
+            } catch (err) { reject(err); }
+        };
+        reader.onerror = reject; reader.readAsText(file);
+    });
+}
+
+export async function fileUploader(targetFile, targetText, projectName, gridName, message, type){
+    if (projectName === '') return;
+    signalSender('showOverlay', message);
+    const file = targetFile.files[0], formData = new FormData();
+    formData.append('file', file); formData.append('projectName', projectName);
+    formData.append('fileName', gridName); formData.append('type', type);
+    if (targetText !== null) {targetText.value = file?.name || "";}
+    const response = await fetch('/upload_data', { method: 'POST', body: formData });
+    const data = await response.json();
+    signalSender('hideOverlay'); alert(data.message);
+    if (data.status === "error") { targetText.value = ''; targetFile.value = ''; return; }
+}
+
+export async function getProjectList(userName='', folderCheck='') {
+    const contents = { filename: userName, key: 'getProjects', folder_check: folderCheck };
+    const data = await jsonLoader('select_project', contents);
+    if (data.status === "error") { alert(data.message); return; }
+    return data.content;
+}
+
+export function pointUpdate(target, table, isExist=true, objList=[]){
+    target.addEventListener('change', () => { 
+        const objUpdate = document.getElementById('obs-update');
+        objUpdate.style.display = 'none';
+        if (isExist) {
+            objList.forEach(obj => obj.value = ''); 
+            objUpdate.style.display = 'block';
+        } else {
+            const tbody = table.querySelector("tbody");
+            const newTbody = document.createElement('tbody');
+            const tr = document.createElement('tr');
+            objList.forEach(text => {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = text;
+                td.appendChild(input);
+                tr.appendChild(td);
+            });
+            newTbody.appendChild(tr); tbody.replaceWith(newTbody);
+        }
+    });
+}
+
+export function removeRowFromTable(table, name){
+    if (name.trim() === '') { alert('Please select observation point to remove.'); return; }
+    // Remove row with matching name
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const rowToRemove = rows.find(row => {{
+        const firstCell = row.querySelector("td");
+        if (!firstCell) return false;
+        const input = firstCell.querySelector("input");
+        if (!input) return false;
+        const cellText = input ? input.value.trim() : firstCell.textContent.trim();
+        return cellText === name;
+    }});
+    if (rowToRemove) { rowToRemove.remove(); alert(`Observation point "${name}" removed.`);
+    } else { alert(`Observation point "${name}" not found.`); }
+}
+
+export async function updateTable(table, comboBox, projectName, key='') {
+    const data = await jsonLoader('init_source', {projectName: projectName, key: key});
+    if (data.status === "ok") {
+        comboBox.innerHTML = '';
+        // Add hint to the velocity object
+        const hint = document.createElement('option');
+        hint.value = ''; hint.selected = true;
+        hint.text = '- No Selection -'; 
+        comboBox.add(hint);
+        // Add options
+        const data_arr = [];
+        data.content.forEach((item, idx) => {
+            const option = document.createElement('option');
+            option.value = item; option.text = item;
+            comboBox.add(option);
+            data_arr.push([item, data.type[idx]]);
+        });
+        if (data_arr.length > 0) fillTable(data_arr, table);
+    }
+}
+
+
 
 
 
