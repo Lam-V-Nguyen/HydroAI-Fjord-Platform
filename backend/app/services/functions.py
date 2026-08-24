@@ -269,4 +269,10 @@ def kill_process(process):
     except Exception as e: 
         return {"status": "error", "message": str(e)}
 
-
+async def load_dataset_cached(project_cache, key, dm, dir_path, filename):
+    if project_cache is None or not filename: return None
+    path = os.path.normpath(os.path.join(dir_path, filename))
+    if not os.path.exists(path): return None
+    ds = dm.get(path)
+    project_cache[key] = ds
+    return ds

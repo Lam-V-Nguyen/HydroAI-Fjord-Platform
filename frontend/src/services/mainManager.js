@@ -83,16 +83,14 @@ function widgetMenuManager() {
         
         
 
-//         else if (id === 'visualization') { w = 12; h = 9; }
+
 //         else if (id === 'flow-data-preparation') { 
 //             w = 11; h = 8; title = 'Data Preparation for Flow Estimation';
-        if (id === 'preparation-hyd') { 
-            w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; 
-        }
+        if (id === 'preparation-hyd') { w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; }
         else if (id === 'grid-generation') { w = 12; h = 10; }
         else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
-
+        else if (id === 'visualization') { w = 12; h = 9; }
 //         else if (id === 'run-flow-model') { w = 16; h = 8; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
@@ -185,8 +183,8 @@ function updateComponent() {
 //                 content: event.data.content, type: event.data.type
 //             };
 //             renderPreview(req); setPendingRequest(req);
-            
-
+        } else if (event.data.type === 'showNote') {
+            showNotes(event.data.content);
         } else if (event.data.type === 'updateUIState') {
             const { requestId } = event.data.content;
             if (requestId && pendingRequests.has(requestId)) {

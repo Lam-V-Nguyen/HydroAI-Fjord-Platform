@@ -64,7 +64,7 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
         # Check if simulation already running
         if project_name in processes and processes[project_name]["status"] == "running":
             info = processes[project_name]
-            complete = f'HYD completed: {info["progress"]}% [Time used: {info["time_used"]} → Time left: {info["time_left"]}]'
+            complete = f'HYD simulation completed: {info["progress"]}% [Time used: {info["time_used"]} → Time left: {info["time_left"]}]'
             return JSONResponse({"status": "running", "progress": info["progress"], "message": complete})
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         mdu_path = os.path.normpath(os.path.join(path, "FlowFM.mdu"))

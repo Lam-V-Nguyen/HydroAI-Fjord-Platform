@@ -2,7 +2,7 @@ import { toUTC } from "./projectSaver.js";
 import { origin } from "./constant.js";
 
 
-const pendingRequests = new Map();
+// const pendingRequests = new Map();
 
 let zIndex = 3000, activeProject = null, lastOffset = 0;
 
@@ -452,6 +452,68 @@ export async function updateTable(table, comboBox, projectName, key='') {
         });
         if (data_arr.length > 0) fillTable(data_arr, table);
     }
+}
+
+export async function initOptions(comboBox, key, projectName) {
+    signalSender('showOverlay', 'Loading Options.\nPlease wait...');
+    try {
+        const response = await fetch('/initiate_options', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: key, projectName: projectName})});
+        const data = await response.json();
+        if (data.status === "ok") {
+            // Add none option in case of vector
+            if (key === 'vector' || key === 'thermocline_waq'){
+                comboBox.innerHTML = '';
+                // Add hint to the velocity object
+                const hint = document.createElement('option');
+                hint.value = ''; hint.selected = true;
+                hint.text = '- No Selection -'; 
+                comboBox.add(hint);
+            }
+            // Add options
+            data.content.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item[0]; option.text = item[1];
+                comboBox.add(option);
+            });
+            // Select the first option
+            if (key !== 'vector' && key !== 'thermocline_waq') {comboBox.value = -1;}
+        } else if (data.status === "error") {alert(data.message); return;}
+    } catch (error) {alert(error);}
+    signalSender('hideOverlay');
+}
+
+export function decodeArray(base64Str, n_decimals=3) {
+    // Convert base64 to ArrayBuffer
+    const binaryStr = atob(base64Str);
+    const buffer = new ArrayBuffer(binaryStr.length);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < binaryStr.length; i++) {
+        view[i] = binaryStr.charCodeAt(i);
+    }
+    // Convert buffer to Float32Array
+    const floatArray = new Float32Array(buffer);
+    // Round values
+    const values = Array.from(floatArray).map(v => parseFloat(v.toFixed(n_decimals)));
+    return values;
+}
+
+export function updateMapByTime(setFunction, getFunction, layerMap, values, vmin, vmax, colorbarKey) {
+    for (let i = 0; i < getFunction().mapLayer.length; i++) {
+        const id = getFunction().mapLayer[i];
+        const value = values[id];
+        if (value === null || value === undefined) continue;
+        const { r, g, b, a } = getColorFromValue(value, vmin, vmax, colorbarKey);
+        const colorKey = `${r},${g},${b},${a}`;
+        if (getFunction().lastFeatureColors[id] === colorKey) continue;
+        getFunction().lastFeatureColors[id] = colorKey;
+        layerMap.setFeatureStyle(id, { 
+            fill: true, fillColor: `rgb(${r},${g},${b})`, 
+            fillOpacity: a, weight: 0, opacity: 1 
+        });
+    }
+    setFunction({ lastFeatureColors: getFunction().lastFeatureColors });
 }
 
 

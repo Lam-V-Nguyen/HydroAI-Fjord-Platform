@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.css">
+        <!-- My styles -->
+        <link rel="stylesheet" href="/src_frontend/styles/menu.css?v=2">
+        <link rel="stylesheet" href="/src_frontend/styles/visualization.css?v=2">
+    </head>
+    <body>
+        <header class="header">
+            <nav class="nav">
+                <ul class="nav-left" id="menu-left">
+                    <li><a class="menu" data-info="project-open">Open Project</a></li>
+                    <li><a class="menu" data-info="gis-upload">GIS Upload</a></li>
+                    <input type="file" id="gis-file" accept=".geojson,.zip" hidden>
+                    <li style="border-left:3px solid #e6d005;">
+                        <a class="menu" style="color: #e6d005;" data-info="0|waqMenu.html">WAQ Scenario</a></li>
+                    <li style="border-left:3px solid #e6d005;">
+                        <a class="menu" data-info="1|generalOption.html">General Options</a>
+                    </li>
+                    <li><a class="menu" data-info="2|timeSeries.html">Time-series Measurements</a></li>
+                    <li><a class="menu" data-info="3|spatialMap.html">Map</a></li>
+                </ul>
+                <ul class="nav-right">
+                    <li class="search-box">
+                        <label for="search"><i class="fa fa-search"></i></label>
+                        <input type="text" id="search" placeholder="Search..." />
+                        <div class="suggestions" id="suggestions" style="display:none;"></div>
+                    </li>
+                    <li><a class="menu" data-info="home">Home</a></li>
+                </ul>
+            </nav>
+        </header>
+        <!-- Add a popup menu -->
+        <div class="popup-menu" id="popup-menu">
+            <div id="popup-content"></div>
+        </div>
+        <!-- Add the map -->
+        <div class="map-container" id="map-container">
+            <div class="leaflet-map" id="leaflet-map"></div>
+            <div class="time-controls" id="time-controls">
+                <label for="time-slider-speed">Speed:</label>
+                <select id="time-slider-speed" style="width: 70px; padding: 3px;">
+                    <option value="0.5">-2x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">+2x</option>
+                </select>
+                <button id="play-btn">▶ Play</button>
+                <div class="time-slider" id="time-slider"></div>
+            </div>
+            <img class="leaflet-compass" src="/src_frontend/images/compass.png">
+            <div class="basemap-container">
+                <button type="button" class="leaflet-basemap-btn" id="basemap-btn">
+                    <img src="/src_frontend/images/basemap.png">
+                </button>
+                <div class="basemap-popup">
+                    <div><strong>Select Base Map</strong></div>
+                    <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open Street Map</button>
+                    <button class="basemap-option" data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
+                    <button class="basemap-option" data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
+                    <button class="basemap-option" data-url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png">Carto Light</button>
+                    <button class="basemap-option" data-url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png">Carto Dark</button>
+                </div>
+            </div>
+            <!-- Legend -->
+            <div id="colorbar-container">
+                <div id="custom-colorbar">
+                    <div class="colorbar-wrapper">
+                        <div class="colorbar-title" id="colorbar-title">Legend</div>
+                        <div class="colorbar-gradient" id="colorbar-gradient"></div>
+                        <div class="colorbar-labels" id="colorbar-labels">
+                            <div></div> <!-- max -->
+                            <div></div> <!-- 75% -->
+                            <div></div> <!-- 50% -->
+                            <div></div> <!-- 25% -->
+                            <div></div> <!-- min -->
+                        </div>
+                    </div>
+                </div>
+                <div id="custom-colorbar-vector">
+                    <div class="colorbar-wrapper">
+                        <div class="colorbar-title" id="colorbar-title-vector">Legend</div>
+                        <div class="colorbar-gradient" id="colorbar-gradient-vector"></div>
+                        <div class="colorbar-labels" id="colorbar-labels-vector">
+                            <div></div> <!-- max -->
+                            <div></div> <!-- 75% -->
+                            <div></div> <!-- 50% -->
+                            <div></div> <!-- 25% -->
+                            <div></div> <!-- min -->
+                        </div>
+                    </div>
+                    <div id="custom-colorbar-scaler">Scaler</div>
+                </div>
+            </div>
+        </div>
+        <!-- Add the summary window -->
+        <div class="overlay-window" id="summary-container">
+            <div class="plot-header" id="summary-header">
+                <span class="plot-title" id="summary-title">Summary</span>
+                <span class="close-plot-btn" id="close-summary-btn">×</span>
+            </div>
+            <div class="plot-area">
+                <div id="summaryChart"></div>
+            </div>
+        </div>
+        <!-- Time-series window -->
+        <div class="time-series-window" id="time-series-container">
+            <div class="plot-header" id="time-series-header">
+                <span class="plot-title" id="time-series-title">Time-series Plot</span>
+                <span class="close-plot-btn" id="close-time-series-btn">×</span>
+            </div>
+            <div class="plot-controls">
+                <label for="select-object">Select:</label>
+                <div class="select-object">
+                    <div class="select-box">
+                        <span class="label-text">Select one or more options</span>
+                        <span class="arrow">▼</span>
+                    </div>
+                    <div class="checkbox-list"></div>
+                </div>
+                <div class="button-group">
+                    <button type="button" id="viewDataBtn">View Data</button>
+                    <button type="button" id="downloadExcel">Download as Excel File</button>                
+                </div>
+            </div>
+            <div class="plot-area">
+                <div id="myChart"></div>
+            </div>
+        </div>
+        <!-- Add a floating window for substance selector -->
+        <div class=substance-window id="substance-container">
+            <div class="plot-header" id="substance-header">
+                <span class="plot-title" id="substance-title">Substance</span>
+                <span class="close-plot-btn" id="close-substance-btn">×</span>
+            </div>
+            <div id="substance-content"></div>
+        </div>
+        <!-- Add a floating window for drawing a profile -->
+        <div class="profile-window" id="profile-window">
+            <div class="plot-header" id="profile-header">
+                <span class="plot-title" id="profile-title">Dynamic Profile</span>
+                <span class="close-plot-btn" id="close-profile-btn">×</span>
+            </div>
+            <div class="profile-content">
+                <div class="profile-plot-area" id="chart-div"></div>
+                <div class="profile-time-controls">
+                    <!-- Slider -->
+                    <input class="profile-time-slider" id="time-slider" 
+                        type="range" min="0" max="100" step="1" value="0">
+                    <div class="profile-time-labels">
+                        <span class="time-left" id="time-start">Start: --</span>
+                        <span class="time-center" id="time-center">Time: --</span>
+                        <span class="time-right" id="time-end">End: --</span>
+                    </div>
+                </div>
+                <div class="profile-controls">
+                    <label style="margin-left: 5px;">Duration:</label>
+                    <select id="chart-duration-value">
+                        <option value="0.1">0.1 s</option>
+                        <option value="0.2" selected>0.2 s</option>
+                        <option value="0.5">0.5 s</option>
+                        <option value="1.0">1.0 s</option>
+                    </select>
+                    <label id="chart-min-label">Min:</label><input type="text" id="chart-min-value" readonly>
+                    <label id="chart-max-label">Max:</label><input type="text" id="chart-max-value" readonly>
+                    <label for="chart-color-combobox" id="chart-color-label" style="margin-left: 30px;">Colors:</label>
+                    <select id="chart-color-combobox">
+                        <option value="5">5 colors</option>
+                        <option value="10" selected>10 colors</option>
+                        <option value="15">15 colors</option>
+                        <option value="20">20 colors</option>
+                    </select>
+                    <button id="profile-btn">▶ Play</button>
+                </div>
+            </div>
+        </div>
+        
+        
+
+        
+        <script src="https://cdn.plot.ly/plotly-2.26.1.min.js"></script>
+        <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+        <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+        <script type="module" src="/src_frontend/services/tooltipManager.js?v=0"></script>
+        <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+        <script type="module" src="/src_frontend/services/visualizationManager.js"></script>
+    </body>
+</html>

@@ -1,4 +1,56 @@
+import { jsonLoader } from "./commonFunctions.js";
+import { initState, setState, origin } from "./constant.js";
 
+
+export async function projectModifier(user) {
+    const overlay = document.createElement("div");
+    overlay.className = "pm-overlay";
+    const modal = document.createElement("div");
+    modal.className = "pm-modal";
+    modal.innerHTML = `
+        <h3 style="margin-top:0;">Open Project</h3>
+        <div class="pm-row">
+            <label>Select Project</label>
+            <select id="projectList"
+                style="width: 100%; box-sizing: border-box; padding: 4px 6px;">
+                <option value="">-- No selected --</option>
+            </select>
+        </div>
+        <div style="text-align:right; gap: 10px; margin: 10px">
+            <button class="button-grid" id="okBtn">Open</button>
+            <button class="button-grid" id="closeBtn">Cancel</button>
+        </div>
+    `;
+    overlay.appendChild(modal); document.body.appendChild(overlay);
+    // Get the list of projects
+    const projectList = modal.querySelector("#projectList");
+    if (!projectList) return;
+    const contents = { filename: '', key: 'getProjects', folder_check: '' };
+    const data = await jsonLoader('select_project', contents);
+    if (data.status === "error") { alert(data.message); overlay.remove(); return; }
+    data.content.forEach(project => {
+        const option = document.createElement("option");
+        option.value = project;
+        option.textContent = project;
+        projectList.appendChild(option);
+    }); 
+    if (data.content.length > 0) { projectList.selectedIndex = 1; }
+    modal.querySelector("#okBtn").onclick = async () => {
+        let value = projectList.value.trim();
+        if (value === "") { alert("Please select a project from the list."); return; }
+        const note = `${user}/${value}`;
+        // Reassgin parameters
+        const currentParams = ['FlowFM_his1.zarr', 'FlowFM_map1.zarr', 'Coliform_his1.zarr', 'Coliform_map1.zarr'];
+        const waqModel = 'coliform1'; 
+        initState(value);
+        setState({
+            currentProject: value, currentParams: currentParams, waqModel: waqModel 
+        })
+        window.parent.postMessage({type: 'showNote', content: note}, origin);
+        overlay.remove(); location.reload();
+    };
+    modal.querySelector("#closeBtn").onclick = () => { overlay.remove(); };
+}
 
 export function pdfOpener(pdfName=null) {
     if (!pdfName) return;

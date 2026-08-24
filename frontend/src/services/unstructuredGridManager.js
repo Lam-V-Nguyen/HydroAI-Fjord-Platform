@@ -84,13 +84,13 @@ async function initMap() {
     lakeMap.on('mousemove', function (e) { 
         mapContainer.style.cursor = "grab";
         if (refineChecked) {
-            if (pointContainer.length === 0) { html = "Select start point to refine"; }
+            if (pointContainer.length === 0) { html = "Select start point to refine<br>Id of the start point < Id of the end point"; }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
         }
-        else if (deleteChecked) {
+        if (deleteChecked) {
             if (pointContainer.length === 0) { 
-                html = "Select start point to delete.<br>Start point <= end point"; 
+                html = "Select start point to delete.<br>Id of the start point < Id of the end point"; 
             }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
@@ -102,8 +102,8 @@ async function initMap() {
             }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
-        }
-        else if (moveChecked) { 
+        } 
+        if (moveChecked) { 
             mapContainer.style.cursor = "move";
             html = `Move a vertex using the left mouse button`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
@@ -302,6 +302,13 @@ function unGridManager() {
                 obj.colorBarContainer.style.display = 'none';
             }
             deleteTable(obj.lakeTable); addRowToTable(obj.lakeTable, row); resetMap();
+            moveChecked = false; obj.moveCheckbox.checked = false;
+            refineChecked = false; obj.refinementCheckbox.checked = false;
+            obj.refinementCheckbox.dispatchEvent(new Event('change'));
+            obj.gridOptimizationCheckbox.checked = false;
+            obj.gridOptimizationCheckbox.dispatchEvent(new Event('change'));
+            obj.depthCheckbox.checked = false; obj.depthCheckbox.dispatchEvent(new Event('change'));
+            obj.orthoCheckbox.checked = false; obj.orthoCheckbox.dispatchEvent(new Event('change'));
         });
     });
     // Hide suggestions
@@ -340,6 +347,7 @@ function unGridManager() {
     });
     obj.vertexesBtn.addEventListener('click', async () => {
         obj.colorBarContainer.style.display = 'none';
+        if (lakeLayer === null) { alert('Please add/draw a polygon on the map first.'); return;}
         signalSender('showOverlay', 'Generating Vertexes.\nPlease wait...');
         const lakeContent = { projectName: currentProject, polygon: lakeLayer.toGeoJSON() };
         const response = await jsonLoader('vertex_generator', lakeContent); 
@@ -386,8 +394,8 @@ function unGridManager() {
                 const latlng = layer.getLatLng();
                 pointCollection.push([latlng.lat, latlng.lng]);
             });
-            if (pointCollection.length === 0) { alert("No vertexes found."); return; }
-            pointCollection.push(pointCollection[0]); 
+            if (pointCollection.length === 0) { alert("No vertexes found. Please draw/add polygon on the map first."); return; }
+            pointCollection.push(pointCollection[0]);
             moveChecked = true; refineChecked = false; deleteChecked = false;
             obj.deleteCheckbox.checked = false; obj.refinementCheckbox.checked = false;
             signalSender('showOverlay', 'Regenerating vertexes.\nPlease wait...');
@@ -400,6 +408,7 @@ function unGridManager() {
             lakeLayer = polygonPlotter(response.content.polygon, lakeMap);
             pointLayer = clearMap(pointLayer, lakeMap); 
             pointLayer = addPointLayer(response.content.point, true);
+            obj.refinementContainer.style.display = 'none';
         } else { moveChecked = false; toggleMoveMode(pointLayer, false); }
     });
     obj.deleteCheckbox.addEventListener('change', async (e) => {
@@ -565,27 +574,25 @@ function unGridManager() {
 
 async function addItems(currentProject, value) {
     signalSender('showOverlay', 'Loading all Lakes for entire Norway.\nPlease wait...');
-    timeOut = setTimeout( async() => { 
-        const response = await jsonLoader('search_lake', { 
-            projectName: currentProject, name: value 
-        });
-        if (response.status === "error") { alert(response.message); return; }
-        if (response.content.length === 0) { obj.sugesstionLake.style.display = 'none'; return; } 
-        obj.sugesstionLake.innerHTML = ''; 
-        response.content.forEach(lake => { 
-            var div = document.createElement('div'); 
-            div.textContent = lake; 
-            div.addEventListener('click', () => { 
-                obj.lakeSearcher.value = lake; 
-                obj.municipalityList.value = ''; 
-                obj.lakeSelector.innerHTML = `<option value="${lake}">${lake}</option>`; 
-                obj.sugesstionLake.style.display = 'none'; 
-                obj.lakeSelector.dispatchEvent(new Event('change')); 
-            }); 
-            obj.sugesstionLake.appendChild(div); 
+    const response = await jsonLoader('search_lake', { 
+        projectName: currentProject, name: value 
+    });
+    if (response.status === "error") { alert(response.message); return; }
+    if (response.content.length === 0) { obj.sugesstionLake.style.display = 'none'; return; } 
+    obj.sugesstionLake.innerHTML = ''; 
+    response.content.forEach(lake => { 
+        var div = document.createElement('div'); 
+        div.textContent = lake; 
+        div.addEventListener('click', () => { 
+            obj.lakeSearcher.value = lake; 
+            obj.municipalityList.value = ''; 
+            obj.lakeSelector.innerHTML = `<option value="${lake}">${lake}</option>`; 
+            obj.sugesstionLake.style.display = 'none'; 
+            obj.lakeSelector.dispatchEvent(new Event('change')); 
         }); 
-        obj.sugesstionLake.style.display = 'block'; 
-    }, 200); 
+        obj.sugesstionLake.appendChild(div); 
+    }); 
+    obj.sugesstionLake.style.display = 'block'; 
     signalSender('hideOverlay');
 }
 

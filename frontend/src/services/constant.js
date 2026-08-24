@@ -2,6 +2,14 @@ export const origin = '*';
 export const CENTER = [62.476969, 6.471598];
 export const ZOOM = 13, L = window.L, n_decimals = 2;
 
+export const arrowShape = new Path2D();
+arrowShape.moveTo(0, 0);          // Origin
+arrowShape.lineTo(1, 0);          // Main length
+arrowShape.moveTo(1, 0);
+arrowShape.lineTo(0.8, 0.1);      // Left branch
+arrowShape.moveTo(1, 0);
+arrowShape.lineTo(0.8, -0.1);     // Right branch
+
 export const gridId = 'grid-generation-map', flowId = 'flow-map',
     hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map',
     hydPrepareMapId = 'preparation-hyd-map';
@@ -25,12 +33,38 @@ const loadState = (projectId) => {
     const saved = localStorage.getItem(getKey(projectId));
     return saved ? JSON.parse(saved) : structuredClone(defaultState);
 };
-
+const saveState = (projectId, state) => {
+    localStorage.setItem(getKey(projectId), JSON.stringify(state));
+};
 export const getState = () => state;
+export const setState = (newState) => {
+    state = { ...state, ...newState };
+    if (currentProjectId) saveState(currentProjectId, state);
+};
+export const resetState = () => {
+    state = structuredClone(defaultState);
+    if (currentProjectId) saveState(currentProjectId, state);
+};
+
+export function getMap() { return mapInstance; }
 export function setMap(map) { mapInstance = map; }
 export function clearPendingRequest() { pendingRequest = null; }
 export function getPendingRequest() { return pendingRequest; }
 export function setPendingRequest(req) { pendingRequest = req; }
+
+const defaultVisualization = { 
+    hydLayer: null, sourceLayer: null, crosssectionLayer: null, 
+    wqObsLayer: null, wqLoadsLayer: null, isPathQuery: false, 
+    isThemocline: false, mapLayer: null, isMultiLayer: false, gisLayers: {},
+    polygonCentroids: [], showedQuery: '', isClickedInsideLayer: false,
+    vectorSelected: '', layerSelected: '', sigmaSelected: '', isPlaying: null, 
+    lastFeatureColors: {}, featureMap: {}, isHYD: false, sigma: null
+}
+let stateVisualization = structuredClone(defaultVisualization);
+export const getStateVisualization = () => stateVisualization;
+export const setStateVisualization = (newState) => { stateVisualization = { ...stateVisualization, ...newState }; };
+// Reset state
+export const resetStateVisualization = () => { stateVisualization = structuredClone(defaultVisualization); };
 
 export function valueFormatter(value, minDiff) {
     const absVal = Math.abs(value);

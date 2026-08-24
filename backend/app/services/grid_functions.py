@@ -1,4 +1,4 @@
-import os, pickle, warnings, optuna
+import os, pickle, warnings, optuna, json
 from config import SOURCE_BACKEND
 import geopandas as gpd, numpy as np
 from shapely.geometry import Polygon, MultiPolygon
@@ -10,6 +10,38 @@ from pyproj import CRS
 warnings.filterwarnings("ignore")
 optuna.logging.set_verbosity(optuna.logging.ERROR)
 
+
+
+def lake_generation(folder, project_cache):
+    lake_pkl_path = os.path.normpath(os.path.join(folder, 'lakes.pkl'))
+    depth_pkl_path = os.path.normpath(os.path.join(folder, 'depth.pkl'))
+    lake_json_path = os.path.normpath(os.path.join(folder, 'lakes.json'))
+    lake_name_path = os.path.normpath(os.path.join(folder, 'lakes_name.json'))
+    if not os.path.exists(lake_pkl_path): 
+        print("Lake data is not available. Creating a new one...")
+        initLakes(lake_path=lake_pkl_path)
+    if not os.path.exists(depth_pkl_path):
+        print("Depth data is not available. Creating a new one...")
+        initLakes(depth_path=depth_pkl_path)
+    if 'lake_db' not in project_cache:
+        with open(lake_pkl_path, 'rb') as f: lake_db = pickle.load(f)
+        project_cache['lake_db'] = lake_db
+    else: lake_db = project_cache['lake_db']
+    if 'depth_db' not in project_cache:
+        with open(depth_pkl_path, 'rb') as f: depth_db = pickle.load(f)
+        project_cache['depth_db'] = depth_db
+    else: depth_db = project_cache['depth_db']
+    if not os.path.exists(lake_json_path):
+        encoding = functions.encoding_detect(lake_json_path)
+        result = lake_db.groupby("region")["name"].apply(list).to_dict()
+        # Save the processed lake data
+        with open(lake_json_path, 'w', encoding=encoding) as f:
+            json.dump(result, f)
+    if not os.path.exists(lake_name_path):
+        encoding = functions.encoding_detect(lake_name_path)
+        data = np.unique(lake_db['name'].values).tolist()
+        with open(lake_name_path, 'w', encoding=encoding) as f:
+            json.dump(data, f)
 
 def initLakes(lake_path=None, depth_path=None):
     # Load lake database
