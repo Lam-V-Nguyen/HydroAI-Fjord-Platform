@@ -81,7 +81,7 @@ function iconAdd(iconUrl, markers, map, pointList) {
         const marker = L.marker(
             [parseFloat(lat), parseFloat(lon)], markerOptions
         ).addTo(map);
-        marker.bindPopup(name); markers.push(marker);
+        marker.bindPopup(name); markers.push(marker); markerLayer.addLayer(marker);
     })
 }
 
@@ -105,20 +105,16 @@ function lineAdd(pointContainer, map, lineType) {
 
 export async function renderPreview(request=null) {
     currentPoints.length = 0; if (!request) return;
-    const type = request.type;
-    if (type === 'pickPoint' || type === 'updateObsPoint') {
+    const type = request.type, requestId = request.requestId;
+    if (requestId === 'updateObsPoint') {
+        markerLayer.clearLayers();
         const iconUrl = `/src_frontend/images/station.png?v=${Date.now()}`;
         iconAdd(iconUrl, markersObs, currentMap, request.content.rows);
-        if (type === 'updateObsPoint') alert('Observation points are updated.\nSee the map for details.');
-    } else if (type === 'pickPath') {
+    } else if (requestId === 'pickPath') {
         const pointList = request.content.rows, lineType = request.content.lineType;
         if (!pointList || pointList.length === 0) return;
         lineAdd(pointList, currentMap, lineType);
-    // } else if (type === 'updateObsPoint') {
-    //     const pointList = request.content.rows, lineType = request.lineType;
-    //     if (!pointList || pointList.length === 0) return;
-    //     lineAdd(pointList, currentMap, lineType);
-    } else if (type === 'clearCrossSection') {
+    } else if (requestId === 'clearCrossSection') {
         if (pathCrossSection) {
             pathCrossSection.remove(); pathCrossSection = null;
         }
@@ -127,7 +123,7 @@ export async function renderPreview(request=null) {
             markerCrossSection.length = 0;
         }
         currentPointsCross.length = 0; currentPoints.length = 0;
-    } else if (type === 'clearBoundary') {
+    } else if (requestId === 'clearBoundary') {
         if (pathBoundary) {
             pathBoundary.remove(); pathBoundary = null;
         }
@@ -136,19 +132,14 @@ export async function renderPreview(request=null) {
             markerBoundary.length = 0;
         }
         currentPointsBoundary.length = 0; currentPoints.length = 0;    
-    } else if (type === 'waqPoint' || type === 'loadsPoint' 
-        || type === 'waqUpdate' || type === 'loadsUpdate') {
-        
+    } else if (requestId === 'waqPoint' || requestId === 'loadsPoint') {
         let iconUrl = null;
-        if (type === 'waqPoint' || type === 'waqUpdate') {
-            iconUrl =`/src_frontend/images/waq_obs.png?v=${Date.now()}`
-        } else {
-            iconUrl =`/src_frontend/images/waq_loads.png?v=${Date.now()}`
-        }
-        if (type === 'waqUpdate') {
+        if (requestId === 'waqPoint') {
+            iconUrl =`/src_frontend/images/waq_obs.png?v=${Date.now()}`;
             waqObs.forEach(marker => marker.remove()); waqObs.length = 0;
             iconAdd(iconUrl, waqObs, currentMap, request.content.rows);
-        } else if (type === 'loadsUpdate') {
+        } else {
+            iconUrl =`/src_frontend/images/waq_loads.png?v=${Date.now()}`;
             waqLoads.forEach(marker => marker.remove()); waqLoads.length = 0; 
             iconAdd(iconUrl, waqLoads, currentMap, request.content.rows);
         }
@@ -374,7 +365,8 @@ export function initMap(mapId='map') {
     currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(currentMap); 
     // Add scale bar 
     L.control.scale({imperial: false, metric: true, maxWidth: 200}).addTo(currentMap); 
-    setTimeout(() => currentMap.invalidateSize(), 100); 
+    setTimeout(() => currentMap.invalidateSize(), 100);
+    markerLayer = L.layerGroup().addTo(currentMap);
     // Prepare base map
     const container = document.querySelector(`#leaflet-${mapId}`);
     const baseMapBtn = container.querySelector('.leaflet-basemap-btn'); 
@@ -397,7 +389,7 @@ export function initMap(mapId='map') {
     mapContainer = currentMap.getContainer();
     currentMap.on('mousemove', async (e) => { 
         const req = getPendingRequest();
-        if (!req)  return;
+        if (!req) return;
         if (req.requestId === 'waqUpdate' || req.requestId === 'loadsUpdate') return;
         mapContainer.style.cursor = 'crosshair';
         if (req.requestId === 'pickLocation') { html = 'Pick average latitude';
@@ -422,7 +414,7 @@ export function initMap(mapId='map') {
             }
             
 
-        } else if (req.type === 'updateObsPoint') { 
+        } else if (req.requestId === 'updateObsPoint') { 
             mapContainer.style.cursor = 'grab'; return;
         }
         hoverTooltip.setLatLng(e.latlng).setContent(html);

@@ -153,7 +153,7 @@ async function hydManager(){
     iframeConnector(obj.getLocation, obj.latitude, 'pickLocation');
     iframeConnector(obj.obsPointPicker, 
         [obj.obsPointName, obj.obsPointLatitude, obj.obsPointLongitude], 'pickPoint', 
-        () => getDataFromTable(obj.obsPointTable, true)
+        () => getDataFromTable(obj.obsPointTable, true), ''
     );
     iframeConnector(obj.crossSectionPicker, 
         [obj.crossSectionName, obj.crossSectionTable], 'pickPath',
@@ -218,6 +218,7 @@ async function hydManager(){
         fillTable([[name, lat, lon]], obj.obsPointTable, false);
         // Clear input
         obj.obsPointName.value = ''; obj.obsPointLatitude.value = ''; obj.obsPointLongitude.value = '';
+        obj.obsPointUpdate.dispatchEvent(new Event('click'));
     });
     // Add a new row to the table
     obj.obsPointAddRow.addEventListener('click', () => 

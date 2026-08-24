@@ -522,36 +522,36 @@ export function updateMapByTime(setFunction, getFunction, layerMap, values, vmin
 
 
 
-export function iframeConnector(objBtn, objtarget, type, content = null, lineType='crossSection') {
+export function iframeConnector(objBtn, objtarget, requestId, content = null, lineType='') {
     if (objBtn.__handler) objBtn.removeEventListener('click', objBtn.__handler);
     objBtn.__handler = async () => {
         const freshData = typeof content === 'function' ? content() : content;
         const result = await new Promise((resolve) => {
             function listener(event) {
-                if (event.data?.requestId === type) {
+                if (event.data?.requestId === requestId) {
                     window.removeEventListener('message', listener);
                     resolve(event.data.result);
                 }
             }
             window.addEventListener('message', listener);
             const contents = {
-                id: 'hyd-waq', requestId: type, content: freshData, lineType
+                id: 'hyd-waq', requestId: requestId, content: freshData, lineType
             }
-            window.parent.postMessage( contents, origin);
+            window.parent.postMessage(contents, origin);
         });
-        if (type === 'pickLocation') { objtarget.value = result; 
-        } else if (type === 'pickPoint' || type === 'pickSource') {
+        if (requestId === 'pickLocation') { objtarget.value = result; 
+        } else if (requestId === 'pickPoint' || requestId === 'pickSource') {
             const lat = Number(result.lat).toFixed(12);
             const lon = Number(result.lng).toFixed(12);
             objtarget[1].value = lat; objtarget[2].value = lon;
             if (objtarget[0].value.trim() === '') {
                 let name = '';
-                if (type === 'pickPoint') {
+                if (requestId === 'pickPoint') {
                     name = `Point_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`;
-                } else if (type === 'pickSource') { name = 'Source_Sink'; }
+                } else if (requestId === 'pickSource') { name = 'Source_Sink'; }
                 objtarget[0].value = name;
             }
-        } else if (type === 'pickPath') {
+        } else if (requestId === 'pickPath') {
             let name = objtarget[0].value.trim();
             if (name === '') {
                 if (lineType === 'crossSection') { name = 'Cross-Section'; } 
@@ -571,21 +571,23 @@ export function iframeConnector(objBtn, objtarget, type, content = null, lineTyp
                 const defaultOption = `<option value="" selected>--- No selected ---</option>`;
                 objtarget[2].innerHTML = defaultOption + options;
             }
-        } else if (type === 'waqPoint' || type === 'loadsPoint') {
+        } else if (requestId === 'waqPoint' || requestId === 'loadsPoint') {
             const lat = Number(result.lat).toFixed(12);
             const lon = Number(result.lng).toFixed(12);
             const table = objtarget[1];
             if (freshData.rows.length === 0) { deleteTable(table); } 
             let name = objtarget[0].value.trim();
             if (name === '') { 
-                if (type === 'waqPoint') {
+                if (requestId === 'waqPoint') {
                     name = `Obs_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`;
-                } else if (type === 'loadsPoint') {
+                } else if (requestId === 'loadsPoint') {
                     name = `Loads_${Number(lat).toFixed(2)}_${Number(lon).toFixed(2)}`; 
                 }
             }
             addRowToTable(table, [name, lat, lon], true);
-        } else if (type === 'pickLatLon') {
+            const contents = { type: requestId, content: getDataFromTable(table, true) }
+            window.parent.postMessage(contents, origin);
+        } else if (requestId === 'pickLatLon') {
             const lat = objtarget[0], lon = objtarget[1];
             lat.value = Number(result.lat).toFixed(1);
             lon.value = Number(result.lng).toFixed(1);

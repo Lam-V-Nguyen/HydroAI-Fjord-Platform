@@ -155,14 +155,17 @@ function updateComponent() {
             stopLoading(); await new Promise(requestAnimationFrame);
         } else if (event.data.type === 'updateObsPoint') { 
             const req = { 
-                source: event.source, type: event.data.type, 
+                source: event.source, requestId: event.data.type, 
                 content: event.data.content.content
             };
             setPendingRequest(req); renderPreview(req);
         } else if (event.data.type === 'clearCrossSection') { 
-            renderPreview({ type: event.data.type });
+            renderPreview({ requestId: event.data.type });
         } else if (event.data.type === 'clearBoundary') { 
-            renderPreview({ type: event.data.type });
+            renderPreview({ requestId: event.data.type });
+        } else if (event.data.type === 'waqPoint' || event.data.type === 'loadsPoint') { 
+            renderPreview({ requestId: event.data.type, content: event.data.content });
+            // renderPreview({ type: event.data.requestId });
 //         } else if (event.data.type === 'clearGridMap') { 
 //             renderPreview({ source: event.source, requestId: event.data.type });
 //         } else if (event.data.type === 'colorbarOption') { 

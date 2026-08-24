@@ -1,4 +1,4 @@
-import { waqMapId } from "./constant.js";
+import { waqMapId, origin } from "./constant.js";
 import { setupTabs } from "./tabManager.js";
 import { getProjectList, jsonLoader, fillTable, deleteTable, addRowToTable, signalSender,
     nameChecker, iframeConnector, getDataFromTable, copyPaste, removeRowFromTable
@@ -25,7 +25,6 @@ const obj = {
     nLayers: $('n-layer'), startTime: $('start-time'), stopTime: $('stop-time'),
     sourcesContainer: $('wq-sources-container'), sourcesTable: $('wq-sources-table'),
     obsPointName: $('wq-obs-point'), obsPointPicker: $('wq-obs-picker'),
-    obsPointUpdate: $('wq-obs-update'), loadsUpdate: $('wq-loads-update'),
     obsPointRemove: $('wq-obs-remove'), obsPointTable: $('wq-obs-table'),
     loadsPointName: $('wq-loads-point'), loadsPointPicker: $('wq-loads-picker'),
     loadsPointRemove: $('wq-loads-remove'), loadsPointTable: $('wq-loads-table'),
@@ -255,16 +254,10 @@ async function waqManager(){
     if (!hasMap) signalSender('addMapWidget', content);
     // Update location
     iframeConnector(obj.obsPointPicker, [obj.obsPointName, obj.obsPointTable],
-        'waqPoint', () => getDataFromTable(obj.obsPointTable, true)
+        'waqPoint', () => getDataFromTable(obj.obsPointTable, true), ''
     );
     iframeConnector(obj.loadsPointPicker, [obj.loadsPointName, obj.loadsPointTable],
-        'loadsPoint', () => getDataFromTable(obj.loadsPointTable, true)
-    );
-    iframeConnector(obj.obsPointUpdate, null, 'waqUpdate', 
-        () => getDataFromTable(obj.obsPointTable, true)
-    );
-    iframeConnector(obj.loadsUpdate, null, 'loadsUpdate', 
-        () => getDataFromTable(obj.loadsPointTable, true)
+        'loadsPoint', () => getDataFromTable(obj.loadsPointTable, true), ''
     );
     // Copy and paste to tables
     copyPaste(obj.obsPointTable, 3); copyPaste(obj.loadsPointTable, 3);
@@ -274,11 +267,15 @@ async function waqManager(){
         const name = obj.obsPointName.value.trim();
         if (name === '') { alert('Please enter name of observation point from list to remove.'); return; }
         removeRowFromTable(obj.obsPointTable, name); obj.obsPointName.value = '';
+        const contents = { type: 'waqPoint', content: getDataFromTable(obj.obsPointTable, true) }
+        window.parent.postMessage(contents, origin);
     });
     obj.loadsPointRemove.addEventListener('click', () => {
         const name = obj.loadsPointName.value.trim();
         if (name === '') { alert('Please enter name of loads point from list to remove.'); return; }
-        removeRowFromTable(obj.loadsPointTable, name); obj.loadsPointName.value = ''; 
+        removeRowFromTable(obj.loadsPointTable, name); obj.loadsPointName.value = '';
+        const contents = { type: 'loadsPoint', content: getDataFromTable(obj.loadsPointTable, true) }
+        window.parent.postMessage(contents, origin);
     });
     // Update when user change Combobox
     substanceChanger(obj.waqSelector, obj.chemicalSelector, obj.chemicalName, 'wq-chemical');
