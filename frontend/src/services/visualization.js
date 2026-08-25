@@ -1,5 +1,5 @@
 import { signalSender, fileUploader, jsonLoader, getUser } from "./commonFunctions.js";
-import { getState } from "./constant.js";
+// import { getState } from "./constant.js";
 import { generalOptionsManager } from "./generalOptions.js";
 import { plotChart } from "./chartManager.js";
 import { spatialMapManager } from "./spatialMapManager.js";
@@ -70,7 +70,7 @@ export async function projectChecker(name, params, waqModel, message, gisChanged
 }
 
 export async function initializeMenu(waqName){
-    const project = getState().currentProject, params = getState().currentParams, waqModel = getState().waqModel;
+    // const project = getState().currentProject, params = getState().currentParams, waqModel = getState().waqModel;
     // Work with pupup menu
     document.querySelectorAll('.nav ul li a:not([style*="display: none"])').forEach(link => {
         link.onclick = async(event) => {
@@ -91,11 +91,9 @@ export async function initializeMenu(waqName){
                         file.name, 'Uploading and Processing GIS data.\nPlease wait...', 'gis');
                     const message = `Reloading project '${project}'.\nPlease wait...`;
                     gisUploadFile.value = ''; projectChecker(project, params, waqModel, message, true);
-                });
-                return; }
-            else if (info == 'project-open') { 
-                initProject(); return; 
+                }); return;
             }
+            else if (info == 'project-open') { initProject(); return; }
             if (!checked) { alert('No scenario was loaded. Please select a project to open.'); return; }
             const [id, htmlFile] = info.split('|');
             signalSender('showOverlay', 'Getting Information.\nPlease wait...');
@@ -111,7 +109,8 @@ export async function initializeMenu(waqName){
 export async function showPopupMenu(waqName, id, htmlFile) {
     try {
         const popupContent = document.getElementById('popup-content');
-        if (!popupContent) return; const project = getState().currentProject;
+        if (!popupContent) return; 
+        // const project = getState().currentProject;
         if (cachedMenus[htmlFile]) { 
             popupContent.innerHTML = cachedMenus[htmlFile];
         } else {
@@ -162,7 +161,7 @@ function timeSeriesManager(projectName) {
             // Add content
             substancesContent.innerHTML = data.content.map((substance, i) => 
                 `<label for="his-${substance}"><input type="radio" name="waq-substance-his" id="his-${substance}"
-                    value="${data.message[i]}" ${i === 0 ? 'checked' : ''}>${data.message[i]}</label>`).join('');
+                    value="${data.message[i]}" ${i === 0 ? 'checked':''}>${data.message[i]}</label>`).join('');
             // hideMap();
             const chartTitle = `Substance: ${data.message[0]}`;
             plotChart(projectName, plotContainer, data.content[0], 'substance', chartTitle, 'Time', data.message[0]);

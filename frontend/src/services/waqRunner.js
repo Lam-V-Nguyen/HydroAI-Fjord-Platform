@@ -39,7 +39,7 @@ async function waqComponents() {
         const data = await jsonLoader('select_project', {filename: projectName, key: 'getWAQs', folder_check: 'input'});
         if (data.status === "error") { alert(data.message); obj.scenarioSelector.value = ''; return; }
         obj.waqSelector.innerHTML = data.content.map(name => `<option value="${name}">${name}</option>`).join('');
-        const statusRes = await jsonLoader('check_sim_status_waq', {projectName: projectName});
+        const statusRes = await jsonLoader('check_sim_status_waq', {projectName: projectName, waqName: obj.waqSelector.value});
         if (statusRes.status === "running" || statusRes.status === "reorganizing") {
             const res = await fetch(`/sim_log_full/${projectName}?log_file=log_waq.txt`);
             if (res.ok) {
@@ -61,7 +61,7 @@ async function waqComponents() {
         if (!currentProject || currentProject === '') { alert('Please select a scenario.'); return; }
         // Check if WAQ simulation is running
         if (WAQRunning) { alert("Detected a WAQ simulation is running. Please wait until it finishes."); return; }
-        const statusRes = await jsonLoader('check_sim_status_waq', {projectName: currentProject});
+        const statusRes = await jsonLoader('check_sim_status_waq', {projectName: currentProject, waqName: obj.waqSelector.value});
         if (statusRes.status === "running") { alert("WAQ simulation is already running."); return; }
         const res = await jsonLoader('check_folder', {projectName: currentProject, folder: obj.waqSelector.value, key: 'waq'});
         if (res.status === "ok") { if (!confirm("Output exists. Re-run will overwrite it. Continue?")) return; }
@@ -78,7 +78,7 @@ function updateLogWAQ(hydProject, waqProject, progress_bar, progress_text, info,
     logIntervalWAQ = setInterval(async () => {
         if (activeWAQProject !== `${hydProject}_${waqProject}`) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
         try {
-            const statusRes = await jsonLoader('check_sim_status_waq', {projectName: hydProject});
+            const statusRes = await jsonLoader('check_sim_status_waq', {projectName: hydProject, waqName: obj.waqSelector.value});
             progress_text.innerText = statusRes.message; progress_bar.value = statusRes.progress;
             if (statusRes.status !== "running" && statusRes.status !== "reorganizing") {
                 info.value += statusRes.message;

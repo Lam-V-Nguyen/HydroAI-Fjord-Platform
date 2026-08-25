@@ -406,7 +406,7 @@ async function waqManager(){
             initial_area.value = content;
         });
     });
-    // Save and run water quality simulation
+    // Save water quality simulation
     document.querySelectorAll('.wq-simulation').forEach(btn => {
         btn.addEventListener('click', async () => {
             const name = obj.projectName.value.trim();
@@ -469,7 +469,9 @@ async function waqManager(){
                 sources: sourceTable.rows, obsPoints: obsTable.rows, loadsData: loadTable.rows, timeTable: timeData, 
                 initial: initialArea, maxiter: maxiter.value, tolerance: tolerance.value, scheme: scheme.value
             }
+            signalSender('showOverlay', "Saving water quality configurations.\nPlease wait...")
             const waq_config = await jsonLoader('waq_config_writer', params);
+            signalSender('hideOverlay'); await new Promise(resolve => setTimeout(resolve, 100));
             if (waq_config.status === 'error') { alert(waq_config.message); return; }
             alert(waq_config.message);
         });

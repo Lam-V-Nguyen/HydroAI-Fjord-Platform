@@ -14,37 +14,54 @@ export const gridId = 'grid-generation-map', flowId = 'flow-map',
     hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map',
     hydPrepareMapId = 'preparation-hyd-map';
 
-let state = {}, currentProjectId = null, pendingRequest = null, mapInstance = null;
-const getKey = (projectId) => `app_state_${projectId}`;
-const defaultState = {
-    currentProject: 'demo', waqModel: 'coliform',
-    currentParams: [
-        'FlowFM_his.zarr', 'FlowFM_map.zarr', 
-        'Coliform_his.zarr', 'Coliform_map.zarr'
-    ]
+const LAST_PROJECT_KEY = 'demo';
+export const getLastProject = () => {
+    return localStorage.getItem(LAST_PROJECT_KEY) || 'demo';
+}
+export const setLastProject = (projectId) => {
+    localStorage.setItem(LAST_PROJECT_KEY, projectId);
 }
 
-export const initState = (projectId) => {
-    currentProjectId = projectId;
-    state = loadState(projectId);
-};
+let pendingRequest = null, mapInstance = null;
 
-const loadState = (projectId) => {
-    const saved = localStorage.getItem(getKey(projectId));
-    return saved ? JSON.parse(saved) : structuredClone(defaultState);
-};
-const saveState = (projectId, state) => {
-    localStorage.setItem(getKey(projectId), JSON.stringify(state));
-};
-export const getState = () => state;
-export const setState = (newState) => {
-    state = { ...state, ...newState };
-    if (currentProjectId) saveState(currentProjectId, state);
-};
-export const resetState = () => {
-    state = structuredClone(defaultState);
-    if (currentProjectId) saveState(currentProjectId, state);
-};
+
+// const defaultState = {
+//     currentProject: 'demo', waqModel: 'coliform',
+//     currentParams: [
+//         'FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'
+//     ]
+// }
+// let state = structuredClone(defaultState), currentProjectId = null;
+
+// const getKey = (projectId) => `app_state_${projectId}`;
+
+
+
+
+// export const initState = (projectId) => {
+//     currentProjectId = projectId; state = loadState(projectId);
+//     return state;
+// };
+
+// const loadState = (projectId) => {
+//     const saved = localStorage.getItem(getKey(projectId));
+//     if (!saved) { return structuredClone(defaultState); }
+//     return {
+//         ...structuredClone(defaultState), ...JSON.parse(saved)
+//     };
+// };
+// const saveState = (projectId, state) => {
+//     localStorage.setItem(getKey(projectId), JSON.stringify(state));
+// };
+// export const getState = () => state;
+// export const setState = (newState) => {
+//     state = { ...state, ...newState };
+//     if (currentProjectId) saveState(currentProjectId, state);
+// };
+// export const resetState = () => {
+//     state = structuredClone(defaultState);
+//     if (currentProjectId) saveState(currentProjectId, state);
+// };
 
 export function getMap() { return mapInstance; }
 export function setMap(map) { mapInstance = map; }
@@ -95,11 +112,14 @@ function toSuperscript(num) {
     return String(num).split('').map(ch => superscriptMap[ch] || ch).join('');
 }
 
-
-
-
-
-
-
-
-
+export function getColors(nColors){
+    if (nColors === 5) return ['#0416FF', '#03FFF8', '#02FF07', '#EDFF01', '#FF1E00'];
+    else if (nColors === 10) return ['#0416FF', '#0094FF', '#03DAFF', '#00A305',
+        '#71E507', '#DBF400', '#FFD602', '#FF9B0F', '#FF6301', '#FF1E00'];
+    else if (nColors === 15) return ['#0416FF', '#035AFF', '#039EFF', '#03E3FF', 
+        '#03FFD6', '#02FF91', '#02FF4C', '#02FF07', '#41FF02', '#86FF02',
+        '#CBFF01', '#FFED01', '#FFA801', '#FF6301', '#FF1E00']
+    return ['#0416FF', '#0348FF', '#037AFF', '#03ADFF', '#03DFFF', '#03FFEC',
+        '#03FFB9', '#02FF86', '#02FF54', '#02FF21', '#16FF02', '#49FF02', '#7BFF02',
+        '#AEFF01', '#E1FF01', '#FFEA01', '#FFB701', '#FF8401', '#FF5101', '#FF1E00']
+}

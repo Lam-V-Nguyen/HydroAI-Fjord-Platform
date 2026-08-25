@@ -1,5 +1,6 @@
 import { toUTC } from "./projectSaver.js";
 import { origin } from "./constant.js";
+import { getColorFromValue } from "./unstructuredGrid.js";
 
 
 // const pendingRequests = new Map();
@@ -298,7 +299,10 @@ export function addRowToTable(table, list, fillValue=false){
     tbody.appendChild(tr);
 }
 
-export function nameChecker(name) { return !/^[A-Za-z0-9_-]+$/.test(name); }
+export function nameChecker(name) { 
+    const newName = !/^[A-Za-z0-9_-]+$/.test(name).replace(' ', '_');
+    return newName; 
+}
 
 export function copyPaste(table, nCols){
     const tbody = table.querySelector('tbody');
@@ -516,7 +520,19 @@ export function updateMapByTime(setFunction, getFunction, layerMap, values, vmin
     setFunction({ lastFeatureColors: getFunction().lastFeatureColors });
 }
 
+export async function getVisualizationFiles(user, project) {
+    const content = {userName: user, project: project};
+    const data = await jsonLoader('get_config_files', content);
+    if (data.status === "error") { alert(data.message); return; }
+    const waqName = data.waq_name, currentParams = data.current_params;
+    // model = getState()?.waqModel || 'coliform';
+    // currentParams = getState()?.currentParams || 
+    //     ['FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'];
+    // setState({ currentProject: currentProject, currentParams: currentParams, waqModel: model });
+    // waqName = currentParams[2].replace('_his.zarr', '');
 
+    return [currentParams, waqName];
+}
 
 
 

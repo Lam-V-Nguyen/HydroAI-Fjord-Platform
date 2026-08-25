@@ -1,5 +1,9 @@
-import { L, getState, setState, initState } from "./constant.js";
-import { getUser, signalSender, jsonLoader, moveWindow, closeWindow } from "./commonFunctions.js";
+import { L
+// , getState, initState , setState
+} from "./constant.js";
+import { getUser, signalSender, jsonLoader,
+    moveWindow, closeWindow, getVisualizationFiles
+} from "./commonFunctions.js";
 import { locationFinder, initializeMenu, projectChecker } from "./visualization.js";
 import { initMap } from "./visualizationMap.js";
 
@@ -18,8 +22,8 @@ const obj = {
 }
 
 
-let currentProject = null, currentParams = null, userName = null, mapObj = null,
-    model = null, waqName = null, hideTimeout = null, gisLayers = {};
+let currentProject = null, currentParams = null, userName = null,
+    mapObj = null, waqName = null, hideTimeout = null, gisLayers = {};
 
 
 await getProject(); mapObj = await initMap('leaflet-map'); updateManager();
@@ -27,24 +31,13 @@ await getProject(); mapObj = await initMap('leaflet-map'); updateManager();
 
 export async function getProject() { 
     userName = await getUser();
-    let user = userName.split('/').pop();
-    initState(user);
+    const project = userName.split('/'); currentProject = project[1];
+    [currentParams, waqName] = await getVisualizationFiles(project[0], currentProject);
 
-    console.log(getState().currentProject, getState().currentParams, getState.waqModel);
+    console.log('visualization Manager', currentParams, waqName);
 
-    // currentProject = getState()?.currentProject || 'demo';
-    // model = getState()?.waqModel || 'coliform';
-    // currentParams = getState()?.currentParams || 
-    //     ['FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'];
-    // setState({ currentProject: currentProject, currentParams: currentParams, waqModel: model });
-    // waqName = currentParams[2].replace('_his.zarr', '');
-    // const message = `Initializing project '${getState().currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
-
-    
-
-    // await projectChecker(
-    //     getState().currentProject, getState().currentParams, getState().waqModel, message
-    // );
+    // const message = `Initializing project '${currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
+    // await projectChecker(currentProject, currentParams, waqName, message);
 }
 
 function updateManager() { 
@@ -72,8 +65,8 @@ function updateManager() {
             const params = [
                 'FlowFM_his.zarr', 'FlowFM_map.zarr', `${waqName}_his.zarr`, `${waqName}_map.zarr`
             ];
-            setState({ currentParams: params }); setState({ waqModel: modelType });
-            await projectChecker(getState().currentProject, params, modelType, message, false);
+            // setState({ currentParams: params }); setState({ waqModel: modelType });
+            // await projectChecker(getState().currentProject, params, modelType, message, false);
             initializeMenu(waqName); 
         }
     });

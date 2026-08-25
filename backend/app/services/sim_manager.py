@@ -38,10 +38,11 @@ async def sim_log_full(project_name: str, log_file: str = Query(""), user=Depend
 async def check_sim_status_hyd(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    info = processes.get(project_name)
+    process_key = f"{project_name}:sim_hyd"
+    info = processes.get(process_key)
     if not info: 
         return JSONResponse({"status": "not_started", "progress": 0, "message": 'No simulation running'})
-    if info["status"] in ("finished", "failed", "error"): processes.pop(project_name, None)
+    if info["status"] in ("finished", "failed", "error"): processes.pop(process_key, None)
     if info["status"] == "finished":
         return JSONResponse({"status": "finished", "progress": 100,
             "message": info.get("message", 'Simulation completed')})
@@ -57,13 +58,13 @@ async def check_sim_status_hyd(request: Request, user=Depends(functions.basic_au
 @router.post("/start_sim_hyd")
 async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
-    project_name, project_id = functions.project_definer(body.get('projectName'), user)
-    redis = request.app.state.redis
-    lock = redis.lock(f"{project_id}:sim_hyd", timeout=1000, blocking_timeout=10)
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    redis, process_key = request.app.state.redis, f"{project_name}:sim_hyd"
+    lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
     async with lock:
         # Check if simulation already running
-        if project_name in processes and processes[project_name]["status"] == "running":
-            info = processes[project_name]
+        if project_name in processes and processes[process_key]["status"] == "running":
+            info = processes[process_key]
             complete = f'HYD simulation completed: {info["progress"]}% [Time used: {info["time_used"]} → Time left: {info["time_left"]}]'
             return JSONResponse({"status": "running", "progress": info["progress"], "message": complete})
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
@@ -83,60 +84,60 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
         command = ["cmd.exe", "/c", bat_path, "--autostartstop", mdu_path]
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             encoding="utf-8", errors="replace", bufsize=1, cwd=path)
-        processes[project_name] = {"process": process, "progress": 0.0, "status": "running", 
+        processes[process_key] = {"process": process, "progress": 0.0, "status": "running", 
             "message": 'Preparing data for simulation...', "time_used": "N/A", "time_left": "N/A"}
         # Stream logs
         def stream_logs():
             try:
                 for line in process.stdout:
-                    proc_info = processes.get(project_name)
+                    proc_info = processes.get(process_key)
                     if not proc_info: return
                     line = line.strip()
                     if not line: continue
                     functions.append_log(log_path, line)
                     # Catch error messages
                     if "forrtl:" in line.lower() or "error" in line.lower():
-                        processes[project_name]["status"] = "error"
-                        processes[project_name]["message"] = line
+                        processes[process_key]["status"] = "error"
+                        processes[process_key]["message"] = line
                         functions.append_log(log_path, line)
                         res = functions.kill_process(process)
                         functions.append_log(log_path, res["message"])
                         return
                     # Check for progress
                     match_pct = percent_re.search(line)
-                    if match_pct: processes[project_name]["progress"] = float(match_pct.group("percent"))
+                    if match_pct: processes[process_key]["progress"] = float(match_pct.group("percent"))
                     # Extract run time
                     times = time_re.findall(line)
                     if len(times) >= 4:
-                        processes[project_name]["time_used"] = times[2]
-                        processes[project_name]["time_left"] = times[3]
+                        processes[process_key]["time_used"] = times[2]
+                        processes[process_key]["time_left"] = times[3]
                     elif len(times) == 3:
-                        processes[project_name]["time_used"] = times[1]
-                        processes[project_name]["time_left"] = times[2]
+                        processes[process_key]["time_used"] = times[1]
+                        processes[process_key]["time_left"] = times[2]
             except Exception as e:
-                proc_info = processes.get(project_name)
+                proc_info = processes.get(process_key)
                 if proc_info:
-                    processes[project_name]["status"] = "failed"
-                    processes[project_name]["message"] = f"Internal error: {e}"
+                    processes[process_key]["status"] = "failed"
+                    processes[process_key]["message"] = f"Internal error: {e}"
                 functions.append_log(log_path, f"[INTERNAL ERROR] {e}")
             finally:
                 process.wait()
-                proc_info = processes.get(project_name)
+                proc_info = processes.get(process_key)
                 if not proc_info or proc_info["status"] == "error": return
-                processes[project_name]["status"] = "reorganizing"
-                processes[project_name]["message"] = "Reorganizing outputs. Please wait..."
-                processes[project_name]["progress"] = 100.0
+                processes[process_key]["status"] = "reorganizing"
+                processes[process_key]["message"] = "Reorganizing outputs. Please wait..."
+                processes[process_key]["progress"] = 100.0
                 try:
                     post_result = functions.postProcess(path)
                     if post_result["status"] != "ok":
-                        processes[project_name]["status"] = "error"
-                        processes[project_name]["message"] = post_result["message"]
+                        processes[process_key]["status"] = "error"
+                        processes[process_key]["message"] = post_result["message"]
                     else:
-                        processes[project_name]["status"] = "finished"
-                        processes[project_name]["message"] = "Simulation completed"
+                        processes[process_key]["status"] = "finished"
+                        processes[process_key]["message"] = "Simulation completed"
                 except Exception as e:
-                    processes[project_name]["status"] = "failed"
-                    processes[project_name]["message"] = f"Simulation failed: {e}"
+                    processes[process_key]["status"] = "failed"
+                    processes[process_key]["message"] = f"Simulation failed: {e}"
         threading.Thread(target=stream_logs, daemon=True).start()
     return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started"})
 
@@ -157,10 +158,11 @@ async def sim_log_tail_hyd(project_name: str, offset: int = Query(0),
 async def check_sim_status_waq(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    info = processes.get(project_name)
+    process_key = f"{project_name}:{body.get('waqName')}"
+    info = processes.get(process_key)
     if not info:
         return JSONResponse({"status": "not_started", "progress": 0, "message": 'Simulation not started yet'})
-    if info["status"] in ("finished", "failed", "error"): processes.pop(project_name, None)
+    if info["status"] in ("finished", "failed", "error"): processes.pop(process_key, None)
     if info["status"] == "finished":
         return JSONResponse({"status": "finished", "progress": 100,
             "message": info.get("message", 'Simulation completed')})
@@ -176,20 +178,21 @@ async def check_sim_status_waq(request: Request, user=Depends(functions.basic_au
 @router.post("/start_sim_waq")
 async def start_sim_waq(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
-    project_name, project_id = functions.project_definer(body.get('projectName'), user)
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
     waq_name = body.get('waqName')
-    redis = request.app.state.redis
-    lock = redis.lock(f"{project_id}:{waq_name}", timeout=1000, blocking_timeout=10)
+    redis, process_key = request.app.state.redis, f"{project_name}:{waq_name}"
+    lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
     async with lock:
-        if project_name in processes and processes[project_name]["status"] == "running":
-            old = processes[project_name]["status"]
-            if old in ("finished", "error"): processes.pop(project_name)
-            return JSONResponse({"status": old, "message": processes[project_name]["message"]})
+        if process_key in processes and processes[process_key]["status"] == "running":
+            old = processes[process_key]["status"]
+            if old in ("finished", "error"): processes.pop(process_key)
+            return JSONResponse({"status": old, "message": processes[process_key]["message"]})
         asyncio.create_task(run_waq_simulation(project_name, waq_name))
     return JSONResponse({"status": "ok", "message": "Simulation started"})
 
 async def run_waq_simulation(project_name, waq_name):
-    processes[project_name] = {"status": "not_started", "progress": 0, "message": "", "process": None}
+    process_key = f"{project_name}:{waq_name}"
+    processes[process_key] = {"status": "not_started", "progress": 0, "message": "", "process": None}
     log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "log_waq.txt"))
     if os.path.exists(log_path): os.remove(log_path)
     log_file = open(log_path, "a", encoding=functions.encoding_detect(log_path), errors="replace")
@@ -201,8 +204,8 @@ async def run_waq_simulation(project_name, waq_name):
     config_file = os.path.normpath(os.path.join(config_path, f"{waq_name}.json"))
     if not os.path.exists(config_file):
         log_file.write("Configuration file not found.\n")
-        processes[project_name]["status"] = "error"
-        processes[project_name]["message"] = "Configuration file not found."
+        processes[process_key]["status"] = "error"
+        processes[process_key]["message"] = "Configuration file not found."
         log_file.flush(); log_file.close()
         return
     log_file.write("Configuration file found. Reading configuration ...\n")
@@ -257,7 +260,7 @@ async def run_waq_simulation(project_name, waq_name):
         inp_file, message = waq_model[0], waq_model[1]
         if inp_file is None:
             log_file.write(f"Error: {message}.\n")
-            processes[project_name]['status'], processes[project_name]['message'] = "error", message
+            processes[process_key]['status'], processes[process_key]['message'] = "error", message
             log_file.flush(); log_file.close()
             return
         # Check if all paths are valid to run the simulation
@@ -268,8 +271,8 @@ async def run_waq_simulation(project_name, waq_name):
         for path in paths_to_check:
             if not os.access(path, os.R_OK):
                 log_file.write(f"No read permission: {path}\n")
-                processes[project_name]["status"] = "error"
-                processes[project_name]["message"] = "No read permission"
+                processes[process_key]["status"] = "error"
+                processes[process_key]["message"] = "No read permission"
                 log_file.flush(); log_file.close()
                 return
         # Run Simulation and get output
@@ -278,7 +281,7 @@ async def run_waq_simulation(project_name, waq_name):
         command = [bat_path, inp_name, "-p", proc_path.replace(".def", ""), "-eco", bloom_path]
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=output_folder)
-        processes[project_name] = {"process": process, "progress": 0.0, 
+        processes[process_key] = {"process": process, "progress": 0.0, 
             "status": "running", "message": 'Checking inputs for WAQ simulation...'}
         log_file.write("Checking inputs for WAQ simulation\n\n")
         log_file.write("=== Starting simulation ===\n\n")
@@ -291,29 +294,29 @@ async def run_waq_simulation(project_name, waq_name):
                     log_file.write(line + "\n")
                     if "ERROR in GMRES" in line:
                         log_file.write(line + "\n")
-                        processes[project_name]["status"] = "error" 
-                        processes[project_name]["message"] = "GMRES solver failed.Consider increasing the maximum number of iterations."
+                        processes[process_key]["status"] = "error" 
+                        processes[process_key]["message"] = "GMRES solver failed.Consider increasing the maximum number of iterations."
                         res = functions.kill_process(process)
                         log_file.write(f'{res["message"]}\n')
                         log_file.write("\n\nGMRES solver failed.\nConsider increasing the maximum number of iterations.\n")
                         break
                     # Check for progress
                     match_pct = progress_regex.search(line)
-                    if match_pct: processes[project_name]["progress"] = float(match_pct.group(1))
+                    if match_pct: processes[process_key]["progress"] = float(match_pct.group(1))
             except Exception as e:
-                proc_info = processes.get(project_name)
+                proc_info = processes.get(process_key)
                 if proc_info:
-                    processes[project_name]["status"] = "failed"
-                    processes[project_name]["message"] = f"Internal error: {e}"
+                    processes[process_key]["status"] = "failed"
+                    processes[process_key]["message"] = f"Internal error: {e}"
                 log_file.write(f"Internal error: {e}\n")
             finally:
                 process.wait()
-                proc_info = processes.get(project_name)
+                proc_info = processes.get(process_key)
                 if not proc_info or proc_info["status"] == "error": return
                 try:
-                    processes[project_name]["progress"] = 100.0
-                    processes[project_name]["status"] = "reorganizing"
-                    processes[project_name]["message"] = "Reorganizing outputs. Please wait..."
+                    processes[process_key]["progress"] = 100.0
+                    processes[process_key]["status"] = "reorganizing"
+                    processes[process_key]["message"] = "Reorganizing outputs. Please wait..."
                     output_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "output"))
                     if not os.path.exists(output_dir): os.makedirs(output_dir)
                     output_WAQ_dir = os.path.normpath(os.path.join(output_dir, 'WAQ'))
@@ -339,17 +342,17 @@ async def run_waq_simulation(project_name, waq_name):
                             functions.safe_remove(src)
                     # Delete folder
                     if os.path.exists(wq_folder): shutil.rmtree(wq_folder, onerror=functions.remove_readonly)
-                    processes[project_name]["status"] = "finished"
-                    processes[project_name]["message"] = f"Simulation completed"
+                    processes[process_key]["status"] = "finished"
+                    processes[process_key]["message"] = f"Simulation completed"
                     log_file.write(f"\n=== Simulation {project_name} completed ===")
                     log_file.flush(); log_file.close()
                 except Exception as e:
-                    processes[project_name]["status"], processes[project_name]["message"] = "failed", f"Simulation failed: {e}"
+                    processes[process_key]["status"], processes[process_key]["message"] = "failed", f"Simulation failed: {e}"
                     log_file.write(f"Simulation failed: {e}")
                     log_file.flush(); log_file.close()
         threading.Thread(target=stream_logs, daemon=True).start()
     except Exception as e:
-        processes[project_name]["status"], processes[project_name]["message"] = "error", str(e)
+        processes[process_key]["status"], processes[process_key]["message"] = "error", str(e)
         print('/run_waq_simulation:\n==============')
         traceback.print_exc()
         log_file.write(f"Error running simulation: {str(e)}")

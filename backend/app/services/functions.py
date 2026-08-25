@@ -14,6 +14,7 @@ from services import constants
 variablesNames = constants.variablesNames
 units = constants.units
 
+
 def encoding_detect(file_path: str) -> str:
     """Detect the encoding of a file."""
     encoding = 'utf-8'
@@ -25,6 +26,14 @@ def encoding_detect(file_path: str) -> str:
     return encoding
 
 USERS = json.load(open(ALLOWED_USERS, "r", encoding=encoding_detect(ALLOWED_USERS)))
+
+def encode_array(arr: np.ndarray) -> str:
+    arr = arr.astype(np.float32)
+    return base64.b64encode(arr.tobytes()).decode()
+
+def decode_array(b64_str: str, shape, dtype=np.float32) -> np.ndarray:
+    arr = np.frombuffer(base64.b64decode(b64_str), dtype=dtype)
+    return arr.reshape(shape)
 
 def basic_auth(credentials: HTTPBasicCredentials=Depends(HTTPBasic())):
     username, password = credentials.username, credentials.password
@@ -102,7 +111,6 @@ def append_log(log_path, text):
     with open(log_path, "a", encoding=encoding_detect(log_path), errors="replace") as f:
         f.write(text.strip() + "\n")
         f.flush()
-
 
 def interpolation_Z(grid_net: gpd.GeoDataFrame, x_coords: np.ndarray, y_coords: np.ndarray,
     z_values: np.ndarray, n_neighbors: int=2, geo_type: str='polygon') -> np.ndarray:
@@ -276,3 +284,589 @@ async def load_dataset_cached(project_cache, key, dm, dir_path, filename):
     ds = dm.get(path)
     project_cache[key] = ds
     return ds
+
+def checkVariables(data: xr.Dataset, variablesNames: str) -> bool:
+    if variablesNames not in data.variables: return False
+    var = data[variablesNames]
+    if var.size == 0: return False # Empty variable
+    # Check if all values are NaN in a sample slice
+    if np.isnan(var.data.compute()).all(): return False
+    # Check if min and max are the same value
+    vmin, vmax = var.min(skipna=True).compute(), var.max(skipna=True).compute()
+    if float(vmin) < -900 and float(vmax) < -900: return False
+    return bool(float(vmin) != float(vmax))
+
+def getVariablesNames(out_files: list, model_type: str='', filename: str='') -> dict:
+    result = {}
+    for data in out_files:
+        if data is None: continue
+        # This is a hydrodynamic his file
+        if 'time' in data.sizes and any(k in data.sizes for k in ['stations', 'cross_section', 'source_sink']):
+            print(f"- Checking Hydrodynamic Simulation: His file...")
+            # Prepare data for hydrodynamic options
+            result['hyd_obs'] = data.sizes['stations'] > 0 if ('stations' in data.sizes) else False
+            result['cross_sections'] = False
+            if 'cross_section' in data.sizes and data.sizes['cross_section'] > 0:
+                x = da.unique(data['cross_section_geom_node_coordx'].data).compute()
+                y = da.unique(data['cross_section_geom_node_coordy'].data).compute()
+                if (x.shape[0] > 1 and y.shape[0] > 1): result['cross_sections'] = True
+            result['sources'] = data.sizes['source_sink'] > 0 if ('source_sink' in data.sizes) else False
+            # Prepare data for measured locations
+            # 1. Observation points
+            # 1.1. Hydrodynamics
+            result['hyd_waterlevel'] = checkVariables(data, 'waterlevel')
+            result['hyd_waterdepth'] = checkVariables(data, 'waterdepth')
+            # 1.2. Meteorology
+            result['hyd_total_heat_flux'] = checkVariables(data, 'Qtot')
+            result['hyd_precipitation_rate'] = checkVariables(data, 'rain')
+            result['hyd_wind_speed'] = checkVariables(data, 'wind')
+            result['hyd_air_temperature'] = checkVariables(data, 'Tair')
+            result['hyd_relative_humidity'] = checkVariables(data, 'rhum')
+            result['hyd_solar_influx'] = checkVariables(data, 'Qsun')
+            result['hyd_evaporative_heat_flux'] = checkVariables(data, 'Qeva')
+            result['hyd_free_convection_evaporative_heat_flux'] = checkVariables(data, 'Qfreva')
+            result['hyd_sensible_heat_flux'] = checkVariables(data, 'Qcon')
+            result['hyd_free_convection_sensible_heat_flux'] = checkVariables(data, 'Qfrcon')
+            result['hyd_long_wave_back_radiation'] = checkVariables(data, 'Qlong')
+            result['hyd_cloudiness'] = checkVariables(data, 'clou')
+            result['hyd_meteorology'] = True if (result['hyd_total_heat_flux'] or
+                result['hyd_precipitation_rate'] or result['hyd_wind_speed'] or
+                result['hyd_air_temperature'] or result['hyd_relative_humidity'] or
+                result['hyd_solar_influx'] or result['hyd_evaporative_heat_flux'] or
+                result['hyd_free_convection_evaporative_heat_flux'] or
+                result['hyd_sensible_heat_flux'] or result['hyd_free_convection_sensible_heat_flux'] or
+                result['hyd_long_wave_back_radiation'] or result['hyd_cloudiness']) else False
+            # 2. Sources/Sinks Points
+            if result['sources']:
+                result['source_prescribed_discharge'] = checkVariables(data, 'source_sink_prescribed_discharge')
+                result['source_prescribed_salinity'] = checkVariables(data, 'source_sink_prescribed_salinity_increment')
+                result['source_prescribed_temperature'] = checkVariables(data, 'source_sink_prescribed_temperature_increment')
+                result['source_current_discharge'] = checkVariables(data, 'source_sink_current_discharge')
+                result['source_cumulative_volume'] = checkVariables(data, 'source_sink_cumulative_volume')
+                result['source_average_discharge'] = checkVariables(data, 'source_sink_discharge_average')
+            # 3. Cross sections
+            if result['cross_sections']:
+                result['cross_sections_velocity'] = checkVariables(data, 'cross_section_velocity')
+                result['cross_sections_area'] = checkVariables(data, 'cross_section_area')
+                result['cross_sections_discharge'] = checkVariables(data, 'cross_section_discharge')
+                result['cross_sections_cumulative_discharge'] = checkVariables(data, 'cross_section_cumulative_discharge')
+                result['cross_section_salt'] = checkVariables(data, 'cross_section_salt')
+                result['cross_sections_cumulative_salt'] = checkVariables(data, 'cross_section_cumulative_salt')
+                result['cross_section_temperature'] = checkVariables(data, 'cross_section_temperature')
+                result['cross_section_cumulative_temperature'] = checkVariables(data, 'cross_section_cumulative_temperature')
+                result['cross_section_contaminant'] = checkVariables(data, 'cross_section_Contaminant')
+                result['cross_section_cumulative_contaminant'] = checkVariables(data, 'cross_section_cumulative_Contaminant')
+            # 4. Hydrodynamic Water balance
+            result['hyd_wb_total_volume'] = checkVariables(data, 'water_balance_total_volume')
+            result['hyd_wb_storage'] = checkVariables(data, 'water_balance_storage')
+            result['hyd_wb_inflow_boundaries'] = checkVariables(data, 'water_balance_boundaries_in')
+            result['hyd_wb_outflow_boundaries'] = checkVariables(data, 'water_balance_boundaries_out')
+            result['hyd_wb_total_boundaries'] = checkVariables(data, 'water_balance_boundaries_total')
+            result['hyd_wb_total_precipitation'] = checkVariables(data, 'water_balance_precipitation_total')
+            result['hyd_wb_total_evaporation'] = checkVariables(data, 'water_balance_evaporation')
+            result['hyd_wb_source_sink'] = checkVariables(data, 'water_balance_source_sink')
+            result['hyd_wb_inflow_groundwater'] = checkVariables(data, 'water_balance_groundwater_in')
+            result['hyd_wb_outflow_groundwater'] = checkVariables(data, 'water_balance_groundwater_out')
+            result['hyd_wb_total_groundwater'] = checkVariables(data, 'water_balance_groundwater_total')
+            result['hyd_wb_ground_precipitation'] = checkVariables(data, 'water_balance_precipitation_on_ground')
+            result['hyd_wb_volume_error'] = checkVariables(data, 'water_balance_volume_error')
+            result['hyd_water_balance'] = True if (result['hyd_wb_total_volume'] or
+                result['hyd_wb_inflow_boundaries'] or result['hyd_wb_outflow_boundaries'] or
+                result['hyd_wb_total_boundaries'] or result['hyd_wb_total_precipitation'] or
+                result['hyd_wb_total_evaporation'] or result['hyd_wb_source_sink'] or
+                result['hyd_wb_inflow_groundwater'] or result['hyd_wb_outflow_groundwater'] or
+                result['hyd_wb_total_groundwater'] or result['hyd_wb_ground_precipitation'] or
+                result['hyd_wb_storage'] or result['hyd_wb_volume_error']) else False
+        # This is a hydrodynamic map file
+        elif ('time' in data.sizes and any(k in data.sizes for k in ['mesh2d_nNodes', 'mesh2d_nEdges'])):
+            print(f"- Checking Hydrodynamic Simulation: Map file...")
+            result['z_layers'] = checkVariables(data, 'mesh2d_layer_z')
+            # Prepare data for thermocline parameters
+            # 1. Thermocline
+            result['thermocline_hyd'] = checkVariables(data, 'mesh2d_tem1')
+            # 2. Spatial single layer hydrodynamic maps
+            result['hyd_wl_dynamic'] = checkVariables(data, 'mesh2d_s1')
+            result['hyd_wd_dynamic'] = checkVariables(data, 'mesh2d_waterdepth')
+            result['single_layer'] = True if (result['hyd_wl_dynamic'] or result['hyd_wd_dynamic']) else False
+            # 3. Spatial multi layer hydrodynamic maps
+            result['spatial_salinity'] = checkVariables(data, 'mesh2d_sa1')
+            result['spatial_contaminant'] = checkVariables(data, 'mesh2d_Contaminant')
+            result['multi_layer'] = True if (result['thermocline_hyd'] or
+                result['spatial_salinity'] or result['spatial_contaminant']) else False
+            # 4. Spatial static maps
+            result['waterdepth_static'] = checkVariables(data, 'mesh2d_waterdepth')
+            result['spatial_static'] = True if (result['waterdepth_static']) else False
+            result['spatial_map'] = True if (result['single_layer'] or result['multi_layer']) else False
+            result['hide_map'] = result['spatial_map']
+        # This is a water quality his file
+        elif ('nTimesDlwq' in data.sizes and not any(k in data.sizes for k in ['mesh2d_nNodes', 'mesh2d_nEdges'])):
+            print(f"- Checking Water Quality Simulation: His file...")
+            variables = set(data.variables.keys()) - set(['nTimesDlwqBnd', 'station_name', 'station_x', 'station_y', 'station_z', 'nTimesDlwq'])
+            result['waq_his'] = False
+            # Prepare data for Physical option
+            # 1. Conservative and Decaying Tracers
+            if model_type == 'conservative-tracers':
+                result['waq_his_conservative_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_conservative_selector'].append(item)
+                if len(result['waq_his_conservative_selector']) > 0:
+                    result['waq_his_conservative_decay'] = True
+                    result['waq_his_conservative_decay_name'] = filename
+                else:
+                    result['waq_his_conservative_decay'] = False
+                    result['waq_his_conservative_decay_name'] = 'Conservative and decaying tracers'
+                result['waq_his'] = result['waq_his_conservative_decay']
+            # 2. Suspended Sediment
+            elif model_type == 'suspend-sediment':
+                result['waq_his_suspended_sediment_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_suspended_sediment_selector'].append(item)
+                if len(result['waq_his_suspended_sediment_selector']) > 0:
+                    result['waq_his_suspended_sediment'] = True
+                    result['waq_his_suspended_sediment_name'] = filename
+                else:
+                    result['waq_his_suspended_sediment'] = False
+                    result['waq_his_suspended_sediment_name'] = 'Suspended Sediment (three fractions)'
+                result['waq_his'] = result['waq_his_suspended_sediment']
+            # Prepare data for Chemical option
+            # 1. Simple Oxygen
+            elif model_type == 'simple-oxygen':
+                result['waq_his_simple_oxygen_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_simple_oxygen_selector'].append(item)
+                if len(result['waq_his_simple_oxygen_selector']) > 0:
+                    result['waq_his_simple_oxygen'] = True
+                    result['waq_his_simple_oxygen_name'] = filename
+                else:
+                    result['waq_his_simple_oxygen'] = False
+                    result['waq_his_simple_oxygen_name'] = 'Simple Oxygen'
+                result['waq_his'] = result['waq_his_simple_oxygen']
+            # 2. Oxygen and BOD (water phase only)
+            elif model_type == 'oxygen-bod-water':
+                result['waq_his_oxygen_bod_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_oxygen_bod_selector'].append(item)            
+                if len(result['waq_his_oxygen_bod_selector']) > 0:
+                    result['waq_his_oxygen_bod'] = True
+                    result['waq_his_oxygen_bod_name'] = filename
+                else:
+                    result['waq_his_oxygen_bod'] = False
+                    result['waq_his_oxygen_bod_name'] = 'Oxygen and BOD (water phase only)'
+                result['waq_his'] = result['waq_his_oxygen_bod']
+            # 3. Cadmium
+            elif model_type == 'cadmium':
+                result['waq_his_cadmium_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_cadmium_selector'].append(item)
+                if len(result['waq_his_cadmium_selector']) > 0:
+                    result['waq_his_cadmium'] = True
+                    result['waq_his_cadmium_name'] = filename
+                else:
+                    result['waq_his_cadmium'] = False
+                    result['waq_his_cadmium_name'] = 'Cadmium'
+                result['waq_his'] = result['waq_his_cadmium']
+            # 4. Eutrophication
+            elif model_type == 'eutrophication':
+                result['waq_his_eutrophication_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_eutrophication_selector'].append(item)
+                if len(result['waq_his_eutrophication_selector']) > 0:
+                    result['waq_his_eutrophication'] = True
+                    result['waq_his_eutrophication_name'] = filename
+                else:
+                    result['waq_his_eutrophication'] = False
+                    result['waq_his_eutrophication_name'] = 'Eutrophication'
+                result['waq_his'] = result['waq_his_eutrophication']
+            # 5. Trace Metals
+            elif model_type == 'trace-metals':
+                result['waq_his_trace_metals_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_trace_metals_selector'].append(item)
+                if len(result['waq_his_trace_metals_selector']) > 0:
+                    result['waq_his_trace_metals'] = True
+                    result['waq_his_trace_metals_name'] = filename
+                else:
+                    result['waq_his_trace_metals'] = False
+                    result['waq_his_trace_metals_name'] = 'Trace Metals'
+                result['waq_his'] = result['waq_his_trace_metals']
+            # Prepare data for Microbial option
+            elif model_type == 'coliform':
+                result['waq_his_coliform_selector'] = []
+                for item in variables:
+                    if checkVariables(data, item): result['waq_his_coliform_selector'].append(item)
+                if len(result['waq_his_coliform_selector']) > 0:
+                    result['waq_his_coliform'] = True
+                    result['waq_his_coliform_name'] = filename
+                else:
+                    result['waq_his_coliform'] = False
+                    result['waq_his_coliform_name'] = 'Coliform Bacteria'
+                result['waq_his'] = result['waq_his_coliform']
+        # This is a water quality map file      
+        elif ('nTimesDlwq' in data.sizes and any(k in data.sizes for k in ['mesh2d_nNodes', 'mesh2d_nEdges'])):
+            print(f'- Checking Water Quality Simulation: Map file...')
+            result['wq_map'] = result['thermocline_waq'] = False
+            variables = set(data.variables.keys()) - set(['mesh2d', 'mesh2d_node_x', 'mesh2d_node_y', 'mesh2d_edge_x',
+                'mesh2d_edge_y', 'mesh2d_face_x_bnd', 'mesh2d_face_y_bnd', 'mesh2d_edge_nodes', 'mesh2d_edge_faces',
+                'mesh2d_face_nodes', 'mesh2d_layer_dlwq', 'nTimesDlwqBnd', 'mesh2d_face_x', 'mesh2d_face_y', 'nTimesDlwq'])
+            # Prepare data for Physical option
+            # 1. Conservative and Decaying Tracers
+            if model_type == 'conservative-tracers':
+                result['waq_map_conservative_selector'], result['waq_map_conservative_decay'] = [], False
+                result['waq_map_conservative_decay_name'] = 'Conservative and decaying tracers'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item): 
+                        elements_check = {x[0] for x in result['waq_map_conservative_selector']}
+                        if item1 not in elements_check: result['waq_map_conservative_selector'].append(item1)
+                result['waq_map_conservative_selector'] = list(dict.fromkeys(result['waq_map_conservative_selector']))
+                if len(result['waq_map_conservative_selector']) > 0:
+                    result['wq_map'] = result['waq_map_conservative_decay'] = result['thermocline_waq'] = True
+                    result['waq_map_conservative_decay_name'] = filename
+            # 2. Suspended Sediment
+            elif model_type == 'suspend-sediment':
+                result['waq_map_suspended_sediment_selector'], result['waq_map_suspended_sediment'] = [], False
+                result['waq_map_suspended_sediment_name'] = 'Suspended sediment (three fractions)'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_suspended_sediment_selector']}
+                        if item1 not in elements_check: result['waq_map_suspended_sediment_selector'].append(item1)
+                result['waq_map_suspended_sediment_selector'] = list(dict.fromkeys(result['waq_map_suspended_sediment_selector']))
+                if len(result['waq_map_suspended_sediment_selector']) > 0:
+                    result['wq_map'] = result['waq_map_suspended_sediment'] = result['thermocline_waq'] = True
+                    result['waq_map_suspended_sediment_name'] = filename
+            # Prepare data for Chemical option
+            # 1. Simple Oxygen
+            elif model_type == 'simple-oxygen':
+                result['waq_map_simple_oxygen_selector'], result['waq_map_simple_oxygen'] = [], False
+                result['waq_map_simple_oxygen_name'] = 'Simple Oxygen'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_simple_oxygen_selector']}
+                        if item1 not in elements_check: result['waq_map_simple_oxygen_selector'].append(item1)
+                result['waq_map_simple_oxygen_selector'] = list(dict.fromkeys(result['waq_map_simple_oxygen_selector']))
+                if len(result['waq_map_simple_oxygen_selector']) > 0:
+                    result['wq_map'] = result['waq_map_simple_oxygen'] = result['thermocline_waq'] = True
+                    result['waq_map_simple_oxygen_name'] = filename
+            # 2. Oxygen and BOD (water phase only)
+            elif model_type == 'oxygen-bod-water':
+                result['waq_map_oxygen_bod_selector'], result['waq_map_oxygen_bod'] = [], False
+                result['waq_map_oxygen_bod_name'] = 'Oxygen and BOD (water phase only)'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_oxygen_bod_selector']}
+                        if item1 not in elements_check: result['waq_map_oxygen_bod_selector'].append(item1)
+                result['waq_map_oxygen_bod_selector'] = list(dict.fromkeys(result['waq_map_oxygen_bod_selector']))
+                if len(result['waq_map_oxygen_bod_selector']) > 0:  
+                    result['wq_map'] = result['waq_map_oxygen_bod'] = result['thermocline_waq'] = True
+                    result['waq_map_oxygen_bod_name'] = filename
+            # 3. Cadmium
+            elif model_type == 'cadmium':
+                result['waq_map_cadmium_selector'], result['waq_map_cadmium'] = [], False
+                result['waq_map_cadmium_name'] = 'Cadmium'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_cadmium_selector']}
+                        if item1 not in elements_check: result['waq_map_cadmium_selector'].append(item1)
+                result['waq_map_cadmium_selector'] = list(dict.fromkeys(result['waq_map_cadmium_selector']))
+                if len(result['waq_map_cadmium_selector']) > 0:
+                    result['wq_map'] = result['waq_map_cadmium'] = result['thermocline_waq'] = True
+                    result['waq_map_cadmium_name'] = filename
+            # 4. Eutrophication
+            elif model_type == 'eutrophication':
+                result['waq_map_eutrophication_selector'], result['waq_map_eutrophication'] = [], False
+                result['waq_map_eutrophication_name'] = 'Eutrophication'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_eutrophication_selector']}
+                        if item1 not in elements_check: result['waq_map_eutrophication_selector'].append(item1)
+                result['waq_map_eutrophication_selector'] = list(dict.fromkeys(result['waq_map_eutrophication_selector']))
+                if len(result['waq_map_eutrophication_selector']) > 0:
+                    result['wq_map'] = result['waq_map_eutrophication'] = result['thermocline_waq'] = True
+                    result['waq_map_eutrophication_name'] = filename
+            # 5. Trace Metals
+            elif model_type == 'trace-metals':
+                result['waq_map_trace_metals_selector'], result['waq_map_trace_metals'] = [], False
+                result['waq_map_trace_metals_name'] = 'Trace Metals'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x[0] for x in result['waq_map_trace_metals_selector']}
+                        if item1 not in elements_check: result['waq_map_trace_metals_selector'].append(item1)
+                result['waq_map_trace_metals_selector'] = list(dict.fromkeys(result['waq_map_trace_metals_selector']))
+                if len(result['waq_map_trace_metals_selector']) > 0:
+                    result['wq_map'] = result['waq_map_trace_metals'] = result['thermocline_waq'] = True
+                    result['waq_map_trace_metals_name'] = filename
+            # Prepare data for Microbial option
+            elif model_type == 'coliform':
+                result['waq_map_coliform_selector'], result['waq_map_coliform'] = [], False
+                result['waq_map_coliform_name'] = 'Coliform Bacteria'
+                for item in variables:
+                    item1 = item.replace('mesh2d_', '').replace('2d_', '')
+                    if checkVariables(data, item):
+                        elements_check = {x for x in result['waq_map_coliform_selector']}
+                        if item1 not in elements_check: result['waq_map_coliform_selector'].append(item1)
+                result['waq_map_coliform_selector'] = list(dict.fromkeys(result['waq_map_coliform_selector']))
+                if len(result['waq_map_coliform_selector']) > 0:
+                    result['wq_map'] = result['waq_map_coliform'] = result['thermocline_waq'] = True
+                    result['waq_map_coliform_name'] = filename
+            result['spatial_map'] = result['single_layer'] = result['multi_layer'] = result['wq_map']
+            result['hide_map'] = result['spatial_map']
+    return result
+
+def layerCounter(data_map: xr.Dataset, type: str='hyd') -> dict:
+    layers = {}
+    if type == 'hyd':
+        z_layer = [round(x, 2) for x in data_map['mesh2d_layer_z'].values]
+        # Add depth-average if available
+        if {'mesh2d_ucxa', 'mesh2d_ucya'}.issubset(data_map.variables.keys()): layers['-1'] = 'Average'
+        # Iterate from bottom to surface
+        ucx = data_map['mesh2d_ucx'].data
+        ucy = data_map['mesh2d_ucy'].data
+        ucm = data_map['mesh2d_ucmag'].data
+        for i in reversed(range(len(z_layer))):
+            # Use dask to speed up, keep lazy-load
+            note, counter = '', len(z_layer)-i-1
+            if counter == 0: note = ' (surface)'
+            elif counter == len(z_layer)-1: note = ' (bottom)'
+            ucx_i = ucx[:, :, i].compute()
+            ucy_i = ucy[:, :, i].compute()
+            ucm_i = ucm[:, :, i].compute()
+            # Check if all values are nan
+            if (np.isnan(ucx_i).all() or np.isnan(ucy_i).all() or np.isnan(ucm_i).all()): continue
+            layers[str(counter)] = f'Depth: {z_layer[i]} m{note}'
+    else:
+        z_layer = np.round([100*x for x in data_map['mesh2d_layer_dlwq'].data.compute()], 0)
+        layers['-1'] = 'Average'
+        for i in reversed(range(len(z_layer))):
+            layers[str(len(z_layer)-i-1)] = f'Sigma: {z_layer[i]} %'
+    return layers
+
+def getVectorNames() -> list:
+    result = [(0,'Velocity')]
+    return result
+
+def dialogReader(dialog_file: str) -> dict:
+    # Check if the dialog file exists
+    if not os.path.exists(dialog_file): return {}
+    result = {}
+    with open(f'{dialog_file}', 'r', encoding=encoding_detect(dialog_file)) as f:
+        content = f.read()
+    content = content.split('\n')
+    for line in content:
+        if "Computation started" in line:
+            temp = pd.to_datetime(line.split(': ')[2], format='%H:%M:%S, %d-%m-%Y')
+            result["computation_start"] = temp.strftime('%Y-%m-%d %H:%M:%S')
+        if "Computation finished" in line:
+            temp = pd.to_datetime(line.split(': ')[2], format='%H:%M:%S, %d-%m-%Y')
+            result["computation_finish"] = temp.strftime('%Y-%m-%d %H:%M:%S')
+        if "my model area" in line:
+            temp = line.split(': ')[2]
+            result["area"] = float(temp.strip())
+        if "my model volume" in line:
+            temp = line.split(': ')[2]
+            result["volume"] = float(temp.strip())
+    return result
+
+def getSummary(dialog_path: str, out_files: list) -> list:
+    dialog, result = dialogReader(dialog_path), []
+    # --- Dialog info ---
+    if len(dialog) > 0:
+        result.append({'parameter': 'Computation started', 'value': dialog['computation_start']})
+        result.append({'parameter': 'Computation finished', 'value': dialog['computation_finish']})
+        result.append({'parameter': 'Area (m2)', 'value': dialog['area']})
+        result.append({'parameter': 'Volume (m3)', 'value': dialog['volume']})
+    if len(out_files) == 0: return result
+    for data_his in out_files:
+        if data_his is None: continue
+        sizes = data_his.sizes
+        # --- Hydrodynamic ---
+        if 'time' in sizes:
+            time_var = data_his['time']
+            start_hyd = pd.to_datetime(time_var.isel(time=0).values).strftime('%Y-%m-%d %H:%M:%S')
+            end_hyd = pd.to_datetime(time_var.isel(time=-1).values).strftime('%Y-%m-%d %H:%M:%S')
+            result.append({'parameter': 'Start Date (Hydrodynamic Simulation)', 'value': start_hyd})
+            result.append({'parameter': 'Stop Date (Hydrodynamic Simulation)', 'value': end_hyd})
+            result.append({'parameter': 'Number of Time Steps', 'value': sizes['time']})
+        if ('laydim' in sizes): result.append({'parameter': 'Number of Layers', 'value': sizes['laydim']})
+        if ('stations' in sizes and sizes['stations'] > 0): result.append({'parameter': 'Number of Observation Stations', 'value': sizes['stations']})
+        if ('cross_section' in sizes and sizes['cross_section'] > 0): result.append({'parameter': 'Number of Cross Sections', 'value': sizes['cross_section']})
+        if ('source_sink' in sizes and sizes['source_sink'] > 0): result.append({'parameter': 'Number of Sources/Sinks', 'value': sizes['source_sink']})
+        # --- Water Quality ---
+        if 'nTimesDlwq' in sizes:
+            waq_time = data_his['nTimesDlwq']
+            start_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=0).values).strftime('%Y-%m-%d %H:%M:%S')
+            end_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=-1).values).strftime('%Y-%m-%d %H:%M:%S')
+            result.append({'parameter': f'Start Date (Water Quality Simulation)', 'value': start_waq})
+            result.append({'parameter': f'Stop Date (Water Quality Simulation)', 'value': end_waq})
+            result.append({'parameter': f'Number of Time Steps (Water Quality Simulation)', 'value': sizes['nTimesDlwq']})
+        if ('nStations' in sizes): result.append({'parameter': f'Number of Observation Stations (Water Quality Simulation)', 'value': sizes['nStations']})
+    return result
+
+def checkCoordinateReferenceSystem(name: str, geometry: gpd.GeoSeries, data_his: xr.Dataset) -> gpd.GeoDataFrame:
+    # Check coordinate reference system
+    if 'wgs84' in data_his.variables:
+        crs_code = data_his['wgs84'].attrs.get('EPSG_code', 'EPSG:4326')
+        result = gpd.GeoDataFrame(data={'name': name, 'geometry': geometry}, crs=crs_code)
+    elif 'projected_coordinate_system' in data_his.variables:
+        crs_code = data_his['projected_coordinate_system'].attrs.get('EPSG_code', 'EPSG:4326')
+        result = gpd.GeoDataFrame(data={'name': name, 'geometry': geometry}, crs=crs_code)
+        result = result.to_crs(epsg=4326)  # Convert to WGS84 if not already
+    else: result = gpd.GeoDataFrame(data={'name': name, 'geometry': geometry}, crs='EPSG:4326')
+    return result
+
+def hydCreator(data_his: xr.Dataset) -> tuple[gpd.GeoDataFrame, list]:
+    target_dims = ('time', 'stations', 'laydim')
+    names, listPoints = [name.decode('utf-8').strip() for name in data_his['station_name'].data.compute()], []
+    x, y = data_his['station_x_coordinate'].data.compute(), data_his['station_y_coordinate'].data.compute()
+    gdf = checkCoordinateReferenceSystem(names, gpd.points_from_xy(x, y), data_his)
+    vars = [var for var in data_his.data_vars if data_his[var].dims == target_dims]
+    for name in names:
+        station_dict = {name: [{var: variablesNames.get(var, var)} for var in vars]}
+        listPoints.append(station_dict)
+    return gdf, listPoints
+
+def obsCreator(points: list) -> gpd.GeoDataFrame:
+    df = pd.DataFrame(points, columns=['name', 'latitude', 'longitude'])
+    geometry = gpd.points_from_xy(df['longitude'], df['latitude'])
+    return gpd.GeoDataFrame({'name': df['name'], 'geometry': geometry}, crs="EPSG:4326")
+
+def linearCreator(x_coords: np.ndarray, y_coords: np.ndarray) -> gpd.GeoDataFrame:
+    if (len(x_coords) < 2 and len(y_coords) < 2):
+        print('Not enough points to create a linear.')
+        return None, None
+    a, b = np.polyfit(x_coords, y_coords, 1)
+    # Get bounding box
+    x_min, x_max = x_coords.min(), x_coords.max()
+    y_min, y_max = y_coords.min(), y_coords.max()
+    # Intersect with bounding box
+    candidates = []
+    # Intersect with x = x_min, x = x_max
+    y_left, y_right = a * x_min + b, a * x_max + b
+    if y_min <= y_left <= y_max: candidates.append((float(x_min), float(y_left)))
+    if y_min <= y_right <= y_max: candidates.append((float(x_max), float(y_right)))
+    if len(candidates) == 0: candidates.append((x_coords[0], y_coords[0]))
+    # Intersect with y = y_min, y = y_max
+    if abs(a) > 1e-12:  # avoid division by zero
+        x_bottom, x_top = (y_min - b) / a, (y_max - b) / a
+        if x_min <= x_bottom <= x_max: candidates.append((float(x_bottom), float(y_min)))
+        if x_min <= x_top <= x_max: candidates.append((float(x_top), float(y_max)))
+    if len(candidates) == 1: candidates.append((x_coords[-1], y_coords[-1]))
+    return candidates[0], candidates[1]
+
+def crosssectionCreator(data_his: xr.Dataset) -> tuple[gpd.GeoDataFrame, list]:
+    names, listAttributes = [name.decode('utf-8').strip() for name in data_his['cross_section_name'].data.compute()], []
+    x = data_his['cross_section_geom_node_coordx'].data.compute()
+    y = data_his['cross_section_geom_node_coordy'].data.compute()
+    p1, p2 = linearCreator(x, y)
+    geometry = gpd.GeoSeries([shapely.geometry.LineString([p1, p2])])
+    gdf = checkCoordinateReferenceSystem(names, geometry, data_his)
+    crsValues = [
+        'cross_section_velocity', 'cross_section_area', 'cross_section_discharge', 'cross_section_cumulative_discharge',
+        'cross_section_temperature', 'cross_section_cumulative_temperature', 'cross_section_salt',
+        'cross_section_cumulative_salt', 'cross_section_Contaminant', 'cross_section_cumulative_Contaminant'
+    ]
+    listAttributes = [{item: variablesNames[item] if item in variablesNames else item} for item in crsValues]
+    return gdf, listAttributes
+
+def timeseriesCreator(data_his: xr.Dataset, key: str, timeColumn: str='time') -> pd.DataFrame:
+    name = 'source_sink_name' if key.endswith('_source') else 'station_name'
+    columns = [i.decode('utf-8').strip() for i in data_his[name].data.compute()]
+    temp = variablesNames.get(key, key)
+    if key.startswith('wb_'): columns = ['Water balance'] # Used for water balance
+    elif key.endswith('_crs'): 
+        columns = ['Cross-section'] # Used for cross-section
+        temp = key.replace('_crs', '')
+    if name not in data_his.variables.keys(): return pd.DataFrame()
+    index = [pd.to_datetime(i).strftime('%Y-%m-%d %H:%M:%S') for i in data_his[timeColumn].data]
+    df = pd.DataFrame(index=index, data=numberFormatter(data_his[temp].data.compute()), columns=columns)
+    return df.reset_index()
+
+def valueToKeyConverter(values: list, dict: dict=units) -> list:
+    if not isinstance(values, list): values = [values]
+    result = []
+    for value in values:
+        result.append(dict.get(value, value))
+    return result
+
+def vectorComputer(data_map: xr.Dataset, value_type: str, row_idx: int, step: int=-1) -> dict:
+    if value_type == 'Average':
+        # Average velocity in each layer
+        ucx = data_map['mesh2d_ucxa'].isel(time=step).values
+        ucy = data_map['mesh2d_ucya'].isel(time=step).values
+        ucm = data_map['mesh2d_ucmaga'].isel(time=step).values
+    else:
+        # Velocity for specific layer
+        ucx = data_map['mesh2d_ucx'].isel(time=step).values[:, row_idx]
+        ucy = data_map['mesh2d_ucy'].isel(time=step).values[:, row_idx]
+        ucm = data_map['mesh2d_ucmag'].isel(time=step).values[:, row_idx]
+    # Get indices of non-nan values
+    col_idx = np.where(~np.isnan(ucx) & ~np.isnan(ucy) & ~np.isnan(ucm))
+    # Coordinates (filtered)
+    x_coords = data_map['mesh2d_face_x'].values[col_idx]
+    y_coords = data_map['mesh2d_face_y'].values[col_idx]
+    # Values (filtered)
+    ucx_valid = np.round(ucx[col_idx].astype(np.float64), 5)
+    ucy_valid = np.round(ucy[col_idx].astype(np.float64), 5)
+    ucm_valid = np.round(ucm[col_idx].astype(np.float64), 2)
+    result = {"time": pd.to_datetime(data_map['time'].values[step]).strftime('%Y-%m-%d %H:%M:%S'),
+        "coordinates": np.column_stack((x_coords, y_coords)).tolist(),
+        "values": np.column_stack((ucx_valid, ucy_valid, ucm_valid)).tolist()
+    }
+    return result
+
+def selectInsitu(data_his: xr.Dataset, data_map: xr.Dataset, name: str, stationId: str, type: str) -> pd.DataFrame:
+    names = [x.decode('utf-8').strip() for x in data_his[type].data.compute()]
+    if stationId not in names: return pd.DataFrame()
+    idx = names.index(stationId)
+    index = [pd.to_datetime(id).strftime('%Y-%m-%d %H:%M:%S') for id in data_his['time'].data]
+    if type == 'station_name':
+        result = pd.DataFrame(index=index)
+        z_layer = numberFormatter(data_map['mesh2d_layer_z'].data.compute())
+        arr = data_his[name].data[:, idx, :].compute()
+        for i in range(arr.shape[1]):
+            i_rev = -(i+1)
+            result[f'Depth: {z_layer[i_rev]} m'] = numberFormatter(arr[:, i_rev])
+    else:
+        temp = pd.DataFrame(data_his[variablesNames[name]].values, columns=names, index=index)
+        result = temp[[stationId]]
+    return result.dropna(axis=1, how='all').reset_index()
+
+def sourceCreator(data_his: xr.Dataset) -> gpd.GeoDataFrame:
+    names = [name.decode('utf-8').strip() for name in data_his['source_sink_name'].data.compute()]
+    x, y = data_his['source_sink_x_coordinate'].data.compute()[0], data_his['source_sink_y_coordinate'].data.compute()[0]
+    geometry = gpd.points_from_xy(x, y)
+    return checkCoordinateReferenceSystem(names, geometry, data_his)
+
+def meshProcess(is_hyd: bool, arr: np.ndarray, cache: dict) -> np.ndarray:
+    cache_copy = cache.copy()
+    data = cache_copy["df"]
+    df = pd.DataFrame(data=data["data"], columns=data["columns"], index=data["index"])
+    df_depth = np.array(df["depth"].values, dtype=float)
+    depth_values = np.array(cache_copy["depth_values"], dtype=float)
+    depth_rounded, n_rows = abs(np.round(depth_values, 0)), cache_copy["n_rows"]
+    if is_hyd: index_map = {int(v): len(depth_rounded)-i-1 for i, v in enumerate(depth_rounded)}
+    else: index_map = {int(v): i for i, v in enumerate(depth_rounded)}
+    # Pre-allocate frame
+    frame = np.full((len(df), abs(n_rows)), np.nan, float)
+    values_filtered = arr[df.index.values, :]
+    depth_int = depth_rounded.astype(int)
+    valid_depth = np.unique(depth_int[depth_int < abs(n_rows)])
+    col_idx = np.array([index_map[d] for d in valid_depth])
+    mask = df_depth[:, None] <= -valid_depth[None, :]
+    vals = values_filtered[:, col_idx]
+    frame[:, valid_depth] = np.where(mask, vals, frame[:, valid_depth])
+    # Interpolate and fill missing values row-wise
+    mask = ~np.isnan(frame)
+    _, (ix, iy) = distance_transform_edt(~mask, return_indices=True)
+    frame_filled = gaussian_filter(frame[ix, iy], sigma=(1.2, 0.6))
+    frame = np.clip(frame_filled, 0, None)
+    mask_valid = -np.arange(abs(n_rows))[None, :] >= df_depth[:, None]
+    max_row = np.max(np.where(mask_valid.T)[0])
+    frame[~mask_valid] = np.nan
+    smoothed_transpose = frame.T[:max_row + 2, :]
+    return smoothed_transpose

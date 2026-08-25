@@ -6,19 +6,6 @@ from shapely.geometry import Point
 from datetime import datetime
 
 def hydReader(hyd_path: str) -> dict:
-    """
-    Read the hyd file and return a dictionary of the hyd file.
-
-    Parameters
-    ----------
-    hyd_path : str
-        The path to the hyd file.
-
-    Returns
-    -------
-    dict
-        A dictionary of the hyd file.
-    """
     # Read the hyd file
     data, check, sinks = {'filename': 'FlowFM.hyd'}, False, []
     with open(hyd_path, 'r', encoding=functions.encoding_detect(hyd_path)) as f:
@@ -77,23 +64,6 @@ def hydReader(hyd_path: str) -> dict:
     return data
     
 def segmentFinder(lat:float, lon:float, grid:gpd.GeoDataFrame) -> int:
-    """
-    Find the segment that the point is in.
-
-    Parameters
-    ----------
-    lat : float
-        The latitude of the point.
-    lon : float
-        The longitude of the point.
-    grid : numpy.ndarray
-        The grid of the segments.
-
-    Returns
-    -------
-    int
-        The index of the segment that the point is in.
-    """
     if grid.empty: return 0
     # Convert the grid to WGS84 if not already
     if grid.crs != '4326': grid = grid.to_crs(epsg=4326)
@@ -106,25 +76,6 @@ def segmentFinder(lat:float, lon:float, grid:gpd.GeoDataFrame) -> int:
     return idx + 1
 
 def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:str) -> str:
-    """
-    Prepare the input files for the water quality simulation
-
-    Parameters
-    ----------
-    parameters : dict
-        The parameters for the water quality simulation.
-    key : str
-        The key of the water quality model.
-    output_folder : str
-        The output folder for the water quality simulation.
-    includes_folder : str
-        The includes folder for the water quality simulation.
-
-    Returns
-    -------
-    str
-        The path to the config file for the water quality simulation.
-    """
     try:
         sample_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'templates', 'waq'))
         params_INP, params_INC, model_type = {}, {}, {"model_type": key}

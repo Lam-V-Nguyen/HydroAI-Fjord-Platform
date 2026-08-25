@@ -2,12 +2,9 @@ import { menuManager } from "./menuManager.js";
 // import { projectMaker, projectModifier } from "./projectManager.js";
 import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
-import { startLoading, stopLoading, htmlLoader, jsonLoader,
-    // initRequestListener
-} from "./commonFunctions.js";
-// import { setState } from "./constant.js";
-import { 
-    setPendingRequest, initState, getState, clearPendingRequest, origin 
+import { startLoading, stopLoading, htmlLoader, jsonLoader } from "./commonFunctions.js";
+import { setPendingRequest, clearPendingRequest, origin, getLastProject
+    // getState, initState, 
 } from "./constant.js";
 import { renderPreview } from "./mapManager.js";
 
@@ -16,41 +13,35 @@ const widgetMenu = document.getElementById("widgetMenu");
 const menuContainer = document.getElementById('menu-container');
 
 const githubCache = {}, pendingRequests = new Map();
-let currentProject, waqModel, currentParams, isLoaded = false, 
-    userName = null, prevSource = null;
-// const exits = ['hyd-plot-source', 'hyd-plot-meteo', 'run-hyd', 'run-waq'];
+let isLoaded = false, userName = null, prevSource = null;
 
-// initRequestListener();
-
-await login(); await projectChecker(); loadWidget();
-widgetMenuManager(); updateComponent(); 
+await login(); 
+// await projectChecker(); 
+loadWidget(); widgetMenuManager(); updateComponent(); 
 showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
 
 async function login() {
-    const data = await jsonLoader('auth_check', {}); 
+    const data = await jsonLoader('auth_check', {});
     if (data.user === 'admin') { userName = ''; } else { userName = data.user; }
-    initState(userName); currentProject = getState()?.currentProject || 'demo';
-    // waqModel = getState()?.waqModel || 'coliform', 
-    // currentParams = getState()?.currentParams || 
-    // ['FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'];
+    const project = getLastProject(); showNotes(`${userName}/${project}`);
 }
 
-async function projectChecker() { 
-    if (getState().currentProject === 'admin' || getState().currentProject === null) return; 
-    // startLoading('Setting up Database.\nThis takes a while (especially the first time).\nPlease wait...'); 
-    // await new Promise(requestAnimationFrame);
-    // setState({ 
-    //     currentProject: currentProject, currentParams: currentParams, waqModel: waqModel 
-    // });
-    // const data = await jsonLoader('setup_database', { 
-    //     projectName: getState().currentProject, 
-    //     params: getState().currentParams, waqModel: getState().waqModel
-    // }); stopLoading();
-    // if (data.status === "error") { alert(data.message); return; }
-    showNotes(`${userName}/${getState().currentProject}`);
-    // console.log('mainManager:', getState().currentProject, getState().waqModel, getState().currentParams);
-} 
+// async function projectChecker() { 
+//     // if (getState().currentProject === 'admin' || getState().currentProject === null) return; 
+//     // startLoading('Setting up Database.\nThis takes a while (especially the first time).\nPlease wait...'); 
+//     // await new Promise(requestAnimationFrame);
+//     // setState({ 
+//     //     currentProject: currentProject, currentParams: currentParams, waqModel: waqModel 
+//     // });
+//     // const data = await jsonLoader('setup_database', { 
+//     //     projectName: getState().currentProject, 
+//     //     params: getState().currentParams, waqModel: getState().waqModel
+//     // }); stopLoading();
+//     // if (data.status === "error") { alert(data.message); return; }
+//     // showNotes(`${userName}/${getState().currentProject}`);
+//     // console.log('mainManager:', getState().currentProject, getState().waqModel, getState().currentParams);
+// } 
 
 function widgetMenuManager() {
     widgetMenu.addEventListener("mouseenter", (e) => {
@@ -77,12 +68,6 @@ function widgetMenuManager() {
         let w = 6, h = 7, title = item.textContent.replace(/▸|◂/g, '').trim();
         const closeMenu = () => { menuContainer.style.display = 'none'; };
         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
-//         if (id === 'new-project') { projectMaker(); closeMenu(); return; }
-//         else if (id === 'open-project') { projectModifier(user, 'open'); closeMenu(); return; }
-//         else if (id === 'delete-project') { projectModifier(user, 'delete'); closeMenu(); return; }
-        
-        
-
 
 //         else if (id === 'flow-data-preparation') { 
 //             w = 11; h = 8; title = 'Data Preparation for Flow Estimation';
@@ -216,9 +201,7 @@ async function showGitHubLastUpdate(username, repo, branch = 'main') {
     const displayDiv = document.querySelector('.github-last-update');
     if (!displayDiv) return;
     try {
-        const header = {
-            "Accept": "application/vnd.github+json", "User-Agent": repo
-        }
+        const header = { "Accept": "application/vnd.github+json", "User-Agent": repo }
         const response = await fetch(url, { headers: header });
         if (!response.ok) throw new Error('GitHub API error');
         const data = await response.json();
@@ -227,9 +210,7 @@ async function showGitHubLastUpdate(username, repo, branch = 'main') {
             const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
             const text = `Branch: ${branch} | Last update: ${formatted}`;
             githubCache[key] = text; displayDiv.textContent = text;
-        } else {
-            displayDiv.textContent = 'Last update: unknown';
-        }
+        } else { displayDiv.textContent = 'Last update: unknown'; }
     } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
 }
 

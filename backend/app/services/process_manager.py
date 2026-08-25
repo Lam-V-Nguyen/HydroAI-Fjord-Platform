@@ -6,9 +6,7 @@ from services import functions
 import geopandas as gpd, numpy as np, pandas as pd
 from shapely.geometry import mapping
 
-
 router = APIRouter()
-
 
 # Upload file from local computer to server
 @router.post("/upload_data")
@@ -109,10 +107,10 @@ async def process_internal(query: str, key: str, redis, project_cache, project_n
         if 'depth' in query: values = functions.interpolation_Z(grid, x, y, z)
         # Convert GeoDataFrame to expected format
         fnm = functions.numberFormatter
-        features = [{ "type": "Feature", "properties": {"index": idx}, "geometry": mapping(row['geometry'])} 
-                    for idx, row in grid.iterrows()]
-        data = { 'meshes': { 'type': 'FeatureCollection', 'features': features },
-            'values': values.tolist(), 'min_max': [fnm(np.nanmin(values)).tolist(), fnm(np.nanmax(values)).tolist()]
+        features = [{ "type": "Feature", "properties": {"index": idx}, 
+            "geometry": mapping(row['geometry'])} for idx, row in grid.iterrows()]
+        data = { 'meshes': { 'type': 'FeatureCollection', 'features': features }, 'values': values.tolist(),
+            'min_max': [fnm(np.nanmin(values)).tolist(), fnm(np.nanmax(values)).tolist()]
         }
     else:
         # Create time series data

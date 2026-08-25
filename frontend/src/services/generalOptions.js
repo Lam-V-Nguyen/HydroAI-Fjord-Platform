@@ -1,6 +1,7 @@
 import { jsonLoader, signalSender, splitLines, initOptions, getUser } from "./commonFunctions.js";
 import { L, ZOOM, getStateVisualization, setStateVisualization, 
-    resetStateVisualization, initState, resetState, getMap
+    resetStateVisualization, getMap
+    // , initState, resetState
 } from "./constant.js";
 import { plotChart, plotProfileSingleLayer, plotProfileMultiLayer, thermoclinePlotter } from "./chartManager.js";
 import { clearMap } from "./mapManager.js";
@@ -62,12 +63,10 @@ function generalEvents(){
         const currentDisplay = window.getComputedStyle(obj.summaryContainer).display;
         if (currentDisplay === "none") {
             // Create a table to display the summary
-            let html = `<table><thead>
-                <tr>
+            let html = `<table><thead><tr>
                 <th style="text-align: center;">Parameter</th>
                 <th style="text-align: center;">Value</th>
-                </tr>
-            </thead><tbody>`;
+                </tr></thead><tbody>`;
             data.content.forEach(item => {
                 html += `<tr>
                     <td>${item.parameter}</td>
@@ -141,7 +140,8 @@ function generalEvents(){
         signalSender('hideOverlay'); objContent.thermoclineOptions.style.display = 'none';
     });
     objContent.resetConfig.addEventListener('click', async() => { 
-        const userName = await getUser(); initState(userName.split('/').shift()); resetState();
+        // const userName = await getUser(); 
+        // initState(userName.split('/').shift()); resetState();
         const data = await jsonLoader('reset_config', {projectName: currentProject});
         resetStateVisualization(); alert(data.message); location.reload(); return;
     });

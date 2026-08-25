@@ -284,11 +284,35 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
             try: await extend_task
             except asyncio.CancelledError: pass
 
+@router.post("/get_config_files")
+async def get_config_files(request: Request):
+    try:
+        body = await request.json()
+        user_name, project = body.get('userName'), body.get('project')
+        output_dir = os.path.join(PROJECT_ROOT, user_name, project, 'output')
+        if not os.path.exists(output_dir): return JSONResponse({"status": 'error', "message": 'No project found.'})
+        hyd_dir, waq_dir = os.path.join(output_dir, 'HYD'), os.path.join(output_dir, 'WAQ')
+        current_params, waq_name = [], ''
 
 
+        config_path = os.path.join(output_dir, 'config', 'config.json')
+        if not os.path.exists(config_path):
+            files = sorted([x for x in os.listdir(waq_dir) if x.endswith('.json')])
+            if len(files) == 0: return JSONResponse({"status": 'error', "message": 'No WAQ scenario found.'})
+            config_path = os.path.join(waq_dir, files[0])
+        with open(config_path, 'r', encoding=functions.encoding_detect(config_path)) as f:
+            config = json.load(f)
+            waq_name = config["model_type"]
+        
 
 
+        print(user_name, project)
 
+        return JSONResponse({"current_params": current_params, "waq_name": waq_name})
+    except Exception as e:
+        print('/get_config_files:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
 
 
 

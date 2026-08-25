@@ -1,5 +1,5 @@
 import { jsonLoader } from "./commonFunctions.js";
-import { initState, setState, origin } from "./constant.js";
+import { origin, setLastProject } from "./constant.js";
 
 
 export async function projectModifier(user) {
@@ -38,15 +38,8 @@ export async function projectModifier(user) {
     modal.querySelector("#okBtn").onclick = async () => {
         let value = projectList.value.trim();
         if (value === "") { alert("Please select a project from the list."); return; }
-        const note = `${user}/${value}`;
-        // Reassgin parameters
-        const currentParams = ['FlowFM_his1.zarr', 'FlowFM_map1.zarr', 'Coliform_his1.zarr', 'Coliform_map1.zarr'];
-        const waqModel = 'coliform1'; 
-        initState(value);
-        setState({
-            currentProject: value, currentParams: currentParams, waqModel: waqModel 
-        })
-        window.parent.postMessage({type: 'showNote', content: note}, origin);
+        setLastProject(value);
+        window.parent.postMessage({type: 'showNote', content: `${user}/${value}`}, origin);
         overlay.remove(); location.reload();
     };
     modal.querySelector("#closeBtn").onclick = () => { overlay.remove(); };
