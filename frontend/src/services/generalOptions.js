@@ -1,9 +1,8 @@
-import { jsonLoader, signalSender, splitLines, initOptions, getUser } from "./commonFunctions.js";
+import { jsonLoader, signalSender, splitLines, initOptions } from "./commonFunctions.js";
 import { L, ZOOM, getStateVisualization, setStateVisualization, 
-    resetStateVisualization, getMap
-    // , initState, resetState
-} from "./constant.js";
-import { plotChart, plotProfileSingleLayer, plotProfileMultiLayer, thermoclinePlotter } from "./chartManager.js";
+    resetStateVisualization, getMap } from "./constant.js";
+import { plotChart, plotProfileSingleLayer, plotProfileMultiLayer, 
+    thermoclinePlotter } from "./chartManager.js";
 import { clearMap } from "./mapManager.js";
 
 const hoverTooltip = L.tooltip({

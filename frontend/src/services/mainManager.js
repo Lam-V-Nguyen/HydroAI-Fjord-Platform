@@ -1,11 +1,8 @@
 import { menuManager } from "./menuManager.js";
-// import { projectMaker, projectModifier } from "./projectManager.js";
 import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
 import { startLoading, stopLoading, htmlLoader, jsonLoader } from "./commonFunctions.js";
-import { setPendingRequest, clearPendingRequest, origin, getLastProject
-    // getState, initState, 
-} from "./constant.js";
+import { setPendingRequest, clearPendingRequest, origin, getLastProject } from "./constant.js";
 import { renderPreview } from "./mapManager.js";
 
 
@@ -16,7 +13,6 @@ const githubCache = {}, pendingRequests = new Map();
 let isLoaded = false, userName = null, prevSource = null;
 
 await login(); 
-// await projectChecker(); 
 loadWidget(); widgetMenuManager(); updateComponent(); 
 showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
@@ -26,22 +22,6 @@ async function login() {
     if (data.user === 'admin') { userName = ''; } else { userName = data.user; }
     const project = getLastProject(); showNotes(`${userName}/${project}`);
 }
-
-// async function projectChecker() { 
-//     // if (getState().currentProject === 'admin' || getState().currentProject === null) return; 
-//     // startLoading('Setting up Database.\nThis takes a while (especially the first time).\nPlease wait...'); 
-//     // await new Promise(requestAnimationFrame);
-//     // setState({ 
-//     //     currentProject: currentProject, currentParams: currentParams, waqModel: waqModel 
-//     // });
-//     // const data = await jsonLoader('setup_database', { 
-//     //     projectName: getState().currentProject, 
-//     //     params: getState().currentParams, waqModel: getState().waqModel
-//     // }); stopLoading();
-//     // if (data.status === "error") { alert(data.message); return; }
-//     // showNotes(`${userName}/${getState().currentProject}`);
-//     // console.log('mainManager:', getState().currentProject, getState().waqModel, getState().currentParams);
-// } 
 
 function widgetMenuManager() {
     widgetMenu.addEventListener("mouseenter", (e) => {

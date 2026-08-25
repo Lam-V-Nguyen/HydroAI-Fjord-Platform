@@ -525,15 +525,9 @@ export async function getVisualizationFiles(user, project) {
     const data = await jsonLoader('get_config_files', content);
     if (data.status === "error") { alert(data.message); return; }
     const waqName = data.waq_name, currentParams = data.current_params;
-    // model = getState()?.waqModel || 'coliform';
-    // currentParams = getState()?.currentParams || 
-    //     ['FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'];
-    // setState({ currentProject: currentProject, currentParams: currentParams, waqModel: model });
-    // waqName = currentParams[2].replace('_his.zarr', '');
-
-    return [currentParams, waqName];
+    const waqModel = data.waq_model;
+    return [currentParams, waqName, waqModel];
 }
-
 
 
 

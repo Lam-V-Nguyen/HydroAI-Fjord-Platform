@@ -1,8 +1,6 @@
 import { setupTabs } from "./tabManager.js";
-import { projectRender } from "./projectManager.js";
 import { hydPrepareMapId } from "./constant.js";
-import { 
-    getUser, signalSender, iframeConnector, updateLog, 
+import { getUser, signalSender, iframeConnector, updateLog, 
     jsonLoader, fillTable, getDataFromTable, saveCSV
 } from "./commonFunctions.js";
 

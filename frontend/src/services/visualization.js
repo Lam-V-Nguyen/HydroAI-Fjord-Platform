@@ -1,5 +1,4 @@
 import { signalSender, fileUploader, jsonLoader, getUser } from "./commonFunctions.js";
-// import { getState } from "./constant.js";
 import { generalOptionsManager } from "./generalOptions.js";
 import { plotChart } from "./chartManager.js";
 import { spatialMapManager } from "./spatialMapManager.js";
@@ -50,14 +49,17 @@ export function locationFinder(input, suggestion, map) {
     });
 }
 
-export async function projectChecker(name, params, waqModel, message, gisChanged=false) {
+export async function projectChecker(project, params, name, model, message, gisChanged=false) {
+    currentProject = project; currentParams = params; waqModel = model;
     cachedMenus = {}; // Clear cache of menus for new project
     signalSender('showOverlay', message); 
-    const content = { projectName: name, params: params, waqModel: waqModel, gisChanged: gisChanged };
+    const content = { 
+        projectName: project, params: params, waqName: name,
+        waqModel: waqModel, gisChanged: gisChanged 
+    };
     const data = await jsonLoader('setup_database', content);
     if (data.status === "error") { 
         alert(data.message); signalSender('hideOverlay');
-        // location.reload(); 
         checked = false; return; 
     }
     checked = true;
@@ -69,8 +71,7 @@ export async function projectChecker(name, params, waqModel, message, gisChanged
     signalSender('hideOverlay');
 }
 
-export async function initializeMenu(waqName){
-    // const project = getState().currentProject, params = getState().currentParams, waqModel = getState().waqModel;
+export async function initializeMenu(project, params, model){
     // Work with pupup menu
     document.querySelectorAll('.nav ul li a:not([style*="display: none"])').forEach(link => {
         link.onclick = async(event) => {
@@ -90,14 +91,14 @@ export async function initializeMenu(waqName){
                     await fileUploader(gisUploadFile, null, project, 
                         file.name, 'Uploading and Processing GIS data.\nPlease wait...', 'gis');
                     const message = `Reloading project '${project}'.\nPlease wait...`;
-                    gisUploadFile.value = ''; projectChecker(project, params, waqModel, message, true);
+                    gisUploadFile.value = ''; projectChecker(project, params, model, message, true);
                 }); return;
             }
             else if (info == 'project-open') { initProject(); return; }
             if (!checked) { alert('No scenario was loaded. Please select a project to open.'); return; }
             const [id, htmlFile] = info.split('|');
             signalSender('showOverlay', 'Getting Information.\nPlease wait...');
-            await showPopupMenu(waqName, id, htmlFile);
+            await showPopupMenu(project, model, id, htmlFile);
             signalSender('hideOverlay');
             pm.style.top = `${rect.bottom + 10 + window.scrollY}px`;
             pm.style.left = `${rect.left + window.scrollX}px`;
@@ -106,11 +107,10 @@ export async function initializeMenu(waqName){
     })
 }
 
-export async function showPopupMenu(waqName, id, htmlFile) {
+export async function showPopupMenu(project, waqName, id, htmlFile) {
     try {
         const popupContent = document.getElementById('popup-content');
         if (!popupContent) return; 
-        // const project = getState().currentProject;
         if (cachedMenus[htmlFile]) { 
             popupContent.innerHTML = cachedMenus[htmlFile];
         } else {

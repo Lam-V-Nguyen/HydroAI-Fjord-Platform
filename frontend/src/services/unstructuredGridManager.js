@@ -7,8 +7,6 @@ import { gridPlotter, polygonPlotter, toggleMoveMode, orthoPlotter,
 } from "./unstructuredGrid.js";
 import { clearMap } from "./mapManager.js";
 
-// initRequestListener();
-
 const $ = (id) => document.getElementById(id);
 const obj = {
     selectContainer: $("select-container"), municipalityName: $("municipality-name"), 

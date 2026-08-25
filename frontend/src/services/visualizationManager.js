@@ -1,6 +1,4 @@
-import { L
-// , getState, initState , setState
-} from "./constant.js";
+import { L } from "./constant.js";
 import { getUser, signalSender, jsonLoader,
     moveWindow, closeWindow, getVisualizationFiles
 } from "./commonFunctions.js";
@@ -22,8 +20,9 @@ const obj = {
 }
 
 
-let currentProject = null, currentParams = null, userName = null,
-    mapObj = null, waqName = null, hideTimeout = null, gisLayers = {};
+let currentProject = null, currentParams = null, userName = null, 
+    waqModel = null, mapObj = null, waqName = null, 
+    hideTimeout = null, gisLayers = {};
 
 
 await getProject(); mapObj = await initMap('leaflet-map'); updateManager();
@@ -32,18 +31,15 @@ await getProject(); mapObj = await initMap('leaflet-map'); updateManager();
 export async function getProject() { 
     userName = await getUser();
     const project = userName.split('/'); currentProject = project[1];
-    [currentParams, waqName] = await getVisualizationFiles(project[0], currentProject);
-
-    console.log('visualization Manager', currentParams, waqName);
-
-    // const message = `Initializing project '${currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
-    // await projectChecker(currentProject, currentParams, waqName, message);
+    [currentParams, waqName, waqModel] = await getVisualizationFiles(project[0], currentProject);
+    const message = `Initializing project '${currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
+    await projectChecker(currentProject, currentParams, waqName, waqModel, message);
 }
 
 function updateManager() { 
     // Search locations
     locationFinder(obj.locationSearcher, obj.locationList, mapObj);
-    initializeMenu(waqName); 
+    initializeMenu(currentProject, currentParams, waqModel); 
     // Show popup menu on click or leave
     if (obj.popupMenu) {
         obj.popupMenu.addEventListener('mouseenter', () => {
@@ -60,14 +56,10 @@ function updateManager() {
         // Change WAQ model
         if (e.target.classList.contains('waq-model-selector')) {
             const modelType = e.target.value;
-            waqName = e.target.closest('label').dataset.name;
-            const message = `Opening WAQ Model '${waqName}'.\nPlease wait...`;
-            const params = [
-                'FlowFM_his.zarr', 'FlowFM_map.zarr', `${waqName}_his.zarr`, `${waqName}_map.zarr`
-            ];
-            // setState({ currentParams: params }); setState({ waqModel: modelType });
-            // await projectChecker(getState().currentProject, params, modelType, message, false);
-            initializeMenu(waqName); 
+            const waqSelected = e.target.closest('label').dataset.name;
+            const message = `Opening WAQ Model '${waqSelected}'.\nPlease wait...`;
+            await projectChecker(currentProject, currentParams, waqSelected, modelType, message, false);
+            initializeMenu(currentProject, currentParams, modelType); 
         }
     });
     // Moving window
@@ -93,7 +85,6 @@ function updateManager() {
         const handleMenuClick = (e, linkClass, submenuClass) => {
             const link = e.target.closest(linkClass);
             if (!link) return false;
-            // e.preventDefault(); e.stopPropagation();
             const submenu = link.nextElementSibling;
             if (!submenu || !submenu.classList.contains(submenuClass)) return true;
             // Close other submenus and remove active on menu-links
@@ -120,7 +111,6 @@ function updateManager() {
         }
         // Delete GIS layer
         if (e.target.classList.contains('delete-btn')) {
-            // e.stopPropagation(); e.preventDefault();
             const id = e.target.id.replace('delete-', '');
             signalSender('showOverlay', 'Deleting GIS Layer.\nPlease wait...');
             const data = await jsonLoader('delete_gis', { projectName: currentProject, name: id });

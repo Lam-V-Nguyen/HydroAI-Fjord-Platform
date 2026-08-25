@@ -61,11 +61,17 @@ async def load_popupMenu(request: Request, data: str, project_name: str = None, 
         waq_models = [f for f in os.listdir(waq_dir) if f.endswith(".json")]
         html = [f'<div class="menu">']
         if len(waq_models) > 0:
+            print('waq_name', waq_name)
+
+
+
             for model in waq_models:
                 path = os.path.normpath(os.path.join(waq_dir, model))
-                config = json.loads(open(path, "r", encoding=functions.encoding_detect(path)).read())
-                value, model_name = config.get("model_type", ""), model.replace(".json", "")
-                checked = "checked" if model_name == waq_name else ""
+                with open(path, "r", encoding=functions.encoding_detect(path)) as f:
+                    config = json.load(f)
+                value, model_name = config.get("model_type", ""), model.split(".")[0]
+                # print(config, value, model_name)
+                checked = "checked" if value == waq_name else ""
                 html.append(f'''
                     <label class="menu-link" data-name="{model_name}">
                         <input type="radio" class="waq-model-selector" name="waq-model" value="{value}" {checked}>
@@ -75,6 +81,8 @@ async def load_popupMenu(request: Request, data: str, project_name: str = None, 
         else: html.append('<div><p>No WAQ models found</p></div>')
         html.append('</div>')
         return ''.join(html)
+
+    
     path = os.path.normpath(os.path.join(SOURCE_FRONTEND, "htmls", htmlFile))
     if not os.path.exists(path):
         return HTMLResponse(f"<p>Popup menu template not found</p>", status_code=404)
