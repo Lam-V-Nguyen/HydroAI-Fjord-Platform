@@ -13,8 +13,6 @@ from config import SOURCE_BACKEND, SOURCE_FRONTEND, lifespan
 from services import route_page, project_manager, data_download, \
     grid_preparation, hyd_functions, process_manager, sim_manager, \
     waq_funtions, flow_preparation
-# , wq_process, \
-#     run_simulation, flow_preparation
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)

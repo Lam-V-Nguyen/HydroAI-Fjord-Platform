@@ -264,12 +264,16 @@
                         <div class="tile"><h3>River Processing</h3>
                             <div class="row">
                                 <input type="file" id="lake-input-file" accept=".geojson" hidden>
-                                <button type="button" id="lake-upload-btn">Upload Lake Boundary</button>
-                                <button type="button" id="river-clip-lake-btn">Clip River to Lake</button>
+                                <button type="button" id="lake-upload-btn"
+                                    style="pointer-events: none; opacity: 0.4;">Upload Lake Boundary</button>
+                                <button type="button" id="river-clip-lake-btn"
+                                    style="pointer-events: none; opacity: 0.4;">Clip River to Lake</button>
                             </div>
                             <div class="row">
-                                <button type="button" id="lake-catchment-upload-btn">Upload Catchment Boundary</button>
-                                <button type="button" id="river-clip-catchment-btn">Clip River to Catchment</button>
+                                <button type="button" id="lake-catchment-upload-btn"
+                                    style="pointer-events: none; opacity: 0.4;">Upload Catchment Boundary</button>
+                                <button type="button" id="river-clip-catchment-btn"
+                                    style="pointer-events: none; opacity: 0.4;">Clip River to Catchment</button>
                             </div>
                             <div class="radio-button">
                                 <label class="row-radio">
@@ -282,26 +286,20 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 8;"><h3>Attribute Table</h3>
+                        <div class="tile"><h3>Invalid Segments</h3>
                             <div class="row">
                                 <label for="river-id">Selected segment:</label>
-                                <select style="min-width: 100px; margin-right: 50px;" id="river-id"></select>
+                                <select style="max-width: 100px; margin-right: 10px;" id="river-id"></select>
                                 <button type="button" id="river-delete-btn" 
                                     style="background-color: azure; color: rgb(255, 2, 2); max-width: 250px;">
-                                    Delete the selected segment
+                                    Delete selected segment
                                 </button>
                                 <button type="button" id="river-assign-btn" style="max-width: 200px;">
-                                    Save selected Attributes
-                                </button>
-                                <button type="button" id="river-save-project-btn" style="max-width: 150px;">
-                                    Save to Project
-                                </button>
-                                <button type="button" id="river-save-file-btn" style="max-width: 100px;">
-                                    Export
+                                    Save selected segment
                                 </button>
                             </div>
                             <div class="table-container">
-                                <table class="attributes-table" id="river-table">
+                                <table class="attributes-table" id="invalid-river-table">
                                     <thead><tr>
                                         <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
                                     </tr></thead>
@@ -314,6 +312,27 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+                        <div class="tile"><h3>Valid Segments</h3>
+                            <div class="row">
+                                <button type="button" id="river-save-project-btn">Save to Project</button>
+                                <button type="button" id="river-save-file-btn">Export</button>
+                            </div>
+                            <div class="table-container">
+                                <table class="attributes-table" id="valid-river-table">
+                                    <thead><tr>
+                                        <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><input type="text" placeholder="Segment ID"></td>
+                                            <td><input type="text" placeholder="Width"></td>
+                                            <td><input type="text" placeholder="Depth"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
                         </div>
                     </div>
                 </div>
@@ -416,6 +435,6 @@
             defaultHour: 0, defaultMinute: 0, defaultSecond: 0
         });
     </script>
-    <script type="module" src="/src_frontend/services/flowPreparation.js"></script>
+    <script type="module" src="/src_frontend/services/flowManager.js"></script>
 </body>
 </html>

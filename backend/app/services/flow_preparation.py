@@ -501,8 +501,7 @@ async def river_upload(file: UploadFile = File(...), projectName: str = Form(...
         if file_ext[-1].lower() in ["tif"]:
             with rasterio.open(river_path) as src:
                 dem_array = src.read(1).astype(np.float32)
-                crs, nodata, transform = src.crs, src.nodata, src.transform
-            mask = np.isnan(dem_array) | (dem_array == nodata)
+                crs, transform = src.crs, src.transform
             filled_array, _ = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
             flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
             flwacc = flw.accuflux(filled_array)
@@ -520,15 +519,18 @@ async def river_upload(file: UploadFile = File(...), projectName: str = Form(...
             if merged.geom_type == "LineString": lines = [merged]
             else: lines = list(merged.geoms)
             gdf = gpd.GeoDataFrame(geometry=lines, crs=src.crs)
-            gdf = gdf.reindex(columns=['rivwth', 'rivdph', 'geometry'])
+            gdf = gdf.reindex(columns=['Width', 'Depth', 'geometry'])
             gdf = gdf[gdf.is_valid].reset_index(drop=True)
             # Process river
             gdf["geometry"] = gdf.geometry.apply(lambda g: force_2d(g))
         elif file_ext[-1].lower() in ["geojson"]: 
             gdf = gpd.read_file(river_path)
-            if not 'rivwth' in gdf.columns or not 'rivdph' in gdf.columns:
-                return JSONResponse({'status': 'error', 'message': 'River data must have "rivwth" and "rivdph" columns.'})
-            gdf = gdf[['rivwth', 'rivdph', 'geometry']]
+
+            if not 'Width' in gdf.columns or not 'Depth' in gdf.columns:
+                return JSONResponse({'status': 'error', 'message': 'River data must have "Width" and "Depth" columns.'})
+            gdf = gdf[['Width', 'Depth', 'geometry']]
+
+
         functions.safe_remove(river_path)
         if gdf.empty: 
             message = "No river is detected.\nPlease check the input raster."

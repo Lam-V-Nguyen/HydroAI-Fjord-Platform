@@ -1,7 +1,7 @@
 import { CENTER, ZOOM, L, getPendingRequest, clearPendingRequest, origin } from "./constant.js";
 import { signalSender } from "./commonFunctions.js";
 import { updateColorbar } from "./unstructuredGrid.js";
-import { mapPlotter, buildTooltip } from "./flowManager.js";
+import { mapPlotter, buildTooltip, isInvalidNumber } from "./flowFunctions.js";
 
 const layerConfig = {
     terrainLayer: {
@@ -43,7 +43,7 @@ const layerConfig = {
 
 const mapping = {
     river: {
-        key: 'river', fields: ['rivwth','rivdph']
+        key: 'river', fields: ['Width','Depth']
     }
 };
 
@@ -255,13 +255,14 @@ export async function renderPreview(request=null) {
             setTimeout(() => { 
                 existing.eachLayer((layer) => { 
                     const props = layer.feature?.properties;
-                    const river = (props.width ?? '').toString().trim();
-                    let check = !river || river === '' || river === 'None';
+                    const widthInvalid = isInvalidNumber(props?.Width);
+                    const depthInvalid = isInvalidNumber(props?.Depth);
+                    const check = widthInvalid || depthInvalid;
                     // Highlight invalid polygons
                     if (check) {
                         layer.setStyle({ color: 'yellow', weight: 3 });
-                        const id = props.description; let values = null;
-                        values = [id, 'None', 'None']
+                        const id = props?.description;
+                        const values = [id, props?.Width ?? 'None', props?.Depth ?? 'None']
                         invalidContent.push(values); invalidIDs.push(id);
                     }
                 }); signalSender('hideOverlay');
