@@ -89,7 +89,7 @@ function lineAdd(pointContainer, map, lineType) {
     const latlngs = pointContainer
         .map(p => {
             const lat = parseFloat(p[1]), lon = parseFloat(p[2]);
-            if (isNaN(lat) || isNaN(lon)) return null;
+            if (isNaN(lat) || isNaN(lon)) { return null; }
             return [lat, lon];
         })
         .filter(Boolean);
@@ -254,9 +254,9 @@ export async function renderPreview(request=null) {
             const invalidContent = [], invalidIDs = [];
             setTimeout(() => { 
                 existing.eachLayer((layer) => { 
-                    const props = layer.feature?.properties; 
-                    let check = !river || river === '' || river === 'None';
+                    const props = layer.feature?.properties;
                     const river = (props.width ?? '').toString().trim();
+                    let check = !river || river === '' || river === 'None';
                     // Highlight invalid polygons
                     if (check) {
                         layer.setStyle({ color: 'yellow', weight: 3 });
@@ -489,8 +489,7 @@ export function initMap(mapId='map') {
 
         if (req.requestId !== 'pickPath') {
             req.source.postMessage({ requestId: req.requestId, result: result }, origin);
-            clearPendingRequest();
-            mapContainer.style.cursor = 'grab'; currentMap.closeTooltip(hoverTooltip);
+            clearPendingRequest(); mapContainer.style.cursor = 'grab'; currentMap.closeTooltip(hoverTooltip);
         }
     });
     currentMap.on('contextmenu', async (e) => { 

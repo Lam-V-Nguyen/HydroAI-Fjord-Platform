@@ -29,7 +29,7 @@ const obj = {
     riverLakeUploadBtn: $('lake-upload-btn'), riverCatchmentUploadBtn: $('lake-catchment-upload-btn'),
     lakeInputFile: $('lake-input-file'), riverLakeClipBtn: $('river-clip-lake-btn'),  
     riverCatchmentClipBtn: $('river-clip-catchment-btn'), riverTable: $('river-table'), 
-    riverDeleteBtn: $('river-delete-btn'), invalidriverBtn: $('river-invalid-checker-btn'), 
+    riverDeleteBtn: $('river-delete-btn'), invalidDriverBtn: $('river-invalid-checker-btn'), 
     saveRiverProjectBtn: $('river-save-project-btn'), riverIds: $('river-id'), 
     assignRiverBtn: $('river-assign-btn'), saveRiverFileBtn: $('river-save-file-btn'),
     weatherCSVContainer: $('weather-csv-container'), weatherStationContainer: $('weather-station-container'),
@@ -383,9 +383,17 @@ function riverManager() {
         radio.addEventListener('change', (e) => {
             const value = e.target.value;
             if (value === 'river-raster') { 
-                obj.riverContainer.style.display = 'flex'; 
+                obj.riverContainer.style.display = 'flex';
+
+
+
+
             } else if (value === 'river-vector') { 
-                obj.riverContainer.style.display = 'none'; 
+                obj.riverContainer.style.display = 'none';
+                obj.riverCatchmentUploadBtn().disabled = true; obj.riverCatchmentClipBtn().disable = true;
+
+
+
             }
         });
     });
@@ -471,8 +479,7 @@ function riverManager() {
             key: 'mapPlotter', layerKey: 'riverLayer_Vector', 
             data: request.content, type: 'river', reset: true
         };
-        await sendRequest('flowOptions', contents);
-        obj.riverCheckbox.checked = true;
+        await sendRequest('flowOptions', contents); obj.riverCheckbox.checked = true;
     });
     obj.riverCatchmentClipBtn.addEventListener('click', async () => {
         const riverChecker = await sendRequest('flowOptions', { key: 'layerChecker', layerKey: 'riverLayer_Vector' });
@@ -491,10 +498,9 @@ function riverManager() {
             key: 'mapPlotter', layerKey: 'riverLayer_Vector', 
             data: request.content, type: 'river', reset: true
         };
-        await sendRequest('flowOptions', contents);
-        obj.riverCheckbox.checked = true;
+        await sendRequest('flowOptions', contents); obj.riverCheckbox.checked = true;
     });
-    obj.invalidriverBtn.addEventListener('click', async () => { 
+    obj.invalidDriverBtn.addEventListener('click', async () => { 
         const layerChecker = await sendRequest('flowOptions', { key: 'layerChecker', layerKey: 'riverLayer_Vector' });
         if (!layerChecker.exist) { alert('Please upload/create a river layer first.'); return; }
         const content = ['Segment ID','Width','Depth'];
