@@ -14,7 +14,7 @@ let isLoaded = false, userName = null, prevSource = null;
 
 await login(); 
 loadWidget(); widgetMenuManager(); updateComponent(); 
-showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
+// showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
 
 async function login() {
@@ -48,18 +48,26 @@ function widgetMenuManager() {
         let w = 6, h = 7, title = item.textContent.replace(/▸|◂/g, '').trim();
         const closeMenu = () => { menuContainer.style.display = 'none'; };
         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
-
-//         else if (id === 'flow-data-preparation') { 
-//             w = 11; h = 8; title = 'Data Preparation for Flow Estimation';
-        if (id === 'preparation-hyd') { w = 12; h = 7; title = 'Data Preparation for HYD Scenario'; }
+        // Selections
+        if (id === 'data-download') { w = 7; h = 12; }
+        else if (id === 'preparation-hyd') { w = 12; h = 7; 
+            title = 'Data Preparation for HYD Scenario'; }
         else if (id === 'grid-generation') { w = 12; h = 10; }
         else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
         else if (id === 'visualization') { w = 12; h = 9; }
+        else if (id === 'flow-data-preparation') { 
+            w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
 //         else if (id === 'run-flow-model') { w = 16; h = 8; }
+
+        
+
+
+
+
+
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
-        else if (id === 'data-download') { w = 7; h = 12; }
         addWidget(w, h, title, id, url); closeMenu();
     });
     document.addEventListener("click", (e) => { 
@@ -130,7 +138,6 @@ function updateComponent() {
             renderPreview({ requestId: event.data.type });
         } else if (event.data.type === 'waqPoint' || event.data.type === 'loadsPoint') { 
             renderPreview({ requestId: event.data.type, content: event.data.content });
-            // renderPreview({ type: event.data.requestId });
 //         } else if (event.data.type === 'clearGridMap') { 
 //             renderPreview({ source: event.source, requestId: event.data.type });
 //         } else if (event.data.type === 'colorbarOption') { 
@@ -143,14 +150,14 @@ function updateComponent() {
 //                 source: event.source, requestId: event.data.type,
 //                 content: event.data.content
 //             });
-//         } else if (event.data.type === 'flowOptions') { 
-//             const { requestId } = event.data.content;
-//             pendingRequests.set(requestId, { source: event.source });
-//             const req = { 
-//                 source: event.source, requestId: requestId,
-//                 content: event.data.content, type: event.data.type
-//             };
-//             renderPreview(req); setPendingRequest(req);
+        } else if (event.data.type === 'flowOptions') { 
+            const { requestId } = event.data.content;
+            pendingRequests.set(requestId, { source: event.source });
+            const req = { 
+                source: event.source, requestId: requestId,
+                content: event.data.content, type: event.data.type
+            };
+            renderPreview(req); setPendingRequest(req);
         } else if (event.data.type === 'showNote') {
             showNotes(event.data.content);
         } else if (event.data.type === 'updateUIState') {

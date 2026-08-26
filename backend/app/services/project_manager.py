@@ -160,12 +160,13 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
         redis, params = request.app.state.redis, body.get('params')
         model_type, gisChecked = body.get('waqModel'), body.get('gisChanged')
         model_name = body.get('waqName')
-        extend_task, lock = None, redis.lock(f"{project_name}:setup_database", timeout=600)        
+        extend_task, lock = None, redis.lock(f"{project_name}:setup_database", timeout=600)
         async with lock:
             extend_task = asyncio.create_task(functions.auto_extend(lock, interval=10))
             project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
             # demo_dir = os.path.normpath(os.path.join(PROJECT_ROOT, 'demo'))
-            # if user != 'admin':
+            # check_demo = os.listdir(project_dir)
+            # if user != 'admin' and 'demo' not in check_demo:
             #     print(f"Copying project 'demo' folder to '{project_dir}'")
             #     os.makedirs(project_dir, exist_ok=True)
             #     shutil.copytree(demo_dir, project_dir, dirs_exist_ok=True)
@@ -192,13 +193,11 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
             if params[3] != '':
                 waq_map = dm.get(os.path.normpath(os.path.join(waq_dir, params[3])))
                 project_cache['waq_map'] = waq_map
-            if hyd_map is not None:
+            if hyd_map is None:
+                return {"status": "error", "message": "Cannot find hydrodynamic data (map file).\nConsider running the model again."}
+            if hyd_map is not None and 'grid' not in project_cache:
                 print('Creating grid for hydrodynamic simulation...')
                 project_cache['grid'] = functions.unstructuredGridCreator(hyd_map)
-            else: 
-                return JSONResponse({
-                    "status": 'error', "message": "Cannot find hydrodynamic data (map file).\nConsider running the model again."
-                })
             model_path = os.path.normpath(os.path.join(waq_dir, f'{model_name}.json'))
             # Load or init config
             config_path, obs, waq_model = os.path.normpath(os.path.join(config_dir, 'config.json')), {}, ''
@@ -229,7 +228,6 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
                 if (waq_his or waq_map) and waq_model == '': 
                     return JSONResponse({"status": 'error', "message": "Some WAQ-related parameters are missing.\nConsider running the model again."})  
                 # Lazy scan WAQ
-                print(f"waq_map or waq_his: {waq_map}")
                 if (waq_map or waq_his):
                     print('Scanning WAQ variables...')
                     waq_vars = functions.getVariablesNames([waq_his, waq_map], waq_model, model_name)
@@ -279,7 +277,7 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
             if gisChecked:
                 gis_file = [f.replace('.geojson', '') for f in os.listdir(gis_dir) if f.endswith(".geojson")]
                 if len(gis_file) > 0: config['gis_layers'] = gis_file
-                else: config.pop('gis_layers', None)
+                else: config['gis_layers'] = []
                 open(config_path, "w", encoding=functions.encoding_detect(config_path)).write(json.dumps(config))
             # Restructure configuration
             result = {**config.get("hyd", {}), **config.get("waq", {})}
@@ -331,6 +329,7 @@ async def get_config_files(request: Request):
             with open(config_path, 'r', encoding=functions.encoding_detect(config_path)) as f:
                 config = json.load(f)
             waq_model, waq_name = config.get("model_type", ''), config.get("model_name", '')
+            current_params[2], current_params[3] = f"{waq_name}_his.zarr", f"{waq_name}_map.zarr"
         else:
             waq_files = [f for f in os.listdir(waq_dir) if f.endswith(".zarr")]
             waq_names = list(dict.fromkeys(file.rsplit("_", 1)[0] for file in waq_files))

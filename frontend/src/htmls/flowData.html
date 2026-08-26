@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
+    <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
+</head>
+<body>
+    <div class="wrapper">
+        <section class="main-tab" id="control-tab">
+            <div class="tab-header" id="main-tabs">
+                <div class="tabs-list">
+                    <button class="tab-btn" data-tab="settings-tab">Settings</button>
+                    <button class="tab-btn" data-tab="terrain-tab">Topography</button>
+                    <button class="tab-btn" data-tab="soil-tab">Soil</button>
+                    <button class="tab-btn" data-tab="land-tab">Land Cover</button>
+                    <button class="tab-btn" data-tab="river-network-tab">River Network</button>
+                    <button class="tab-btn" data-tab="weather-data-tab">Weather Data</button>
+                </div>
+            </div>
+            <div class="tabs-content">
+                <!-- Tab 1: Settings -->
+                <div class="tabpanel main-panel" data-panel="settings-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>Project</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <label for="project-name">Scenario:</label>
+                                    <div id="project-name-wrapper">
+                                        <input type="text" id="project-name" placeholder="Enter scenario's name">
+                                        <ul id="project-list"></ul>
+                                    </div>
+                                    <button id="create-btn">Create/Open</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>Water Area</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <label for="water-area">Water area (Lake/Pond etc.,):</label>
+                                    <input type="text" id="water-input-text" placeholder="Water area">
+                                    <input type="file" id="water-input-file" accept=".geojson" hidden>
+                                    <button id="water-btn">Upload File (*.geojson)</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 2: Topography -->
+                <div class="tabpanel main-panel" data-panel="terrain-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>1. Terrain Import</h3>
+                            <div class="row" style="white-space: nowrap;">
+                                <label for="terrain-input">Raw Terrain:</label>
+                                <input type="file" id="terrain-input-file" accept=".tif" hidden>
+                                <input type="file" id="catchment-input-file" accept=".geojson" hidden>
+                                <input type="text" id="terrain-input-text" placeholder="No file selected" readonly>
+                                <button type="button" id="terrain-btn" style="min-width: 100px;">Upload File (*.tif)</button>
+                            </div>
+                            <div class="row">
+                                <div class="row-radio" data-tab="terrain">
+                                    <input type="radio" id="terrain-raw" name="terrain" value="terrain-raw">
+                                    <label for="terrain-raw">Show Terrain</label>
+                                </div>
+                                <div class="row-radio" data-tab="terrain">
+                                    <input type="radio" id="hide-all" name="terrain" value="hide-all" checked=true>
+                                    <label for="hide-all">Hide All</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>2. Terrain Processing</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <label for="threshold">Threshold (m):</label>
+                                    <input type="text" id="threshold" value="10000" style="max-width: 150px;">
+                                    <button style="margin: 0 10px 0 10px; max-width: 150px;" type="button" id="stream-btn">Extract Streams</button>
+                                    <div class="row-radio" data-tab="terrain">
+                                        <input type="radio" id="terrain-stream" name="terrain" value="terrain-stream">
+                                        <label for="terrain-stream">Show Layer</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>3. Catchment Delineation</h3>
+                            <div class="row pourpoint-container" style="margin-top: -10px;">
+                                <div class="row-radio" data-tab="terrain">
+                                    <div class="field-inline">
+                                        <label>Snap distance (m):</label>
+                                        <input type="text" id="pourpoint-dist" value="10.0" style="max-width: 80px;">
+                                        <div class="checkbox-group">
+                                            <input type="checkbox" id="pourpoint-checkbox">
+                                            <label for="pourpoint-checkbox">Select Pourpoint</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="pourpoint-group" id="pourpoint-container" style="display: none;">
+                                    <div class="field-inline" style="margin-top: -10px;">
+                                        <input type="text" id="pourpoint-lat" placeholder="Latitude" readonly>
+                                        <input type="text" id="pourpoint-lon" placeholder="Longitude" readonly>
+                                        <div class="row-radio" data-tab="terrain">
+                                            <input type="radio" id="catchment-layer" name="terrain" value="terrain-catchment">
+                                            <label for="catchment-layer">Show Catchment</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>4. Catchment Export</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <button type="button" id="export-catchment-btn">Export Catchment</button>
+                                    <button type="button" id="export-pourpoint-btn">Export Pourpoint</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 2: Soil Properties -->
+                <div class="tabpanel main-panel" data-panel="soil-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>Soil Import and Download</h3>
+                            <div class="row">
+                                <label>Upload a Catchment to define the area:</label>
+                                <button type="button" id="soil-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
+                            </div>
+                            <div class="row">
+                                <label for="soil-source">Soil Data Source:</label>
+                                <select id="soil-source">
+                                    <option value="" selected>--- Select a source ---</option>
+                                    <option value="isric">World Soil Information 2017 - ISRIC (250m)</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <button type="button" id="check-soil-btn">Check Soil</button>
+                                <button type="button" id="download-soil-btn">Download Soil</button>
+                            </div>
+                            <div class="row">
+                                <label for="soil-source">Soil Layer:</label>
+                                <select id="soil-layer">
+                                    <option value="" selected>--- Select a layer ---</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <a style="margin-top: 10px;">References:</a>
+                                <a class="data-link" href="https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_2017.html"
+                                    target="_blank">SoilGrids-2017,
+                                </a>
+                                <a class="data-link" href="https://soilgrids.org/"
+                                    target="_blank">SoilGrids,
+                                </a>
+                                <a class="data-link" href="https://data.isric.org/geonetwork/srv/eng/catalog.search#/home"
+                                    target="_blank">SoilGrids - Data Hub
+                                </a>
+                            </div>
+                        </div>
+                        <div class="tile" id="soil-attribute-container"><h3>Attribute Table</h3>
+                            <div class="table-container">
+                                <table class="attributes-table" id="soil-attributes-table">
+                                    <thead><tr>
+                                        <th>Soil Type</th><th>Depth (cm)</th><th>Value</th>
+                                    <tbody>
+                                        <tr>
+                                            <td><input type="text" placeholder="Soil type"></td>
+                                            <td><input type="text" placeholder="Soil depth"></td>
+                                            <td><input type="text" placeholder="Value"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tile" id="soil-download-container"><h3>Download Progress</h3>
+                            <textarea wrap="off" id="soil-download-text" placeholder="Download progress..." readonly></textarea>
+
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 3: Land Cover -->
+                <div class="tabpanel main-panel" data-panel="land-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>Land Cover Import</h3>
+                            <div class="row">
+                                <label>Upload a Catchment to define the area:</label>
+                                <button type="button" id="land-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
+                            </div>
+                            <div class="row">
+                                <label for="land-source">Land Cover Source:</label>
+                                <select id="land-source">
+                                    <option value="" selected>--- Select a source ---</option>
+                                    <!-- <option value="esa">ESA WorldCover 2021 - 10m</option> -->
+                                    <option value="corine">CORINE Land Cover 2018 - 100m</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <button type="button" id="land-load-btn">Load Land Cover Data</button>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>Data Source Description</h3>
+                            <!-- <div class="row">
+                                <h4 class="section-title">• ESA WorldCover</h4>
+                                <ul class="data-list">
+                                    <li>
+                                        <a class="data-link" href="https://esa-worldcover.org/en/data-access"
+                                            target="_blank">ESA WorldCover
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="data-link" href="#"
+                                            onclick="window.open('/src_frontend/pdfs/WorldCover_PUM_V2.0.pdf', '_blank'); return false;"
+                                            target="_blank">WorldCover_PUM_v2.0 - Product User Manual
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div> -->
+                            <div class="row">
+                                <h4 class="section-title">• Copernicus Land Monitoring Service (CLMS)</h4>
+                                <ul class="data-list">
+                                    <li>
+                                        <a class="data-link" href="https://land.copernicus.eu/en/products/corine-land-cover"
+                                            target="_blank">CORINE Land Cover
+                                        </a>
+                                        
+                                    </li>
+                                    <li>
+                                        <a class="data-link" href="https://search.earthdata.nasa.gov"
+                                            target="_blank">Leaf Area Index (LAI) - EarthData Search
+                                        </a>
+                                    </li>
+                                    <!-- <li>
+                                        <a class="data-link" href="https://land.copernicus.eu/en/map-viewer"
+                                            target="_blank">CLMS - Data Viewer
+                                        </a>
+                                    </li> -->
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 4: River Network -->
+                <div class="tabpanel main-panel" data-panel="river-network-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>River Import</h3>
+                            <div class="row-radio">
+                                <input type="radio" name="river" value="river-vector" id="river-vector" checked>
+                                <label for="river-vector">Upload River (Vector)</label>
+                                <input type="radio" name="river" value="river-raster" id="river-raster">
+                                <label for="river-raster">Use DEM (Raster)</label>
+                            </div>
+                            <div class="row">
+                                <div class="row" id="river-container" style="display: none;">
+                                    <label for="river-threshold">Threshold:</label>
+                                    <input type="text" id="river-threshold" value="100000.0" style="max-width: 100px;">
+                                </div>
+                                <input type="file" id="river-input-file" accept=".tif,.geojson" hidden>
+                                <button type="button" id="river-upload-btn" style="min-width: 50px;">Upload File (*.tif, *.geojson)</button>
+                            </div>
+                            <div class="row">
+                                <label for="river-input-text">River Data:</label>
+                                <input type="text" id="river-input-text" placeholder="No file selected" readonly>
+                            </div>
+                        </div>
+                        <div class="tile"><h3>River Processing</h3>
+                            <div class="row">
+                                <input type="file" id="lake-input-file" accept=".geojson" hidden>
+                                <button type="button" id="lake-upload-btn">Upload Lake Boundary</button>
+                                <button type="button" id="river-clip-lake-btn">Clip River to Lake</button>
+                            </div>
+                            <div class="row">
+                                <button type="button" id="lake-catchment-upload-btn">Upload Catchment Boundary</button>
+                                <button type="button" id="river-clip-catchment-btn">Clip River to Catchment</button>
+                            </div>
+                            <div class="radio-button">
+                                <label class="row-radio">
+                                    <input type="checkbox" id="river-checker-checkbox">Show/Hide River Layer
+                                </label>
+                                <div class="row">
+                                    <button type="button" id="river-invalid-checker-btn" style="display: block; width: 300px;">
+                                        Check invalid river segments
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 8;"><h3>Attribute Table</h3>
+                            <div class="row">
+                                <label for="river-id">Selected segment:</label>
+                                <select style="min-width: 100px; margin-right: 50px;" id="river-id"></select>
+                                <button type="button" id="river-delete-btn" 
+                                    style="background-color: azure; color: rgb(255, 2, 2); max-width: 250px;">
+                                    Delete the selected segment
+                                </button>
+                                <button type="button" id="river-assign-btn" style="max-width: 200px;">
+                                    Save selected Attributes
+                                </button>
+                                <button type="button" id="river-save-project-btn" style="max-width: 150px;">
+                                    Save to Project
+                                </button>
+                                <button type="button" id="river-save-file-btn" style="max-width: 100px;">
+                                    Export
+                                </button>
+                            </div>
+                            <div class="table-container">
+                                <table class="attributes-table" id="river-table">
+                                    <thead><tr>
+                                        <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><input type="text" placeholder="Segment ID"></td>
+                                            <td><input type="text" placeholder="Width"></td>
+                                            <td><input type="text" placeholder="Depth"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Tab 6: Weather Data -->
+                <div class="tabpanel main-panel" data-panel="weather-data-tab">
+                    <div class="grid">
+                        <div class="tile" style="grid-column: span 2;"><h3 style="margin-top: 10px;">Weather Data Import</h3>
+                            <label class="row-radio">
+                                <input type="radio" name="weather" value="weather-csv" checked>Upload from CSV file
+                            </label>
+                            <label class="row-radio">
+                                <input type="radio" name="weather" value="weather-station">Get from a Weather Station
+                            </label>
+                            <div class="row" id="weather-csv-container">
+                                <label for="weather-input">CSV Data:</label>
+                                <input type="file" id="weather-input-file" accept=".csv" hidden>
+                                <input type="text" id="weather-input-text" placeholder="No file selected" readonly>
+                                <button type="button" id="weather-btn" style="min-width: 100px;">Select File (*.csv)</button>
+                            </div>
+                            <div class="row" id="weather-station-container" style="display: none;">
+                                <label for="weather-station">Source:</label>
+                                <select id="weather-station" style="width: 100%;">
+                                    <option value="" selected>--- Select a source ---</option>
+                                    <option value="era5">Climate Data Store - ERA5</option>
+                                </select>
+                            </div>
+                            <div class="row" id="weather-catchment-container" style="display: none;">
+                                <button type="button" id="weather-catchment-btn">Upload Catchment (*.geojson)</button>
+                            </div>
+                            <div class="row" id="weather-station-start" style="display: none;">
+                                <label for="weather-start-date">Start time:</label>
+                                <input type="text" class="datetime" id="weather-start-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                            </div>
+                            <div class="row" id="weather-station-end" style="display: none;">
+                                <label for="weather-end-date">End time:</label>
+                                <input type="text" class="datetime" id="weather-end-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                            </div>
+                            <div class="row">
+                                <button type="button" id="weather-download-btn" 
+                                    style="margin-left: 10px; display: none; justify-content: center;">Download Weather Data
+                                </button>
+                            </div>
+                            <div class="row" id="weather-source-container">
+                                <a style="margin-top: 8px;">References:</a>
+                                <a class="data-link" href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
+                                    target="_blank">ERA5 - Hourly Data
+                                </a>
+                            </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 6;">
+                            <div class="row" id="weather-table-container" style="margin-top: -10px;">
+                                <div class="row">
+                                    <h3 style="margin-top: 10px;">Attribute Table</h3>
+                                    <button type="button" id="weather-save-btn" 
+                                        style="max-width: 250px; margin-left: 10px; margin-top: -10px;">Save Data to netcdf (*.nc)
+                                    </button>
+                                </div>
+                                <div class="table-container">
+                                    <table class="attributes-table" id="weather-table" style="margin-top: -10px;">
+                                        <thead><tr>
+                                            <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th><th>Shortwave Radiation (W/m²)</th>
+                                            <th>Longwave Radiation (W/m²)</th><th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
+                                        </tr></thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><input type="text" placeholder="Time"></td>
+                                                <td><input type="text" placeholder="Precipitation"></td>
+                                                <td><input type="text" placeholder="Temperature"></td>
+                                                <td><input type="text" placeholder="Shortwave Radiation"></td>
+                                                <td><input type="text" placeholder="Longwave Radiation"></td>
+                                                <td><input type="text" placeholder="Wind Speed"></td>
+                                                <td><input type="text" placeholder="Pressure"></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="row" id="weather-download-container">
+                                <h3 style="margin: 10px 0 -20px 0;">Download Progress</h3>
+                                <div class="row">
+                                    <a style="margin-top: 10px;">References:</a>
+                                    <a class="data-link" href="#"
+                                        onclick="window.open('/src_frontend/pdfs/CropEvapotranspiration.pdf', '_blank'); return false;"
+                                        target="_blank">Allen et al., (1998): Crop Evapotranspiration – FAO Irrigation and Drainage Paper 56
+                                    </a>
+                                </div>
+                                <textarea wrap="off" id="weather-download-text" placeholder="Download progress..." readonly></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr(".datetime", {
+            enableTime: true, enableSeconds: true, dateFormat: "Y-m-d H:i:S", time_24hr: true,
+            defaultHour: 0, defaultMinute: 0, defaultSecond: 0
+        });
+    </script>
+    <script type="module" src="/src_frontend/services/flowPreparation.js"></script>
+</body>
+</html>

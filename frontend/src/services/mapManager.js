@@ -460,7 +460,9 @@ export function initMap(mapId='map') {
             signalSender('updateUIState', { 
                 requestId: req.requestId, result: result 
             });
-            clearPendingRequest(); isPourpointActive = false;
+            currentMap.closeTooltip(hoverTooltip); 
+            isPourpointActive = false; clearPendingRequest(); 
+            
             
             
             

@@ -39,7 +39,6 @@ export async function generalOptionsManager(projectName){
 
 function pathEvents(mapObject) {
     objContent.pathQuery.checked = getStateVisualization().isPathQuery;
-    // if (getStateVisualization().isPathQuery === false) deActivePathQuery(mapObj);
     objContent.pathQuery.addEventListener('change', () => { 
         if (objContent.pathQuery.checked) { 
             setStateVisualization({isThemocline: false}); 
@@ -139,8 +138,6 @@ function generalEvents(){
         signalSender('hideOverlay'); objContent.thermoclineOptions.style.display = 'none';
     });
     objContent.resetConfig.addEventListener('click', async() => { 
-        // const userName = await getUser(); 
-        // initState(userName.split('/').shift()); resetState();
         const data = await jsonLoader('reset_config', {projectName: currentProject});
         resetStateVisualization(); alert(data.message); location.reload(); return;
     });

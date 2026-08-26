@@ -14,6 +14,25 @@ export const gridId = 'grid-generation-map', flowId = 'flow-map',
     hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map',
     hydPrepareMapId = 'preparation-hyd-map';
 
+let state = {}, currentProjectId = null, pendingRequest = null, mapInstance = null;
+
+const getKey = (projectId) => `app_state_${projectId}`;
+const loadState = (projectId) => {
+    const saved = localStorage.getItem(getKey(projectId));
+    return saved ? JSON.parse(saved) : {};
+};
+export const initState = (projectId) => {
+    currentProjectId = projectId; state = loadState(projectId);
+};
+export const getState = () => state;
+export const setState = (newState) => {
+    state = { ...state, ...newState };
+    if (currentProjectId) saveState(currentProjectId, state);
+};
+const saveState = (projectId, state) => {
+    localStorage.setItem(getKey(projectId), JSON.stringify(state));
+};
+
 const LAST_PROJECT_KEY = 'demo';
 export const getLastProject = () => {
     return localStorage.getItem(LAST_PROJECT_KEY) || 'demo';
@@ -21,47 +40,6 @@ export const getLastProject = () => {
 export const setLastProject = (projectId) => {
     localStorage.setItem(LAST_PROJECT_KEY, projectId);
 }
-
-let pendingRequest = null, mapInstance = null;
-
-
-// const defaultState = {
-//     currentProject: 'demo', waqModel: 'coliform',
-//     currentParams: [
-//         'FlowFM_his.zarr', 'FlowFM_map.zarr', 'Coliform_his.zarr', 'Coliform_map.zarr'
-//     ]
-// }
-// let state = structuredClone(defaultState), currentProjectId = null;
-
-// const getKey = (projectId) => `app_state_${projectId}`;
-
-
-
-
-// export const initState = (projectId) => {
-//     currentProjectId = projectId; state = loadState(projectId);
-//     return state;
-// };
-
-// const loadState = (projectId) => {
-//     const saved = localStorage.getItem(getKey(projectId));
-//     if (!saved) { return structuredClone(defaultState); }
-//     return {
-//         ...structuredClone(defaultState), ...JSON.parse(saved)
-//     };
-// };
-// const saveState = (projectId, state) => {
-//     localStorage.setItem(getKey(projectId), JSON.stringify(state));
-// };
-// export const getState = () => state;
-// export const setState = (newState) => {
-//     state = { ...state, ...newState };
-//     if (currentProjectId) saveState(currentProjectId, state);
-// };
-// export const resetState = () => {
-//     state = structuredClone(defaultState);
-//     if (currentProjectId) saveState(currentProjectId, state);
-// };
 
 export function getMap() { return mapInstance; }
 export function setMap(map) { mapInstance = map; }

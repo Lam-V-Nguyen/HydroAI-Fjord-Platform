@@ -1,0 +1,18 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pourpoint"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.355150938034,
+          62.458590134021
+        ]
+      }
+    }
+  ]
+}

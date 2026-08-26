@@ -17,7 +17,10 @@ async def upload_data(file: UploadFile = File(...), projectName: str = Form(...)
     elif (type == 'gis'): save_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "GIS"))
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     file_path = os.path.normpath(os.path.join(save_dir, fileName))
+    print('upload_data', fileName)
     try:
+        if os.path.exists(file_path):
+            return JSONResponse({"status": "error", "message": f"File '{fileName}' already exists."})
         zip_files = [f for f in os.listdir(save_dir) if f.endswith('.zip')]
         if len(zip_files) > 0:
             for f in zip_files: functions.safe_remove(os.path.normpath(os.path.join(save_dir, f)))
@@ -51,7 +54,6 @@ async def upload_data(file: UploadFile = File(...), projectName: str = Form(...)
                     file_out = os.path.normpath(os.path.join(save_dir, f'{f.replace(".shp", "")}.geojson'))
                     gdf.to_file(file_out, driver='GeoJSON')
             functions.safe_remove(file_path); shutil.rmtree(temp_dir)
-            temp_dir = os.path.normpath(os.path.join(save_dir, 'temp'))
             if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
         return JSONResponse({"status": "ok", "message": f"File '{file.filename}' uploaded successfully."})
     except Exception as e:

@@ -3,7 +3,7 @@ import { origin } from "./constant.js";
 import { getColorFromValue } from "./unstructuredGrid.js";
 
 
-// const pendingRequests = new Map();
+const pendingRequests = new Map();
 
 let zIndex = 3000, activeProject = null, lastOffset = 0;
 
@@ -206,7 +206,6 @@ export function colorbarTicks(min, max, numStops){
     return ticks;
 }
 
-// Split lines into smaller segments and sort by distance
 export function splitLines(pointContainer, polygonCentroids, subset_dis) {
     const interpolatedPoints = [];
     // Convert Lat, Long to x, y
@@ -300,8 +299,7 @@ export function addRowToTable(table, list, fillValue=false){
 }
 
 export function nameChecker(name) { 
-    const newName = !/^[A-Za-z0-9_-]+$/.test(name).replace(' ', '_');
-    return newName; 
+    return !/^[A-Za-z0-9_-]+$/.test(name); 
 }
 
 export function copyPaste(table, nCols){
@@ -385,7 +383,8 @@ export async function fileUploader(targetFile, targetText, projectName, gridName
     const response = await fetch('/upload_data', { method: 'POST', body: formData });
     const data = await response.json();
     signalSender('hideOverlay'); alert(data.message);
-    if (data.status === "error") { targetText.value = ''; targetFile.value = ''; return; }
+    if (targetText) { targetText.value = ''; }
+    if (data.status === "error") { return; }
 }
 
 export async function getProjectList(userName='', folderCheck='') {
@@ -528,6 +527,35 @@ export async function getVisualizationFiles(user, project) {
     const waqModel = data.waq_model;
     return [currentParams, waqName, waqModel];
 }
+
+export function initRequestListener() {
+    window.addEventListener('message', (e) => {
+        const { type, requestId, content } = e.data || {};
+        if (type === 'updateReturn' && requestId) {
+            const pending = pendingRequests.get(requestId);
+            if (pending) {
+                pending.resolve(content);
+                pendingRequests.delete(requestId);
+            }
+        }
+    });
+}
+
+export function sendRequest(type, content) {
+    return new Promise((resolve, reject) => {
+        const requestId = Math.random().toString(36).slice(2);
+        pendingRequests.set(requestId, { resolve, reject });
+        signalSender(type, { ...content, requestId });
+        setTimeout(() => {
+            if (pendingRequests.has(requestId)) {
+                pendingRequests.delete(requestId);
+                reject(new Error('Timeout'));
+            }
+        }, 10000);
+    });
+}
+
+
 
 
 
