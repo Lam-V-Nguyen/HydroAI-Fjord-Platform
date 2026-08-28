@@ -257,9 +257,9 @@ export async function saveCSV(filename, headers, rows) {
     await writable.write(csv); await writable.close();
 }
 
-export function updateLog(currentProject, info, seconds, key, onFinish){
-    const new_key = `${currentProject}_${key}`;
-    activeProject = new_key; lastOffset = 0;
+export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
+    const new_key = `${currentProject}_${key}`; let lastOffset = 0;
+    activeProject = new_key; 
     async function loop() {
         if (activeProject !== new_key) return;
         try {
@@ -270,12 +270,15 @@ export function updateLog(currentProject, info, seconds, key, onFinish){
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.lines)) {
-                    for (const line of data.lines) { info.value += line + "\n"; }
+                    if (reloadLog) { info.value = data.lines.join("\n");
+                    } else {
+                        for (const line of data.lines) { info.value += line + "\n"; }
+                    }
                 }
-                lastOffset = data.offset;
+                if (!reloadLog) { lastOffset = data.offset; }
             }
             if (statusRes.status !== "running") {
-                info.value += (statusRes.message || "") + "\n"; lastOffset = 0; 
+                if (statusRes.message) { info.value += "\n" + statusRes.message + "\n"; }
                 if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
                 return;
             }

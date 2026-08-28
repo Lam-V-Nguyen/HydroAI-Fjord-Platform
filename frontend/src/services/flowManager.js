@@ -30,10 +30,10 @@ const obj = {
     riverThreshold: $('river-threshold'), riverCheckbox: $('river-checker-checkbox'),    
     riverLakeUploadBtn: $('lake-upload-btn'), riverCatchmentUploadBtn: $('lake-catchment-upload-btn'),
     lakeInputFile: $('lake-input-file'), riverLakeClipBtn: $('river-clip-lake-btn'),  
-    riverCatchmentClipBtn: $('river-clip-catchment-btn'), invalidRiverTable: $('invalid-river-table'), 
-    riverDeleteBtn: $('river-delete-btn'), invalidDriverBtn: $('river-invalid-checker-btn'), 
-    saveRiverProjectBtn: $('river-save-project-btn'), riverIds: $('river-id'), validRiverTable: $('valid-river-table'), 
-    assignRiverBtn: $('river-assign-btn'), saveRiverFileBtn: $('river-save-file-btn'),
+    riverCatchmentClipBtn: $('river-clip-catchment-btn'), invalidDriverBtn: $('river-invalid-checker-btn'),
+    invalidRiverTable: $('invalid-river-table'), inValidDiverIds: $('invalid-river-id'),
+    saveRiverProjectBtn: $('river-save-project-btn'), riverDeleteBtn: $('river-delete-btn'), 
+    validRiverTable: $('valid-river-table'), assignRiverBtn: $('river-assign-btn'), saveRiverFileBtn: $('river-save-file-btn'),
     weatherCSVContainer: $('weather-csv-container'), weatherStationContainer: $('weather-station-container'),
     weatherBtn: $('weather-btn'), weatherInputFile: $('weather-input-file'), weatherInputText: $('weather-input-text'), 
     weatherTable: $('weather-table'), weatherStationSelector: $('weather-station'), saveWeatherBtn: $('weather-save-btn'), 
@@ -512,18 +512,18 @@ function riverManager() {
     obj.riverDeleteBtn.addEventListener('click', async () => {
         const riverChecker = await sendRequest('flowOptions', { key: 'layerChecker', layerKey: 'riverLayer_Vector' });
         if (!riverChecker.exist) { alert('Please upload/create a river layer first.'); return; }
-        const data = getDataFromTable(obj.invalidRiverTable, true).rows, id = obj.riverIds.value;
+        const data = getDataFromTable(obj.invalidRiverTable, true).rows, id = obj.inValidDiverIds.value;
         if (data.length === 0) { alert('Please select a segment of the river on map to delete.'); return; }
         await sendRequest('flowOptions', { 
             key: 'deleteItem', layerKey: 'riverLayer_Vector', id: id, type: 'river' 
         });
         const selectData = data.filter(v => Number(v[0]) !== Number(id));
         const firstValues = selectData.map(arr => arr[0]);
-        obj.riverIds.textContent = '';
+        obj.inValidDiverIds.textContent = '';
         firstValues.forEach(id => {
             const option = document.createElement('option');
             option.value = id; option.textContent = id;
-            obj.riverIds.appendChild(option);
+            obj.inValidDiverIds.appendChild(option);
         });
         deleteTable(obj.invalidRiverTable); addRowToTable(obj.invalidRiverTable, ['Segment ID','Width','Depth']);
     });
@@ -532,7 +532,7 @@ function riverManager() {
         if (!riverChecker.exist) { alert('Please upload/create a river layer first.'); return; }
         const data = getDataFromTable(obj.invalidRiverTable, true).rows;
         if (data.length === 0) { alert('Please select a segment of the river on map to edit.'); return; }
-        const id = obj.riverIds.value;
+        const id = obj.inValidDiverIds.value;
         const selectData = data.filter(v => Number(v[0]) === Number(id));
         if (selectData.length === 0) { alert(`Cannot find the selected segment '${id}' in the table.`); return; }
         if (selectData[0].some(v => !v.trim() || Number.isNaN(Number(v)))) {
@@ -541,11 +541,11 @@ function riverManager() {
         const response = await sendRequest('flowOptions', { 
             key: 'assignType', layerKey: 'riverLayer_Vector', id: id, data: selectData[0], type: 'river' 
         });
-        obj.riverIds.textContent = '';
+        obj.inValidDiverIds.textContent = '';
         response.ids.forEach(id => {
             const option = document.createElement('option');
             option.value = id; option.textContent = id;
-            obj.riverIds.appendChild(option);
+            obj.inValidDiverIds.appendChild(option);
         });
         deleteTable(obj.invalidRiverTable); fillTable(response.data, obj.invalidRiverTable, true);
     });
@@ -555,8 +555,11 @@ function riverManager() {
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         const layer = await sendRequest('flowOptions', { key: 'getLayer', layerKey: 'riverLayer_Vector' });
         if (layer.data === null) { alert('Layer is empty. Please upload/create a river layer first.'); return; }
+        const dataRows = getDataFromTable(obj.validRiverTable, true);
+        if (dataRows.rows.length === 0) { alert('No valid segments found. Please check the valid table.'); return; }
+        const segments = dataRows.rows.map(row => Number(row[0]));
         signalSender('showOverlay', 'Saving river layer to project. Please wait...');
-        const content = { projectName: currentProject, flowName: name, data: layer.data };
+        const content = { projectName: currentProject, flowName: name, data: layer.data, segments: segments };
         const data = await jsonLoader('river_saver', content);
         signalSender('hideOverlay'); alert(data.message);
     });
@@ -565,7 +568,19 @@ function riverManager() {
         if (!riverChecker.exist) { alert('Please upload/create a river layer first.'); return; }
         const layer = await sendRequest('flowOptions', { key: 'getLayer', layerKey: 'riverLayer_Vector' });
         if (layer.data === null) { alert('Layer is empty. Please upload/create a river layer first.'); return; }
-        await geoJSONExporter(layer.data, 'river.geojson');
+        const dataRows = getDataFromTable(obj.validRiverTable, true);
+        if (dataRows.rows.length === 0) { alert('No valid segments found. Please check the valid table.'); return; }
+        const segments = dataRows.rows.map(row => Number(row[0]));
+        const selectedSet = new Set(segments);
+        const filterObj = {...layer,
+            data:{
+                ...layer.data,
+                features: layer.data.features.filter(
+                    feature => selectedSet.has(feature.properties?.description)
+                )
+            }
+        }
+        await geoJSONExporter(filterObj.data, 'river.geojson');
     });
 }
 
@@ -673,19 +688,19 @@ function windowListener() {
     window.addEventListener('message', (e) => {
         if (e.data?.type === 'updateUIDelay') {
             const content = e.data.content;
-            let invalidTable = null, ids = null;
             if (content.key === 'river') { 
-                ids = obj.riverIds; invalidTable = obj.invalidRiverTable;
-                ids.textContent = '';
-                content.ids.forEach(id => {
+                const inValidIds = obj.inValidDiverIds;
+                const invalidTable = obj.invalidRiverTable;
+                const validTable = obj.validRiverTable;
+                inValidIds.textContent = '';
+                content.invalidIDs.forEach(id => {
                     const option = document.createElement('option');
                     option.value = id; option.textContent = id;
-                    ids.appendChild(option);
+                    inValidIds.appendChild(option);
                 });
-                deleteTable(invalidTable);
-                content.data.forEach(row => {
-                    fillTable([row], invalidTable, false);
-                });
+                deleteTable(invalidTable); deleteTable(validTable);
+                content.inValidData.forEach(row => { fillTable([row], invalidTable, false); });
+                content.validData.forEach(row => { fillTable([row], validTable, false); });
             };
             signalSender('hideOverlay');
         }

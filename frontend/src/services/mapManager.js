@@ -251,7 +251,7 @@ export async function renderPreview(request=null) {
             }
             const existing = config.getLayer();
             signalSender('showOverlay', 'Checking for invalid polygons.\nPlease wait...');
-            const invalidContent = [], invalidIDs = [];
+            const validContent = [], invalidContent = [], invalidIDs = [];
             setTimeout(() => { 
                 existing.eachLayer((layer) => { 
                     const props = layer.feature?.properties;
@@ -260,14 +260,18 @@ export async function renderPreview(request=null) {
                     const check = widthInvalid || depthInvalid;
                     // Highlight invalid polygons
                     if (check) {
-                        layer.setStyle({ color: 'yellow', weight: 3 });
+                        layer.setStyle({ color: 'red', weight: 3 });
                         const id = props?.description;
                         const values = [id, props?.Width ?? 'None', props?.Depth ?? 'None']
                         invalidContent.push(values); invalidIDs.push(id);
+                    } else {
+                        layer.setStyle({ color: 'green', weight: 1 });
+                        const values = [props.description, props.Width, props.Depth]
+                        validContent.push(values);
                     }
                 }); signalSender('hideOverlay');
-                content.key = request.content.type;
-                content.ids = invalidIDs; content.data = invalidContent;
+                content.key = request.content.type; content.invalidIDs = invalidIDs;
+                content.inValidData = invalidContent; content.validData = validContent;
                 if (invalidIDs.length === 0) { alert(`All ${request.content.type} polygons are valid.`); 
                 } else { alert(`Number of invalid polygons: ${invalidIDs.length}.`); }
                 signalSender('showOverlay', 'Sending invalid polygons and updating table.\nPlease wait...');

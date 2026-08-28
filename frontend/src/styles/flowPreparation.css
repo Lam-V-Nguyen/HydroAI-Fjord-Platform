@@ -60,18 +60,20 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
 .data-link:hover {color: yellow;}
 
 .input-parameters { 
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  display: grid; gap: 10px 10px; width: 100%; column-gap: 20px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 10px; width: 100%; column-gap: 100px; padding: 20px 40px;
 }
-.input-parameters h3 { grid-column: 1 / -1; }
+.input-parameters h3 { 
+  grid-column: 1 / -1; padding: 0; margin-left: -20px;
+}
 .input-parameters .single-row {
   display: flex; align-items: center; gap: 8px; margin: 0;
 }
 .input-parameters .single-row label {
-  width: 200px; flex-shrink: 0; font-size: 16px;
+  flex: 0 0 80%; flex-shrink: 0; font-size: 16px;
 }
 .input-parameters .single-row input {
-  flex: 1 1 auto; padding: 8px 12px; border-radius: 12px; width: 50px;
+  flex: 1; padding: 8px 12px; border-radius: 12px; width: 25%;
   border: 1px solid var(--border); background: var(--card);
   color: var(--text); outline: none; text-align: center; min-width: 0;
 }

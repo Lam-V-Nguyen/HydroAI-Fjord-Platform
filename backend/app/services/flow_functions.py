@@ -1,4 +1,4 @@
-import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir
+import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re
 import logging, cdsapi, calendar, gc, shutil, traceback, subprocess
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from shapely.geometry import Polygon, MultiPolygon
@@ -44,14 +44,51 @@ soil_type_reverse = {
 }
 soil_depth_reverse = {v: k for k, v in soil_depths.items()}
 
+
 class StreamToLogger:
-    def __init__(self, logger, level=logging.INFO):
+    PROGRESS_PATTERN = re.compile(r'\[\s*[#=]*\s*\]\s*\|\s*\d+%\s*Completed\s*\|')
+    def __init__(self, logger, level=logging.INFO, log_path=None):
         self.logger = logger
         self.level = level
+        self.log_path = log_path
+
     def write(self, buf):
         if not buf: return
-        for line in buf.rstrip().splitlines():
+        if '\r' in buf or self.PROGRESS_PATTERN.search(buf):
+            progress = buf.split('\r')[-1].strip()
+            if progress and self.PROGRESS_PATTERN.search(progress):
+                self._update_progress(progress)
+                return
+        buf = buf.strip()
+        if not buf: return
+        for line in buf.splitlines():
             self.logger.log(self.level, line.rstrip())
+
+    def _update_progress(self, progress):
+        if not self.log_path: return
+        # Format exactly like logging.Formatter
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        record = logging.LogRecord(
+            name=self.logger.name, level=self.level, pathname="",
+            lineno=0, msg=progress, args=(), exc_info=None
+        )
+        new_line = formatter.format(record)
+        try:
+            with open(self.log_path, "r+", encoding="utf-8") as f:
+                lines = f.readlines()
+                progress_index = None
+                for i in range(len(lines) - 1, -1, -1):
+                    if self.PROGRESS_PATTERN.search(lines[i]):
+                        progress_index = i
+                        break
+                if progress_index is not None:
+                    lines[progress_index] = new_line + "\n"
+                else: lines.append(new_line + "\n")
+                f.seek(0)
+                f.writelines(lines)
+                f.truncate()
+        except OSError: pass
+
     def flush(self):
         pass
 
@@ -333,6 +370,7 @@ def weather_downloader(project_name, processes, flow_name, start, end, catchment
                 x, y = np.meshgrid(x_coords, y_coords)
                 gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x.ravel(), y.ravel()), crs=crs)
                 idx, weight = prepare_interpolator(gdf, x_known, y_known, geo_type="point")
+            else: idx, weight = None, None
             n_time, chunk_size, overlap = len(timestamps), 24, 2        
             for var, (col, unit) in forcing.items():
                 logger.info(f"Processing {var}")
@@ -615,9 +653,14 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
         logger.info("===============================")
         logger.info("Checking soil data...")
         soil_dir = os.path.join(flow_dir, 'soil')
-        soil_files = [f for f in os.listdir(soil_dir)]
+        soil_files = [f for f in os.listdir(soil_dir) if f.endswith('.tif')]
         if len(soil_files) != 43:
-            logger.info("Number of soil files is not equal to 43.")
+            message = """
+                *******************************************************************************
+                *  NUMBER OF SOIL FILES ARE NOT EQUAL TO 43. PLEASE DOWNLOAD SOIL DATA AGAIN  *
+                *******************************************************************************
+            """
+            logger.info(f"\n\n\n{message}\n")
             processes[project_name] = {"status": "failed", "message": "Please download soil data."}
         logger.info(f"Found soil data at: {soil_dir}")
         logger.info("===============================")
@@ -626,32 +669,34 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
     except Exception as e:
         print('/wflow_check:\n==============')
         traceback.print_exc()
-        logger.exception("Check of wflow failed")
+        logger.exception("Check of wflow failed.")
         processes[project_name] = {"status": "failed", "message": str(e)}
     finally:
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, step, data_lib, region, resolution,
+def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, step, data_lib, region, resolution, 
     soil_layers, params_input, params_output, lulc_function='corine', lulc_mapping_fn='corine_mapping', lai_fn='lai_corine'):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     flow_dir = os.path.join(project_dir, "flows", flow_name)
     mod_path = os.path.join(flow_dir, model_name)
+    # Clean up existing model directory
     if os.path.exists(mod_path): shutil.rmtree(mod_path)
-    os.makedirs(mod_path)
+    os.makedirs(mod_path, exist_ok=True)
     # Set up logger
     log_path = os.path.join(project_dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
     logger = setup_logger("hydromt", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
+    stream_logger = StreamToLogger(logger, log_path=log_path)
+    sys.stdout, sys.stderr = stream_logger, stream_logger
     try:
         logger.info("Starting hydromt...")
         # Prepare model
         if os.path.exists(mod_path): shutil.rmtree(mod_path)
         os.makedirs(mod_path, exist_ok=True)
+        logger.info("Creating model instance...")
         model = WflowSbmModel(
             root=mod_path, config_filename='wflow_sbm.toml', data_libs=data_lib, mode='w'
         )
@@ -866,14 +911,13 @@ def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, 
     except Exception as e:
         print('/prepare_hydromt:\n==============')
         traceback.print_exc()
-        logger.exception("Prepare HydroMT failed")
+        logger.exception("Prepare HydroMT failed.")
         processes[project_name] = {"status": "failed", "message": str(e)}
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
 def run_hydromt(project_name, processes, flow_dir, model_name):
     model_dir = os.path.join(flow_dir, model_name)
@@ -908,7 +952,6 @@ def run_hydromt(project_name, processes, flow_dir, model_name):
             h.flush()
             h.close()
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
 # def weather_init(id:str) -> gpd.GeoDataFrame:
 #     if id == 'ntnu':

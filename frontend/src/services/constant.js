@@ -10,7 +10,7 @@ arrowShape.lineTo(0.8, 0.1);      // Left branch
 arrowShape.moveTo(1, 0);
 arrowShape.lineTo(0.8, -0.1);     // Right branch
 
-export const gridId = 'grid-generation-map', flowId = 'flow-map',
+export const gridId = 'grid-generation-map', flowId = 'flow-preparation-map',
     hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map',
     hydPrepareMapId = 'preparation-hyd-map';
 

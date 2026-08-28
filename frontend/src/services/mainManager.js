@@ -14,7 +14,7 @@ let isLoaded = false, userName = null, prevSource = null;
 
 await login(); 
 loadWidget(); widgetMenuManager(); updateComponent(); 
-// showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
+showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
 
 async function login() {
@@ -56,9 +56,9 @@ function widgetMenuManager() {
         else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
         else if (id === 'visualization') { w = 12; h = 9; }
-        else if (id === 'flow-data-preparation') { 
+        else if (id === 'flow-preparation') { 
             w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
-//         else if (id === 'run-flow-model') { w = 16; h = 8; }
+        else if (id === 'run-flow-model') { w = 12; h = 10; }
 
         
 
@@ -178,15 +178,22 @@ function updateComponent() {
     });
 }
 
-async function showGitHubLastUpdate(username, repo, branch = 'main') {
+async function showGitHubLastUpdate(username, repo, branch = 'main', duration=30*60*1000) {
     const url = `https://api.github.com/repos/${username}/${repo}/commits?sha=${branch}&per_page=1`;
     const key = `${username}/${repo}/${branch}`;
-    if (githubCache[key]) {
-        document.querySelector('.github-last-update').textContent = githubCache[key];
-        return;
-    }
     const displayDiv = document.querySelector('.github-last-update');
     if (!displayDiv) return;
+    // Check cache in localStorage
+    const cacheData = localStorage.getItem(key);
+    if (cacheData) {
+        try {
+            const parsed = JSON.parse(cacheData);
+            const now = Date.now();
+            if (now - parsed.timestamp < duration) {
+                displayDiv.textContent = parsed.data; return;
+            }
+        } catch (e) {}
+    }
     try {
         const header = { "Accept": "application/vnd.github+json", "User-Agent": repo }
         const response = await fetch(url, { headers: header });
@@ -197,8 +204,31 @@ async function showGitHubLastUpdate(username, repo, branch = 'main') {
             const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
             const text = `Branch: ${branch} | Last update: ${formatted}`;
             githubCache[key] = text; displayDiv.textContent = text;
+            // Save to local storage
+            localStorage.setItem(key, JSON.stringify({data: text, timestamp: Date.now()}));
+            displayDiv.textContent = text;
         } else { displayDiv.textContent = 'Last update: unknown'; }
     } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
+
+
+
+    // if (githubCache[key]) {
+    //     document.querySelector('.github-last-update').textContent = githubCache[key];
+    //     return;
+    // }
+    
+    // try {
+    //     const header = { "Accept": "application/vnd.github+json", "User-Agent": repo }
+    //     const response = await fetch(url, { headers: header });
+    //     if (!response.ok) throw new Error('GitHub API error');
+    //     const data = await response.json();
+    //     if (data.length > 0) {
+    //         const date = new Date(data[0].commit.committer.date);
+    //         const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    //         const text = `Branch: ${branch} | Last update: ${formatted}`;
+    //         githubCache[key] = text; displayDiv.textContent = text;
+    //     } else { displayDiv.textContent = 'Last update: unknown'; }
+    // } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
 }
 
 export function showNotes(note) {
