@@ -651,10 +651,10 @@ def dialogReader(dialog_file: str) -> dict:
     content = content.split('\n')
     for line in content:
         if "Computation started" in line:
-            temp = pd.to_datetime(line.split(': ')[2], format='%H:%M:%S, %d-%m-%Y')
+            temp = pd.to_datetime(line.split(': ')[2], utc=True, format='%H:%M:%S, %d-%m-%Y')
             result["computation_start"] = temp.strftime('%Y-%m-%d %H:%M:%S')
         if "Computation finished" in line:
-            temp = pd.to_datetime(line.split(': ')[2], format='%H:%M:%S, %d-%m-%Y')
+            temp = pd.to_datetime(line.split(': ')[2], utc=True, format='%H:%M:%S, %d-%m-%Y')
             result["computation_finish"] = temp.strftime('%Y-%m-%d %H:%M:%S')
         if "my model area" in line:
             temp = line.split(': ')[2]
@@ -679,8 +679,8 @@ def getSummary(dialog_path: str, out_files: list) -> list:
         # --- Hydrodynamic ---
         if 'time' in sizes:
             time_var = data_his['time']
-            start_hyd = pd.to_datetime(time_var.isel(time=0).values).strftime('%Y-%m-%d %H:%M:%S')
-            end_hyd = pd.to_datetime(time_var.isel(time=-1).values).strftime('%Y-%m-%d %H:%M:%S')
+            start_hyd = pd.to_datetime(time_var.isel(time=0).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
+            end_hyd = pd.to_datetime(time_var.isel(time=-1).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
             result.append({'parameter': 'Start Date (Hydrodynamic Simulation)', 'value': start_hyd})
             result.append({'parameter': 'Stop Date (Hydrodynamic Simulation)', 'value': end_hyd})
             result.append({'parameter': 'Number of Time Steps', 'value': sizes['time']})
@@ -691,8 +691,8 @@ def getSummary(dialog_path: str, out_files: list) -> list:
         # --- Water Quality ---
         if 'nTimesDlwq' in sizes:
             waq_time = data_his['nTimesDlwq']
-            start_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=0).values).strftime('%Y-%m-%d %H:%M:%S')
-            end_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=-1).values).strftime('%Y-%m-%d %H:%M:%S')
+            start_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=0).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
+            end_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=-1).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
             result.append({'parameter': f'Start Date (Water Quality Simulation)', 'value': start_waq})
             result.append({'parameter': f'Stop Date (Water Quality Simulation)', 'value': end_waq})
             result.append({'parameter': f'Number of Time Steps (Water Quality Simulation)', 'value': sizes['nTimesDlwq']})
@@ -774,7 +774,7 @@ def timeseriesCreator(data_his: xr.Dataset, key: str, timeColumn: str='time') ->
         columns = ['Cross-section'] # Used for cross-section
         temp = key.replace('_crs', '')
     if name not in data_his.variables.keys(): return pd.DataFrame()
-    index = [pd.to_datetime(i).strftime('%Y-%m-%d %H:%M:%S') for i in data_his[timeColumn].data]
+    index = [pd.to_datetime(i, utc=True).strftime('%Y-%m-%d %H:%M:%S') for i in data_his[timeColumn].data]
     df = pd.DataFrame(index=index, data=numberFormatter(data_his[temp].data.compute()), columns=columns)
     return df.reset_index()
 
@@ -805,7 +805,7 @@ def vectorComputer(data_map: xr.Dataset, value_type: str, row_idx: int, step: in
     ucx_valid = np.round(ucx[col_idx].astype(np.float64), 5)
     ucy_valid = np.round(ucy[col_idx].astype(np.float64), 5)
     ucm_valid = np.round(ucm[col_idx].astype(np.float64), 2)
-    result = {"time": pd.to_datetime(data_map['time'].values[step]).strftime('%Y-%m-%d %H:%M:%S'),
+    result = {"time": pd.to_datetime(data_map['time'].values[step], utc=True).strftime('%Y-%m-%d %H:%M:%S'),
         "coordinates": np.column_stack((x_coords, y_coords)).tolist(),
         "values": np.column_stack((ucx_valid, ucy_valid, ucm_valid)).tolist()
     }
@@ -815,7 +815,7 @@ def selectInsitu(data_his: xr.Dataset, data_map: xr.Dataset, name: str, stationI
     names = [x.decode('utf-8').strip() for x in data_his[type].data.compute()]
     if stationId not in names: return pd.DataFrame()
     idx = names.index(stationId)
-    index = [pd.to_datetime(id).strftime('%Y-%m-%d %H:%M:%S') for id in data_his['time'].data]
+    index = [pd.to_datetime(id, utc=True).strftime('%Y-%m-%d %H:%M:%S') for id in data_his['time'].data]
     if type == 'station_name':
         result = pd.DataFrame(index=index)
         z_layer = numberFormatter(data_map['mesh2d_layer_z'].data.compute())

@@ -102,7 +102,7 @@ function modelManager() {
         const content = { projectName: currentProject, flowName: name, key: 'run' };
         const request = await jsonLoader('wflow_model', content);
         if (request.status === 'error') { alert(request.message); return; }
-        updateLog(currentProject, obj.modelLog, 5, 'wflow_run', async () => {
+        updateLog(currentProject, obj.modelLog, 1, 'wflow_run', async () => {
             alert('Running Wflow model completed.'); }, true
         );
     });

@@ -10,9 +10,9 @@ if backend_dir not in sys.path:
 
 # Import internally backend modules
 from config import SOURCE_BACKEND, SOURCE_FRONTEND, lifespan
-from services import route_page, project_manager, data_download, \
-    grid_preparation, hyd_functions, process_manager, sim_manager, \
-    waq_funtions, flow_preparation
+from services import hyd_router, process_router, \
+    project_router, route_page, data_router, flow_router, \
+    grid_router, sim_router, calibration_router, waq_router
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -23,9 +23,10 @@ app.mount("/src_backend", StaticFiles(directory=SOURCE_BACKEND), name="src_backe
 
 # Mount routes
 all_routers = [
-    route_page.router, project_manager.router, data_download.router, 
-    grid_preparation.router, hyd_functions.router, process_manager.router,
-    sim_manager.router, waq_funtions.router, flow_preparation.router
+    route_page.router, project_router.router, data_router.router, 
+    grid_router.router, hyd_router.router, process_router.router,
+    sim_router.router, waq_router.router, flow_router.router,
+    calibration_router.router
 ]
 for router in all_routers:
     app.include_router(router)

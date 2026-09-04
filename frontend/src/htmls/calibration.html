@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
+    <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
+</head>
+<body>
+    <div class="wrapper">
+        <section class="main-tab" id="control-tab">
+            <div class="tab-header" id="main-tabs">
+                <div class="tabs-list">
+                    <button class="tab-btn" data-tab="settings-tab">Settings</button>
+                    <button class="tab-btn" data-tab="model-tab">Model Preparation & Execution</button>
+                </div>
+            </div>
+            <div class="tabs-content">
+                <!-- Tab 1: Settings -->
+                <div class="tabpanel main-panel" data-panel="settings-tab">
+                    <div class="grid">
+                        <div class="tile"><h3>HYD Scenario</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <label for="project-name">Scenario:</label>
+                                    <div id="project-name-wrapper">
+                                        <input type="text" id="project-name" placeholder="Click to select a scenario">
+                                        <ul id="project-list"></ul>
+                                    </div>
+                                    <button id="project-btn">Open Scenario</button>
+                                </div>
+                                <div class="field-inline">
+                                    <label for="sim-start-date">Start:</label>
+                                    <input type="text" id="sim-start-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                                    <label for="sim-end-date">End:</label>
+                                    <input type="text" id="sim-end-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                                </div>
+                                <div class="field-inline">
+                                    <label for="depth-selection">Depth Selection:</label>
+                                    <input type="text" id="depth-selection" placeholder="5, 10, 30, 40, 50"
+                                        value="5, 10, 30, 40, 50">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tile"><h3>Observation</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <button id="observation-btn">Open an Observation (*.csv)</button>
+                                    <input type="file" id="observation-file" accept=".csv" hidden>
+                                    <input type="text" id="observation-name">
+                                </div>
+                                <div class="field-inline">
+                                    <label for="observation-start-date">Start:</label>
+                                    <input type="text" id="observation-start-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                                    <label for="observation-end-date">End:</label>
+                                    <input type="text" id="observation-end-date" placeholder="YYYY-mm-dd HH:mm:ss">
+                                </div>
+                            </div>
+                            <div class="table-container">
+                                <table class="attributes-table" id="observation-table">
+                                    <thead><tr>
+                                        <th>Time</th><th>Temperature (°C)</th><th>Depth (m)</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><input type="text" placeholder="YYYY-mm-dd HH:mm:ss"></td>
+                                            <td><input type="text" placeholder="Temperature (°C)"></td>
+                                            <td><input type="text" placeholder="Depth (m)"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        
+                    </div>
+                </div>
+                <!-- Tab 2: Settings -->
+                
+
+
+
+
+            </div>
+        </section>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr(".datetime", {
+            enableTime: true, enableSeconds: true, dateFormat: "Y-m-d H:i:S", time_24hr: true,
+            defaultHour: 0, defaultMinute: 0, defaultSecond: 0
+        });
+    </script>
+    <script type="module" src="/src_frontend/services/calibrationManager.js"></script>
+</body>
+</html>

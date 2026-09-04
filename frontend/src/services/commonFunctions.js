@@ -329,7 +329,7 @@ export async function csvUploader(event, targetText, table,
     return new Promise((resolve, reject) => {
         const file = event.target.files[0];
         if (!file) { resolve(); return; }
-        targetText.value = file.name;
+        if (targetText) targetText.value = file.name;
         const reader = new FileReader();
         reader.onload = (e) => {
             try {

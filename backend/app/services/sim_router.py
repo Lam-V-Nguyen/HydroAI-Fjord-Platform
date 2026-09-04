@@ -197,7 +197,7 @@ async def run_waq_simulation(project_name, waq_name):
     if os.path.exists(log_path): os.remove(log_path)
     log_file = open(log_path, "a", encoding=functions.encoding_detect(log_path), errors="replace")
     log_file.write(f"Project: {project_name}\n")
-    log_file.write(f"Simulation started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    log_file.write(f"Simulation started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
     log_file.write("===============================================\n\n")
     # Check if configuration exists
     config_path = os.path.join(PROJECT_ROOT, project_name, "output", "scenarios")

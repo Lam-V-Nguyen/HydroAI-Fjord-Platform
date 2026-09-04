@@ -1,6 +1,6 @@
 import os, dotenv, base64, requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 
 class Regnbyge():
     def __init__(self) -> None:
@@ -55,7 +55,7 @@ class Regnbyge():
         agg: Raw, Minute, FiveMinute, Hour, Day
         fromDate, toDate: 'YYYY-mm-dd HH:MM:SS'
         '''
-        if toDate == '': toDate = datetime.now()
+        if toDate == '': toDate = datetime.now(timezone.utc)
         if fromDate == '': fromDate = toDate - pd.Timedelta(hours=2)
         start = pd.to_datetime(fromDate).strftime('%Y-%m-%d %H:%M:%S')
         end = pd.to_datetime(toDate).strftime('%Y-%m-%d %H:%M:%S')

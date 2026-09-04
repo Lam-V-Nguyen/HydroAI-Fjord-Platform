@@ -39,7 +39,8 @@ async def load_waq(request: Request, user=Depends(functions.basic_auth)):
                 for idx, substance in enumerate(substances):
                     for item in times:
                         temp_item = item.strip().split(' ')
-                        temp_time = pd.to_datetime(temp_item[0], format='%Y/%m/%d-%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                        temp_time = pd.to_datetime(temp_item[0], utc=True, format='%Y/%m/%d-%H:%M:%S')
+                        temp_time = temp_time.strftime('%Y-%m-%d %H:%M:%S')
                         time_data.append([temp_time, location, substance.replace("'", ""), temp_item[idx + 1]])
         result = [item for item in time_data if item[3] != '-999.0']
         data['key'], data['name'], data['mode'] = files['key'], files['folderName'], files['mode']

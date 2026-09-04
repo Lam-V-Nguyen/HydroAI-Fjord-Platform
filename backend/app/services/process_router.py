@@ -17,7 +17,6 @@ async def upload_data(file: UploadFile = File(...), projectName: str = Form(...)
     elif (type == 'gis'): save_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "GIS"))
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     file_path = os.path.normpath(os.path.join(save_dir, fileName))
-    print('upload_data', fileName)
     try:
         if os.path.exists(file_path):
             return JSONResponse({"status": "error", "message": f"File '{fileName}' already exists."})
@@ -227,8 +226,12 @@ async def load_general_dynamic(request: Request, user=Depends(functions.basic_au
             arr_np, fmt = np.array(arr), functions.numberFormatter
             new_arr = arr_np[-1, :] if arr_np.ndim == 2 else arr_np
             data = { 'meshes':  {'type': 'FeatureCollection', 'features': features},
-                'values': functions.encode_array(fmt(new_arr)), 'min_max': [fmt(np.nanmin(values)).tolist(), fmt(np.nanmax(values)).tolist()],
-                'timestamps': [pd.to_datetime(t).strftime('%Y-%m-%d %H:%M:%S') for t in data_ds[time_column].data]
+                'values': functions.encode_array(fmt(new_arr)), 'min_max': [
+                    fmt(np.nanmin(values)).tolist(), fmt(np.nanmax(values)).tolist()
+                    ], 'timestamps': [
+                        pd.to_datetime(t, utc=True).strftime('%Y-%m-%d %H:%M:%S') 
+                        for t in data_ds[time_column].data
+                    ]
             }
         else: # Update value of polygons
             arr_np, fmt = np.array(arr), functions.numberFormatter
@@ -274,7 +277,10 @@ async def load_vector_dynamic(request: Request, user=Depends(functions.basic_aut
             else:
                 vmin = fnm(np.nanmin(data_ds['mesh2d_ucmag'])).tolist()
                 vmax = fnm(np.nanmax(data_ds['mesh2d_ucmag'])).tolist()
-            data['timestamps'] = [pd.to_datetime(t).strftime('%Y-%m-%d %H:%M:%S') for t in data_ds['time'].data]
+            data['timestamps'] = [
+                pd.to_datetime(t, utc=True).strftime('%Y-%m-%d %H:%M:%S') 
+                for t in data_ds['time'].data
+            ]
             data['min_max'] = [vmin, vmax]
         else: data = functions.vectorComputer(data_ds, value_type, row_idx, int(query))
         return JSONResponse({'content': data, 'status': 'ok'})
@@ -315,7 +321,7 @@ async def select_meshes(request: Request, user=Depends(functions.basic_auth)):
                 mesh_cache = { "depth_values": depth_values, "n_rows": n_rows, "df": None}
                 await redis.set(mesh_cache_key, msgpack.packb(mesh_cache, use_bin_type=True), ex=600)
                 time_column = 'time' if is_hyd else 'nTimesDlwq'
-                time_stamps = pd.to_datetime(data_ds[time_column]).strftime('%Y-%m-%d %H:%M:%S').tolist()
+                time_stamps = pd.to_datetime(data_ds[time_column], utc=True).strftime('%Y-%m-%d %H:%M:%S').tolist()
                 arr = values[0,:,:] if is_hyd else values[0,:,:].T
                 # Create GeoDataFrame for interpolation
                 grid, points_arr = project_cache.get("grid"), np.array(points)
@@ -423,7 +429,7 @@ async def select_thermocline(request: Request, user=Depends(functions.basic_auth
                 await redis.delete(thermo_cache_key)
             elif typ == 'thermocline_init':
                 time_column = 'time' if is_hyd else 'nTimesDlwq'
-                time_stamps = pd.to_datetime(data_ds[time_column]).strftime('%Y-%m-%d %H:%M:%S').tolist()
+                time_stamps = pd.to_datetime(data_ds[time_column], utc=True).strftime('%Y-%m-%d %H:%M:%S').tolist()
                 # Load layer reverse from Redis
                 layer_key = "layer_reverse_hyd" if is_hyd else "layer_reverse_waq"
                 layer_reverse_raw = await redis.hget(project_name, layer_key)

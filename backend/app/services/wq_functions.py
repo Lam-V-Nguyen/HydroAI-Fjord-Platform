@@ -14,11 +14,11 @@ def hydReader(hyd_path: str) -> dict:
         if "number-hydrodynamic-layers" in line: data['n_layers'] = line.split()[1]
         if "hydrodynamic-start-time" in line:
             temp = line.split()[1].replace("'", "")
-            dt = datetime.strptime(temp, '%Y%m%d%H%M%S')
+            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=datetime.timezone.utc)
             data['start_time'] = dt.strftime('%Y-%m-%d %H:%M:%S')
         if "hydrodynamic-stop-time" in line:
             temp = line.split()[1].replace("'", "")
-            dt = datetime.strptime(temp, '%Y%m%d%H%M%S')
+            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=datetime.timezone.utc)
             data['stop_time'] = dt.strftime('%Y-%m-%d %H:%M:%S')
         if "hydrodynamic-timestep" in line:
             data['time_step1'] = int(line.split()[1].replace("'", ""))

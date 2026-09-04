@@ -66,8 +66,8 @@ async def plot_station(request: Request):
         body = await request.json()
         id, mode, name = body.get('id'), body.get('mode'), body.get('name')
         start, end, interval = body.get('startTime'), body.get('endTime'), body.get('interval')
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
+        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc)
+        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc)
         if start_time >= end_time:
             return JSONResponse({'status': 'error', 'message': "Error: 'Start time' must be earlier than 'End time'."})
         df = regnbyge().get_Values(mode, id, interval, start_time, end_time)
@@ -88,8 +88,8 @@ async def download_station(request: Request):
         body = await request.json()
         mode, download_interval = body.get('mode'), body.get('downloadInterval')
         start, end, id = body.get('startTime'), body.get('endTime'), body.get('id')
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
+        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc)
+        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc)
         if start_time >= end_time:
             return JSONResponse({'status': 'error', 'message': "Error: Start time is later than end time."})
         df = regnbyge().get_Values(mode, id, download_interval, start_time, end_time)

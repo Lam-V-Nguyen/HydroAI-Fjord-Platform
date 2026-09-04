@@ -58,10 +58,9 @@ function widgetMenuManager() {
         else if (id === 'visualization') { w = 12; h = 9; }
         else if (id === 'flow-preparation') { 
             w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
-        else if (id === 'run-flow-model') { w = 12; h = 10; }
+        else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 10; }
 
         
-
 
 
 
