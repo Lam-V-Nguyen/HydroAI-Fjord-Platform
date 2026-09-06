@@ -146,6 +146,7 @@ async def sim_log_tail_hyd(project_name: str, offset: int = Query(0),
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
     log_path, lines = os.path.join(PROJECT_ROOT, project_name, log_file), []
+    log_path = os.path.normpath(log_path)
     if not os.path.exists(log_path): return {"lines": lines, "offset": offset}
     with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
         f.seek(offset)

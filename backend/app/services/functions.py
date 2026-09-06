@@ -1,4 +1,5 @@
-import os, json, chardet, asyncio, stat, time, re, shapely, shutil, base64, signal, subprocess
+import os, json, chardet, asyncio, stat, time, re, shapely
+import shutil, base64, signal, subprocess
 from config import ALLOWED_USERS
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import Depends, HTTPException, status
@@ -58,6 +59,10 @@ def safe_remove(path, retries=10, delay=1):
         except PermissionError:
             time.sleep(delay)
     raise Exception(f"Cannot delete file: {path}")
+
+async def delete_process(processes, project_name, delay):
+    await asyncio.sleep(delay)
+    processes.pop(project_name, None)
 
 def numberFormatter(arr: np.array, decimals: int=2) -> list:
     try:

@@ -1,5 +1,5 @@
 import os, json, traceback, mercantile, rasterio, shutil, matplotlib
-import io, sknw, shapely, rioxarray, zipfile, pyflwdir, threading
+import io, sknw, shapely, rioxarray, zipfile, pyflwdir, threading, asyncio
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
@@ -605,7 +605,8 @@ async def check_download_status(request: Request, user=Depends(functions.basic_a
     if info is None:
         return JSONResponse({"status": "idle", "message": "No download running."})
     status, message = info["status"], info.get("message", "")
-    if status in ("finished", "failed", "error"): processes.pop(project_name, None)
+    if status in ("finished", "failed", "error"):
+        asyncio.create_task(functions.delete_process(processes, project_name, 1))
     return JSONResponse({"status": status, "message": message})
 
 @router.get("/log_tail_download/{project_name}")

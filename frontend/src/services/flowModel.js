@@ -1,5 +1,6 @@
 import { setupTabs } from "./tabManager.js";
-import { getUser, signalSender, getProjectList, jsonLoader, updateLog } from "./commonFunctions.js";
+import { getUser, signalSender, getProjectList, jsonLoader, updateLog 
+} from "./commonFunctions.js";
 import { projectRender } from "./projectManager.js";
 
 

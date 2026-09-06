@@ -101,3 +101,15 @@ export function getColors(nColors){
         '#03FFB9', '#02FF86', '#02FF54', '#02FF21', '#16FF02', '#49FF02', '#7BFF02',
         '#AEFF01', '#E1FF01', '#FFEA01', '#FFB701', '#FF8401', '#FF5101', '#FF1E00']
 }
+
+export const calibrationParams = [
+    { name: "Water Clarity", value: "Secchidepth", checked: false, lower: 1.0, upper: 20.0 },
+    { name: "Vertical Viscosity", value: "Vicoww", checked: true, lower: 0.0, upper: 5e-6 },
+    { name: "Vertical Diffusivity", value: "Dicoww", checked: true, lower: 0.0, upper: 5e-6 },
+    { name: "Horizontal Viscosity", value: "Vicouv", checked: true, lower: 0.0, upper: 0.5 },
+    { name: "Horizontal Diffusivity", value: "Dicouv", checked: true, lower: 1e-4, upper: 1e-2 },
+];
+export function getCalibrationParam(value) {
+    return calibrationParams.find(p => p.value === value);
+}
+
