@@ -60,11 +60,6 @@ function widgetMenuManager() {
             w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
         else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 10; }
         else if (id === 'calibration' || id === 'calibration') { w = 12; h = 12; }
-        
-
-
-
-
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
         addWidget(w, h, title, id, url); closeMenu();
@@ -208,26 +203,6 @@ async function showGitHubLastUpdate(username, repo, branch = 'main', duration=30
             displayDiv.textContent = text;
         } else { displayDiv.textContent = 'Last update: unknown'; }
     } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
-
-
-
-    // if (githubCache[key]) {
-    //     document.querySelector('.github-last-update').textContent = githubCache[key];
-    //     return;
-    // }
-    
-    // try {
-    //     const header = { "Accept": "application/vnd.github+json", "User-Agent": repo }
-    //     const response = await fetch(url, { headers: header });
-    //     if (!response.ok) throw new Error('GitHub API error');
-    //     const data = await response.json();
-    //     if (data.length > 0) {
-    //         const date = new Date(data[0].commit.committer.date);
-    //         const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-    //         const text = `Branch: ${branch} | Last update: ${formatted}`;
-    //         githubCache[key] = text; displayDiv.textContent = text;
-    //     } else { displayDiv.textContent = 'Last update: unknown'; }
-    // } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
 }
 
 export function showNotes(note) {

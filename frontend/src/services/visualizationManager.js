@@ -1,6 +1,6 @@
 import { L, getState, setState, initState } from "./constant.js";
-import { getUser, signalSender, jsonLoader,
-    moveWindow, closeWindow, getVisualizationFiles
+import { getUser, signalSender, jsonLoader, moveWindow, closeWindow, 
+    getVisualizationFiles
 } from "./commonFunctions.js";
 import { locationFinder, initializeMenu, projectChecker } from "./visualization.js";
 import { initMap } from "./visualizationMap.js";
@@ -31,7 +31,9 @@ updateManager(); await restoreGISLayers();
 export async function getProject() { 
     userName = await getUser(); initState(userName.split('/').shift());
     const project = userName.split('/'); currentProject = project[1];
-    [currentParams, waqName, waqModel] = await getVisualizationFiles(project[0], currentProject);
+    const values = await getVisualizationFiles(project[0], currentProject);
+    currentProject = values[0]; currentParams = values[1]; waqName = values[2]; waqModel = values[3];
+    signalSender('showNote', `${project[0]}/${currentProject}`);
     const message = `Initializing project '${currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
     await projectChecker(currentProject, currentParams, waqName, waqModel, message);
 }

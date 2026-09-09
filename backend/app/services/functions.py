@@ -50,6 +50,42 @@ def project_definer(old_name, username='admin'):
     if old_name == '': new_name = new_name.rstrip('/')
     return new_name, name_id
 
+def project_reader(user_name, project_name):
+    output_dir = os.path.join(PROJECT_ROOT, user_name, project_name, 'output')
+    hyd_dir, waq_dir = os.path.join(output_dir, 'HYD'), os.path.join(output_dir, 'WAQ')
+    hyd_files = [f for f in os.listdir(hyd_dir) if f.endswith(".zarr")]
+    current_params = sorted(hyd_files, key=lambda x: not x.endswith('_his.zarr'))
+    current_params.extend(['', '']) # Make sure there are at least 2 positions
+    if not current_params[0] or not current_params[1]:
+        raise ValueError(
+            f"Project '{project_name}' does not contain enough HYD configuration files."
+        )
+    config_path = os.path.join(output_dir, 'config', 'config.json')
+    waq_name, waq_model = '', ''
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding=encoding_detect(config_path)) as f:
+            config = json.load(f)
+        waq_model, waq_name = config.get("model_type", ''), config.get("model_name", '')
+        current_params[2], current_params[3] = f"{waq_name}_his.zarr", f"{waq_name}_map.zarr"
+    else:
+        waq_files = [f for f in os.listdir(waq_dir) if f.endswith(".zarr")]
+        waq_names = list(dict.fromkeys(file.rsplit("_", 1)[0] for file in waq_files))
+        if len(waq_names) > 0:
+            waq_name = waq_names[0]
+            temp_path = os.path.join(waq_dir, f"{waq_name}.json")
+            if os.path.exists(temp_path):
+                with open(temp_path, 'r', encoding=encoding_detect(temp_path)) as f:
+                    config = json.load(f)
+                waq_model = config.get("model_type", '')
+            temp_files = [f for f in waq_files if waq_name in f]
+            temp_files = sorted(temp_files, key=lambda x: not x.endswith('_his.zarr'))
+            current_params[2:4] = temp_files
+    return {
+        "current_project": project_name, "waq_name": waq_name,
+        "current_params": current_params, "waq_model": waq_model
+    }
+
+
 def safe_remove(path, retries=10, delay=1):
     for _ in range(retries):
         try:

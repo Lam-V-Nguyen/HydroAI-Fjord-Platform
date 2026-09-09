@@ -1,11 +1,11 @@
 import { toUTC } from "./projectSaver.js";
-import { origin } from "./constant.js";
+import { origin, setLastProject } from "./constant.js";
 import { getColorFromValue } from "./unstructuredGrid.js";
 
 
 const pendingRequests = new Map();
 
-let zIndex = 3000, activeProject = null, lastOffset = 0;
+let zIndex = 3000, activeProject = null;
 
 export function startLoading(str = '') {
     const loadingContainer = document.querySelector('.loading-container');
@@ -525,10 +525,12 @@ export function updateMapByTime(setFunction, getFunction, layerMap, values, vmin
 export async function getVisualizationFiles(user, project) {
     const content = {userName: user, project: project};
     const data = await jsonLoader('get_config_files', content);
-    if (data.status === "error") { alert(data.message); return; }
-    const waqName = data.waq_name, currentParams = data.current_params;
-    const waqModel = data.waq_model;
-    return [currentParams, waqName, waqModel];
+    if (data.status === "warning") { 
+        alert(data.message); setLastProject(data.current_project); 
+    }
+    const currentProject = data.current_project, waqName = data.waq_name;
+    const currentParams = data.current_params, waqModel = data.waq_model;
+    return [currentProject, currentParams, waqName, waqModel];
 }
 
 export function initRequestListener() {

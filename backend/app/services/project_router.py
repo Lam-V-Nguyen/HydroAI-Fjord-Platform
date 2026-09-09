@@ -309,44 +309,27 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
 
 @router.post("/get_config_files")
 async def get_config_files(request: Request):
-    try:
-        body = await request.json()
-        user_name, project = body.get('userName'), body.get('project')
-        output_dir = os.path.join(PROJECT_ROOT, user_name.strip(), project.strip(), 'output')
-        if not os.path.exists(output_dir):
-            return JSONResponse({"status": 'error', "message": 'No project found.'})
-        hyd_dir, waq_dir = os.path.join(output_dir, 'HYD'), os.path.join(output_dir, 'WAQ')
-        hyd_files = [f for f in os.listdir(hyd_dir) if f.endswith(".zarr")]
-        if len(hyd_files) == 0: 
-            return JSONResponse({
-                "status": 'error', "message": 'No HYD scenario found. Please run the simulation first.'
-            })
-        current_params = sorted(hyd_files, key=lambda x: not x.endswith('_his.zarr'))
-        current_params.extend(['', ''])
-        config_path = os.path.join(output_dir, 'config', 'config.json')
-        waq_name, waq_model = '', ''
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding=functions.encoding_detect(config_path)) as f:
-                config = json.load(f)
-            waq_model, waq_name = config.get("model_type", ''), config.get("model_name", '')
-            current_params[2], current_params[3] = f"{waq_name}_his.zarr", f"{waq_name}_map.zarr"
-        else:
-            waq_files = [f for f in os.listdir(waq_dir) if f.endswith(".zarr")]
-            waq_names = list(dict.fromkeys(file.rsplit("_", 1)[0] for file in waq_files))
-            if len(waq_names) > 0:
-                waq_name = waq_names[0]
-                temp_path = os.path.join(waq_dir, f"{waq_name}.json")
-                if os.path.exists(temp_path):
-                    with open(temp_path, 'r', encoding=functions.encoding_detect(temp_path)) as f:
-                        config = json.load(f)
-                    waq_model = config.get("model_type", '')
-                temp_files = [f for f in waq_files if waq_name in f]
-                temp_files = sorted(temp_files, key=lambda x: not x.endswith('_his.zarr'))
-                current_params[2:4] = temp_files
-        return JSONResponse({
-            "current_params": current_params, "waq_model": waq_model, "waq_name": waq_name
-        })
-    except Exception as e:
-        print('/get_config_files:\n==============')
+    body = await request.json()
+    user_name, project = body.get('userName').strip(), body.get('project').strip()
+    original_project, warning = project, None
+    try: result = functions.project_reader(user_name, project)
+    except:
+        project = 'demo'
         traceback.print_exc()
-        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
+        # Store warning for frontend
+        warning = (
+            f"Project '{original_project}' does not contain enough HYD configuration files." + 
+            f"\nPlease rerun the simulation and try again.\nUsing default project 'demo'."
+        )
+        try: result = functions.project_reader(user_name, project)
+        except Exception:
+            print('/setup_database:\n==============')
+            traceback.print_exc()
+            return JSONResponse({"status": 'error', 
+                "message": f"Could not load project '{original_project}' "
+                    f"or fallback project 'demo'."
+            })
+    if warning:
+        result["status"], result["message"] = "warning", warning
+    else: result["status"] = "ok"
+    return JSONResponse(result)
