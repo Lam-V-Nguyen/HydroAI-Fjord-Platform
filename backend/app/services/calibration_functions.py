@@ -1,16 +1,11 @@
 from config import DELFT_PATH
-from services import functions, flow_functions
-from services.flow_functions import StreamToLogger
-import os, shutil, subprocess, traceback, pickle
-import warnings, logging, optuna, re, sys, json
+from services import functions
+import os, shutil, subprocess, pickle
+import warnings, logging, optuna, re, json
 from functools import partial
 import numpy as np, pandas as pd, xarray as xr
-import matplotlib.pyplot as plt, seaborn as sns
-import matplotlib.dates as mdates
 from scipy.stats import qmc
-from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.base import clone
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (
@@ -46,6 +41,37 @@ def modify_mdu_key(mdu_lines: list, key: str, value: str = '') -> list:
     new1 = new[1].split('#')
     mdu[index] = f'{new[0]}= {value.ljust(len(new1[0])-2)} #{new1[1]}'
     return mdu
+
+def clip_data(df: pd.DataFrame, time_column:str='Time', start:str=None, end:str=None) -> dict:
+    if df.empty: return {}
+    df[time_column], content = pd.to_datetime(df[time_column], utc=True), {}
+    if not start is None and not end is None:
+        start, end = pd.to_datetime(start, utc=True), pd.to_datetime(end, utc=True)
+        df = df[(df[time_column] >= start) & (df[time_column] <= end)]
+    if df.empty: return {}
+    start_time, end_time = df[time_column].iloc[0], df[time_column].iloc[-1]
+    content['start'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
+    content['end'] = end_time.strftime('%Y-%m-%d %H:%M:%S')
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df[time_column] = df[time_column].dt.strftime('%Y-%m-%d %H:%M:%S')
+    content['data'] = df.astype(object).where(df.notna(), None).to_numpy().tolist()
+    return content
+
+def split_temp_from_depth(df:pd.DataFrame, depths:list, time_col:str, upper:float=5.0, lower:float=1.5) -> pd.DataFrame:
+    try:
+        df["temperature"] = pd.to_numeric(df["temperature"], errors='coerce')
+        df["depth"] = pd.to_numeric(df["depth"], errors='coerce')
+        df = df[[time_col, "temperature", "depth"]].dropna(subset=[time_col])
+        df['new_profile'] = ((df["depth"] < lower) & (df["depth"].shift(1) > upper))
+        df['profile_id'] = df['new_profile'].cumsum()
+        obs_df = (
+            df.groupby("profile_id", group_keys=False)
+            .apply(lambda g: interpolate_profile_to_depths(g, depths, time_col))
+            .sort_values(time_col).reset_index(drop=True)
+        )
+        obs_df = obs_df.replace({np.nan: None})
+        return obs_df
+    except Exception: return pd.DataFrame()
 
 def run_iteration(directory: str, processes: dict, body: dict, key: str) -> None:
     try:
@@ -255,12 +281,14 @@ def run_calibration(processes: dict, key: str, scenario_dir: str, scenarios: lis
 
 def get_station_from_his_file(his_path: str) -> list:
     if not os.path.exists(his_path): return []
-    with xr.open_dataset(his_path) as ds:
+    if his_path.endswith('.nc'): ds = xr.open_dataset(his_path)
+    elif his_path.endswith(".zarr"): ds = xr.open_zarr(his_path)
+    with ds:
         names = [
             n.decode('utf-8').strip() if isinstance(n, bytes) else str(n).strip() 
             for n in ds['station_name'].values
         ]
-        return names
+    return names
 
 def interpolate_profile_to_depths(group: pd.DataFrame, depths: list, time_col="Time") -> pd.DataFrame:
     g = group.sort_values("depth").drop_duplicates("depth").reset_index(drop=True)
@@ -281,36 +309,38 @@ def interpolate_profile_to_depths(group: pd.DataFrame, depths: list, time_col="T
             rows.append(row)
     return pd.DataFrame(rows)
 
-def read_and_interpolate_his(case_output_dir: str, station_name: str, depths: list, time_col="Time") -> pd.DataFrame:
-    his_file = os.path.join(case_output_dir, 'output', 'FlowFM_his.nc')
-    if not os.path.exists(his_file): return pd.DataFrame()
-    with xr.open_dataset(his_file) as ds:
-        names = [
-            n.decode('utf-8').strip() if isinstance(n, bytes) else str(n).strip() 
-            for n in ds['station_name'].values
-        ]
+def read_and_interpolate_his(his_path: str, station_name: str, depths: list, time_col="Time") -> pd.DataFrame:
+    try:
+        if not os.path.exists(his_path): return pd.DataFrame()
+        names = get_station_from_his_file(his_path)
         if station_name not in names: return pd.DataFrame()
         st_idx = names.index(station_name)
-        t_his = ds['temperature'].isel(stations=st_idx).values
-        z_his = ds['zcoordinate_c'].isel(stations=st_idx).values
-        wl_his = ds['waterlevel'].isel(stations=st_idx).values
-        sim_times = pd.to_datetime(ds['time'].values, utc=True)
-    n_steps = len(sim_times)
-    sim_interp = np.full((n_steps, len(depths)), np.nan)
-    for i in range(n_steps):
-        t_row, z_row, wl = t_his[i, :], z_his[i, :], wl_his[i]
-        depth_num = [float(d) for d in depths]
-        tgt_elev = wl - np.asarray(depth_num)
-        mask = np.isfinite(t_row) & np.isfinite(z_row)
-        if mask.sum() >= 2:
+        if his_path.endswith('.nc'): ds = xr.open_dataset(his_path)
+        elif his_path.endswith(".zarr"): ds = xr.open_zarr(his_path)
+        else: return pd.DataFrame()
+        with ds:
+            t_his = ds['temperature'].isel(stations=st_idx).values
+            z_his = ds['zcoordinate_c'].isel(stations=st_idx).values
+            wl_his = ds['waterlevel'].isel(stations=st_idx).values
+            sim_times = pd.to_datetime(ds['time'].values, utc=True)
+        depth_num = np.asarray(depths, dtype=float)
+        n_steps = len(sim_times)
+        sim_interp = np.full((n_steps, len(depths)), np.nan)
+        for i in range(n_steps):
+            t_row, z_row, wl = t_his[i, :], z_his[i, :], wl_his[i]
+            tgt_elev = wl - depth_num
+            mask = np.isfinite(t_row) & np.isfinite(z_row)
+            if mask.sum() < 2: continue
             z_valid, t_valid = z_row[mask], t_row[mask]
             order = np.argsort(z_valid)
             z_sorted, t_sorted = z_valid[order], t_valid[order]
             in_bounds = (tgt_elev >= z_sorted.min()) & (tgt_elev <= z_sorted.max())
             sim_interp[i, in_bounds] = np.interp(tgt_elev[in_bounds], z_sorted, t_sorted)
-    df_sim = pd.DataFrame(sim_interp, columns=[f"sim_{d}" for d in depths], index=sim_times)
-    df_sim.index.name = time_col
-    return df_sim
+        df_sim = pd.DataFrame(
+            sim_interp, columns=[f"sim_{d}" for d in depths], index=pd.Index(sim_times, name=time_col)
+        )
+        return df_sim
+    except Exception: return pd.DataFrame()
 
 # Remove outliers from the measured data using rolling window method
 def remove_rolling_outliers(df: pd.DataFrame, column: str, window: int=20, n_std: float=3.0) -> pd.DataFrame:
@@ -421,7 +451,7 @@ def optuna_callback(study, trial, processes, key, log_path):
     processes[key]["progress"] = f"{complete:.1f}"
 
 def run_optuna(processes: dict, key: str, direction: str,
-    iterations: int, params_path: str, optuna_path: str,
+    iterations: int, params_path: str, optuna_path: str, importance_path: str,
     scaler_path: str, model_path: str, log_path: str) -> None:
     try:
         with open(params_path, "r", encoding="utf-8") as f:
@@ -443,6 +473,23 @@ def run_optuna(processes: dict, key: str, direction: str,
         study.optimize(optuna_func, n_trials=iterations, callbacks=[callback])
         df_trials = study.trials_dataframe()
         df_trials.to_csv(optuna_path) # Save optuna results
+        # Compute importance values
+        try:
+            importance = optuna.importance.get_param_importances(
+                study, evaluator=MeanDecreaseImpurityImportanceEvaluator()
+            )
+        except Exception:
+            param_cols = [c for c in df_trials.columns if c.startswith('params_')]
+            X_tr = df_trials[param_cols].fillna(df_trials[param_cols].mean())
+            y_tr = df_trials['value'].fillna(df_trials['value'].max())
+            rf = RandomForestRegressor(n_estimators=100, random_state=42)
+            rf.fit(X_tr, y_tr)
+            clean_names = [c.replace('params_', '') for c in param_cols]
+            importance = dict(zip(clean_names, rf.feature_importances_))
+        sorted_importance = dict(sorted(importance.items(), key=lambda item: item[1]))
+        # Store parameters
+        with open(importance_path, 'w', encoding='utf-8') as f:
+            json.dump(sorted_importance, f, indent=4)
         processes[key]["best_params"] = study.best_params
         processes[key]["status"] = "finished"
         processes[key]["message"] = "Optimization completed."
@@ -451,72 +498,3 @@ def run_optuna(processes: dict, key: str, direction: str,
             processes[key]["status"] = "failed"
             processes[key]["message"] = f"Internal error: {e}"
         functions.append_log(log_path, f"[INTERNAL ERROR] {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def split_temp_from_depth(df: pd.DataFrame, depth_selection: list,
-        depth_col: str = 'depth', temp_col: str = 'temperature', 
-        upper_limit: float = 5.0, lower_limit: float = 1.5
-    ) -> pd.DataFrame:
-    df.index = pd.to_datetime(df.index)
-    df = df.loc[df.index.notna()]
-    df = df.sort_index().reset_index(drop=True)
-    df[temp_col] = pd.to_numeric(df[temp_col], errors='coerce')
-    df[depth_col] = pd.to_numeric(df[depth_col], errors='coerce')
-    df['new_profile'] = ((df["depth"] < lower_limit) & (df["depth"].shift(1) > upper_limit))
-    df['profile_id'] = df['new_profile'].cumsum()
-    df[temp_col] = df.groupby("profile_id")[temp_col].transform(lambda x: x.interpolate(method='linear', limit_direction='both'))
-    df[depth_col] = df.groupby("profile_id")[depth_col].transform(lambda x: x.interpolate(method='linear', limit_direction='both'))
-    measured = (
-        df.groupby("profile_id", group_keys=False)
-        .apply(lambda g: interpolate_profile_to_depths(g, depth_selection))
-        .reset_index(drop=True).sort_index().reset_index(drop=True)
-    )
-    return measured
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

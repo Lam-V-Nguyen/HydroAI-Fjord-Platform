@@ -62,7 +62,6 @@ async function hydComponents() {
         if (res.status === "ok") { if (!confirm("Output exists. Re-run will overwrite it. Continue?")) return; }
         const start = await jsonLoader('start_sim_hyd', {projectName: currentProject});
         if (start.status === "error") { alert(start.message); return; }
-        obj.infoArea.value = ''; obj.progressbar.value = 0;
         obj.progressText.innerText = 'Preparing data for the HYD simulation...';
         updateLogHYD(currentProject, obj.progressbar, obj.progressText, obj.infoArea, 10);
     });

@@ -189,7 +189,7 @@ export function formatDateTime(value) {
         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-export function numberFormatter(num, decimals) {
+export function numberFormatter(num, decimals=3) {
     if (num === null || num === undefined || isNaN(num)) return '';
     if (num === 0) return '0';
     const n = Number(num);
@@ -558,6 +558,9 @@ export function sendRequest(type, content) {
     });
 }
 
+export function stringToUTC(time) {
+    return new Date(time.replace(' ', 'T') + 'Z');
+}
 
 
 

@@ -1,6 +1,7 @@
 import { setupTabs } from "./tabManager.js";
 import { projectRender } from "./projectManager.js";
-import { getProjectList, signalSender, jsonLoader, fillTable, getDataFromTable
+import { getProjectList, signalSender, jsonLoader, fillTable, 
+    getDataFromTable, numberFormatter, nameChecker, stringToUTC
 } from "./commonFunctions.js";
 import { calibrationParams, getCalibrationParam } from "./constant.js";
 
@@ -25,30 +26,28 @@ const obj = {
     optimizationLog: $('model-text'), optimizationDirection: $('direction-select'),
     optimizationIterations: $('iteration-value'), optimizationBtn: $('optimization-btn'),
     optimizationProgressBarContainer: $('progressbar-optimization-container'), 
-    optimizationProgressBar: $('progressbar-optimization'), 
-    optimizationProgressText: $('progress-optimization-text'),
+    optimizationProgressBar: $('progressbar-optimization'), optimizationProgressText: $('progress-optimization-text'),
     optimizationResults: $('optimization-results'), optimizationPlotBtn: $('plot-optimization-btn'),
-    optimizationSaveBtn: $('save-optimization-btn'),
-
-    
-
-
-    
-    
-    
-    
-    
-    
+    optimizationSaveBtn: $('save-optimization-btn'), optimizationContainer: $('optimization-container'), 
+    comparisonSimProject: $('project-name-comparison'), comparisonSimBtn: $('project-comparison-btn'), 
+    comparisonSimList: $('project-list-comparison'), simStartDate: $('sim-start'), simEndDate: $('sim-end'), 
+    comparisonObsBtn: $('obs-comparison-btn'), depthComparison: $('depth-comparison'), 
+    stationComparison: $('comparison-select'), comparisonObsFile: $('obs-comparison-file'), 
+    comparisonObsName: $('obs-comparison-name'), obsStartDate: $('obs-start-date'), 
+    obsEndDate: $('obs-end-date'), obsTable: $('obs-table'), comparisonPlot: $('comparison-plot-btn'), 
+    comparisonContainer: $('comparison-container'), plotContainer: $('plot-container')
 }
 
-let currentProject = null, activeProject = null, isRunning = false, logInterval = null, lastOffsetHYD = 0;
+let activeProject = null, isRunning = false, logInterval = null, lastOffsetHYD = 0;
 
 setupTabs(document); await getProject();
 await initParameterContainer(); calibrationManager();
 
+
 async function getProject() { 
     const respond = await getProjectList('', 'input');
     await projectRender(obj.projectName, obj.projectList, respond);
+    await projectRender(obj.comparisonSimProject, obj.comparisonSimList, respond);
 }
 
 async function initParameterContainer() {
@@ -85,20 +84,23 @@ async function initParameterContainer() {
     });
 }
 
+async function openProject(projectObj, startObj, endObj, key='') {
+    const project = projectObj.value.trim();
+    if (project === '') { alert('Please select a HYD scenario first.'); return; }
+    signalSender('Reading information from project "' + project + '". Please wait...');
+    const content = { projectName: project, key: key };
+    const data = await jsonLoader('calibration_project', content); signalSender('hideOverlay');
+    if (data.status === 'error') { alert(data.message); return; }
+    startObj.value = data.content['start']; endObj.value = data.content['end'];
+}
+
 function calibrationManager() {
     obj.projectBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
-        signalSender('Reading information from project "' + currentProject + '". Please wait...');
-        const content = { projectName: currentProject };
-        const data = await jsonLoader('calibration_project', content); signalSender('hideOverlay');
-        if (data.status === 'error') { alert(data.message); return; }
-        obj.simulationStartDate.value = data.content['start'];
-        obj.simulationEndDate.value = data.content['end'];
+        openProject(obj.projectName, obj.simulationStartDate, obj.simulationEndDate, 'calibration');
     });
     obj.iterationBtn.addEventListener('click', async () => {
-        const currentProject = obj.projectName.value.trim(), key = 'iteration';
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const iterationNumber = parseInt(obj.iterationNumber.value);
         if (isNaN(iterationNumber) || iterationNumber <= 0) { alert('Please specify the number of resampling.'); return; }
         // Get checked parameters and their bounds
@@ -133,8 +135,8 @@ function calibrationManager() {
         }
     });
     obj.runSimulationBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const samplingName = obj.resamplingName.value.trim();
         if (samplingName === '') { alert('Please specify a name for the resampling.'); return; }
         const key = 'calibration', logFile = 'log.txt';
@@ -167,28 +169,27 @@ function calibrationManager() {
         obj.observationFile.click();
     });
     obj.observationFile.addEventListener('change', async (e) => {
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const simStart = obj.simulationStartDate.value; const simEnd = obj.simulationEndDate.value;
-        if (simStart === '' || simEnd === '') { alert('Please add the start/end of HYD scenario.'); return; }
+        if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
         const file = e.target.files[0]; if (!file) return;
         const formData = new FormData(); formData.append('file', file); 
         formData.append('projectName', currentProject);
         formData.append('simStart', simStart); formData.append('simEnd', simEnd);
-        try {
-            signalSender('showOverlay', 'Reading observation data. Please wait...');
-            const response = await fetch('/obs_calibration_upload', { method: 'POST', body: formData });
-            const data = await response.json(); signalSender('hideOverlay');
-            if (data.status === 'error') { alert(data.message); return; }
-            fillTable(data.content.data, obj.observationTable);
-            obj.observationName.value = file.name;
-            obj.observationStartDate.value = data.content['start'];
-            obj.observationEndDate.value = data.content['end']; 
-        } catch (error) { alert(`Uploading observation data failed: ${error.message}`); }
-        finally { e.target.value = ''; signalSender('hideOverlay'); }
+        signalSender('showOverlay', 'Reading observation data. Please wait...');
+        const response = await fetch('/obs_calibration_upload', { method: 'POST', body: formData });
+        const data = await response.json(); signalSender('hideOverlay'); e.target.value = '';
+        if (data.status === 'error') { alert(data.message); return; }
+        fillTable(data.content.data, obj.observationTable);
+        obj.observationName.value = file.name;
+        obj.observationStartDate.value = data.content['start'];
+        obj.observationEndDate.value = data.content['end']; 
     });
     obj.extractStationBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
-        signalSender('showOverlay', 'Getting station data fron project "' + currentProject + '".\nPlease wait...');
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
+        signalSender('showOverlay', 'Getting station data from simulation "' + currentProject + '".\nPlease wait...');
         const content = { projectName: currentProject };
         const data = await jsonLoader('get_stations_calibration', content);
         signalSender('hideOverlay');
@@ -199,8 +200,8 @@ function calibrationManager() {
         obj.stationSelector.innerHTML = defaultValue + options;
     });
     obj.summaryBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const simStart = obj.simulationStartDate.value; const simEnd = obj.simulationEndDate.value;
         if (simStart === '' || simEnd === '') { alert('Please add the start/end of HYD scenario.'); return; }
         const obsStart = obj.observationStartDate.value; const obsEnd = obj.observationEndDate.value;
@@ -224,8 +225,8 @@ function calibrationManager() {
         if (data.status === "error") { return; }
     });
     obj.correlationBtn.addEventListener('click', async () => {    
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const content = { projectName: currentProject};
         const respond = await jsonLoader('correlation_calibration', content);
         if (respond.status === "error") { 
@@ -236,30 +237,31 @@ function calibrationManager() {
         await sensitivityRender(obj.sensitivityContainer, respond.content, respond.key);
     });
     obj.surrogateBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const model = obj.surrogateSelector.value.trim();
         const key = 'surrogate_model', logFile = 'log.txt';
         if (isRunning) { alert("Optimization is currently running."); return; }
         obj.optimizationLogContainer.style.display = 'flex';
         obj.optimizationChartContainer.style.display = 'none';
         obj.optimizationLog.value = ''; 
-        const content = { 
-            projectName: currentProject, model: model, key: key
-        };
+        const content = { projectName: currentProject, model: model, key: key };
         try {
             const start = await jsonLoader('start_optimization_calibration', content);
             if (start.status === "error") { 
                 alert(start.message); isRunning = false; return; 
             }
-            updateLogOptimization(currentProject, key, obj.optimizationLog, null, null, 1, logFile);
+            updateLogOptimization(
+                currentProject, key, obj.optimizationLog, null, null, 1, logFile,
+                async () => {alert('Building surrogate model completed.');}
+            );
         } catch (error) { 
             alert(`Starting optimization failed: ${error.message}`); isRunning = false;
         }
     });
     obj.optimizationBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const iterationNumber = parseInt(obj.optimizationIterations.value);
         if (isNaN(iterationNumber) || iterationNumber <= 0) { alert('Please specify the number of iterations.'); return; }
         const direction = obj.optimizationDirection.value;
@@ -271,7 +273,8 @@ function calibrationManager() {
         obj.optimizationProgressBar.value = 0; 
         obj.optimizationLogContainer.style.display = 'flex';
         obj.optimizationChartContainer.style.display = 'none';
-        obj.optimizationLog.value = ''; obj.optimizationResults.style.display = 'none';
+        obj.optimizationLog.value = ''; 
+        obj.optimizationResults.style.display = 'none';
         const key = 'optuna', logFile = 'log.txt';
         const content = { 
             projectName: currentProject, iterations: iterationNumber, 
@@ -293,79 +296,281 @@ function calibrationManager() {
         }
     });
     obj.optimizationPlotBtn.addEventListener('click', async () => {
-        currentProject = obj.projectName.value.trim();
-        if (currentProject === '') { alert('Please select a scenario first.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         obj.optimizationLogContainer.style.display = 'none';
-        obj.optimizationChartContainer.style.display = 'flex';
-        try {
-            const response = await jsonLoader('plot_optuna', { projectName: currentProject });
-            if (response.status === "error") { 
-                obj.optimizationLogContainer.style.display = 'none';
-                obj.optimizationChartContainer.style.display = 'none';
-                alert(response.message); return; 
-            }
-            plotOptuna(obj.optimizationChartContainer, response.content);
-        } catch (error) { 
+        obj.optimizationChartContainer.style.display = 'block';
+        signalSender('showOverlay', `Getting data for plotting. Please wait...`);
+        const response = await jsonLoader('plot_optuna', { projectName: currentProject });
+        signalSender('hideOverlay');
+        if (response.status === "error") { 
             obj.optimizationLogContainer.style.display = 'none';
             obj.optimizationChartContainer.style.display = 'none';
-            alert(`Optimization is failed: ${error.message}`);
+            alert(response.message); return; 
         }
-
+        plotOptuna(
+            obj.optimizationContainer, response.content, response.importance, response.target
+        );
     });
     obj.optimizationSaveBtn.addEventListener('click', async () => {
-        
+        const container = document.querySelector('.parameter-optimal');
+        if (container === null) { return; }
+        const rows = container.querySelectorAll('.parameter-row-optimal');
+        const params = [...rows].map(row => ({
+            value: row.dataset.param, name: row.children[0].textContent,
+            abbreviation: row.children[1].textContent,
+            value: row.children[2].querySelector('input').value
+        }));
+        if (params.length === 0) { alert('No optimal parameters found.'); return;}
+        // Ask for a new name
+        const newName = prompt(
+            'Please enter a name for the new scenario.' +
+            '\nOptimal parameters will be stored for this scenario.' +
+            '\nCreating a scenario will take time. Please be patient.'
+        );
+        // User clicked Cancel
+        if (newName === null) { return; }
+        if (nameChecker(newName)) { alert('Name of clone scenario is invalid.'); return; }
+        const currentProject = obj.projectName.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
+        signalSender('showOverlay', `Creating scenario '${newName}'. Please wait...`);
+        const content = { oldProject: currentProject, newProject: newName, params: params }
+        const data = await jsonLoader('save_scenario_calibration', content);
+        signalSender('hideOverlay'); alert(data.message);
+        if (data.status === "error") { return; }
     });
-
-
-
-
+    obj.comparisonSimBtn.addEventListener('click', async () => {
+        const currentProject = obj.comparisonSimProject.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
+        openProject(obj.comparisonSimProject, obj.simStartDate, obj.simEndDate);
+        signalSender('showOverlay', 'Getting station data from simulation "' + currentProject + '".\nPlease wait...');
+        const data = await jsonLoader('get_stations_comparison', { projectName: currentProject });
+        if (data.status === "error") { signalSender('hideOverlay'); alert(data.message); return; }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        // Add content to the selector
+        const defaultValue = `<option value="">-- Select a station --</option>`;
+        const options = data.content.map(s => `<option value="${s}">${s}</option>`).join(''); 
+        obj.stationComparison.innerHTML = defaultValue + options; signalSender('hideOverlay');
+    });
+    obj.comparisonObsBtn.addEventListener('click', async () => obj.comparisonObsFile.click());
+    obj.comparisonObsFile.addEventListener('change', async (e) => {
+        const simStart = obj.simStartDate.value; const simEnd = obj.simEndDate.value;
+        if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
+        const file = e.target.files[0]; if (!file) return;
+        const formData = new FormData(); formData.append('file', file); 
+        formData.append('simStart', simStart); formData.append('simEnd', simEnd);
+        signalSender('showOverlay', 'Reading observation data. Please wait...');
+        const response = await fetch('/obs_comparison_upload', { method: 'POST', body: formData });
+        const data = await response.json(); signalSender('hideOverlay'); e.target.value = '';
+        if (data.status === 'error') { 
+            alert(`Uploading observation data failed: ${data.message}`); return; 
+        }
+        fillTable(data.content.data, obj.obsTable); obj.comparisonObsName.value = file.name;
+        obj.obsStartDate.value = data.content['start']; obj.obsEndDate.value = data.content['end'];
+    });
+    obj.comparisonPlot.addEventListener('click', async () => {
+        const currentProject = obj.comparisonSimProject.value.trim();
+        if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
+        const simStart = obj.simStartDate.value; const simEnd = obj.simEndDate.value;
+        if (simStart === '' || simEnd === '') { alert('Please add the start/end of HYD simulation.'); return; }
+        const obsStart = obj.obsStartDate.value; const obsEnd = obj.obsEndDate.value;
+        if (obsStart === '' || obsEnd === '') { alert('Please add the start/end of the observation.'); return; }
+        const depthSelection = obj.depthComparison.value.trim();
+        if (depthSelection === '') { alert('Please specify the depth to compare.'); return; }
+        const stationName = obj.stationComparison.value;
+        if (stationName === '') { alert('Please specify the station in the simulation.'); return; }
+        const obsData = getDataFromTable(obj.obsTable, true).rows;
+        if (obsData.length === 0) { alert('Please upload observation data first.'); return; }
+        signalSender('showOverlay', 'Preparing data for comparison. Please wait...');
+        const content = { 
+            projectName: currentProject, simStart: simStart, simEnd: simEnd, 
+            obsStart: obsStart, obsEnd: obsEnd, depthSelection: depthSelection, 
+            obsData: obsData, station: stationName
+        };
+        const data = await jsonLoader('comparison_plot', content); signalSender('hideOverlay'); 
+        if (data.status === "error") { alert(data.message); return; }
+        plotComparison(obj.comparisonContainer, data.content);
+        obj.plotContainer.style.display = 'block';
+    });
 }
 
-function formatOptunaValue(value) {
-    if (Math.abs(value) < 0.001) { return value.toExponential(4); }
-    return value.toFixed(3);
-}
-
-function plotOptuna(container, trials) {
-    if (!container || !Array.isArray(trials) || trials.length === 0) {
-        container.innerHTML = '<p>No Optuna trial data available.</p>';
+function plotComparison(container, data) {
+    const dfSim = data.sim, dfObs = data.obs, merge = data.merge, minMax = data.min_max;
+    const depths = data.depth, metrics = data.metrics, totalRMSE = data.rmse;
+    if (!container || !Array.isArray(dfSim) || !Array.isArray(dfObs) ||
+        !Array.isArray(depths) || depths.length === 0) {
+        if (container) { container.innerHTML = '<p>No simulation or observation data available.</p>'; }
         return;
     }
+    if (depths.length === 0) { container.innerHTML = '<p>No depth data available.</p>'; return; }
+    const margin = { l: 65, r: 15, t: 65, b: 50 };
+    container.innerHTML = `<div class="comparison-grid"></div>`;
+    const chartGrid = container.querySelector('.comparison-grid');
+    // Temperature plots
+    depths.forEach((d, idx) => {
+        const chart = document.createElement('div'); 
+        chart.id = `comparison-${idx}`; chart.className = 'comparison-chart'; 
+        chartGrid.appendChild(chart); 
+        const obsCol = `obs_${d}`, simCol = `sim_${d}`, traces = [];
+        const metric = metrics[String(d)];
+        const rmse = metric?.[0], r2 = metric?.[1];
+        // Observation
+        if (Array.isArray(dfObs) && dfObs.length > 0) { 
+            const x = [], y = []; 
+            dfObs.forEach(row => { 
+                const time = stringToUTC(row.Time), rawValue = row[obsCol];
+                // Skip missing observation values
+                if (rawValue === null || rawValue === undefined || rawValue === '' ||
+                    (typeof rawValue === 'string' && rawValue.trim() === '')
+                ) { return; }
+                const value = Number(rawValue);
+                if (time && Number.isFinite(value)) { x.push(time); y.push(value); } 
+            }); 
+            if (x.length > 0) { 
+                traces.push({ 
+                    x, y, type: 'scatter', mode: 'lines+markers', name: `Observation`,
+                    line: { color: '#d62728', width: 1.4 }, marker: { size: 3 }, 
+                    opacity: 0.85, hovertemplate: 'Observation: %{y:.3f} °C<extra></extra>',
+                });
+            }
+        }
+        // Simulation
+        if (Array.isArray(dfSim) && dfSim.length > 0) { 
+            const x = [], y = []; 
+            dfSim.forEach(row => { 
+                const time = stringToUTC(row.Time), value = Number(row[simCol]); 
+                if (time && Number.isFinite(value)) { x.push(time); y.push(value); } 
+            }); 
+            if (x.length > 0) { 
+                traces.push({ 
+                    x, y, type: 'scatter', mode: 'lines+markers', 
+                    opacity: 0.85, name: `Simulation`, marker: { size: 3 },
+                    line: { color: '#1f77b4', width: 1.4 }, 
+                    hovertemplate: 'Simulation: %{y:.3f} °C<extra></extra>',
+                });
+            }
+        }
+        // Layout
+        const layout = {
+            title: {
+                text: `<b>Temperature Comparation - Station: ${data.station}<br>Water Depth: ${d}m </b>`,
+                font: { size: 15, weight: "bold" }
+            },
+            xaxis: {
+                title: {text: `<b>Time<b>`, standoff: 15, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                type: 'date', showgrid: true, gridcolor: 'rgba(0,0,0,0.15)',
+                linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+            },
+            yaxis: {
+                title: {text: `<b>Temperature (°C)<b>`, standoff: 10, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showgrid: true, gridcolor: 'rgba(0,0,0,0.15)',
+                linecolor: 'black', ticks: 'outside', ticklen: 6, 
+                tickwidth: 1, tickcolor: 'black',
+            },
+            legend: {
+                x: 0.03, y: 0.95, xanchor: 'left', yanchor: 'top', bgcolor: 'rgba(255,255,255,0.65)',
+                bordercolor: 'rgba(128,128,128,0.4)', borderwidth: 1, font: { size: 12 }
+            },
+            annotations: [{
+                x: 0.45, y: 1.03, xref: 'paper', yref: 'paper', xanchor: 'center', yanchor: 'top',
+                text: `(RMSE = ${Number(rmse).toFixed(3)}°C - R² = ${Number(r2).toFixed(3)})`,
+                showarrow: false, align: 'center', font: { size: 12 }, 
+            }],
+            margin: margin, autosize: true, hovermode: 'x unified'
+        };
+        const config = { responsive: true, displaylogo: false };
+        Plotly.newPlot(chart, traces, layout, config).then(() => {
+            requestAnimationFrame(() => { Plotly.Plots.resize(chart)})
+        });
+    });
+    // Parity plot
+    const parityChart = document.createElement('div');
+    parityChart.className = 'comparison-chart';
+    chartGrid.appendChild(parityChart);
+    const traces = [], minValue = minMax[0], maxValue = minMax[1];
+    const depthColors = [ '#1f77b4', '#ff7f0e', '#2ca02c',
+        '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+    ];
+    depths.forEach((depth, index) => {
+        const rows = merge[String(depth)];
+        if (!Array.isArray(rows) || rows.length === 0) { return; }
+        const obsCol = `obs_${depth}`, simCol = `sim_${depth}`;
+        const x = [], y = [];
+        rows.forEach(row => {
+            const obs = Number(row[obsCol]), sim = Number(row[simCol]);
+            if (Number.isFinite(obs) && Number.isFinite(sim)) { x.push(obs); y.push(sim); }
+        });
+        if (x.length === 0) { return; }
+        traces.push({
+            x, y, type: 'scatter', mode: 'markers', name: `Depth ${depth} m`,
+            marker: {
+                color: depthColors[index % depthColors.length], size: 6, opacity: 0.5
+            }
+        });
+    });
+    // Add 1:1 line
+    traces.push({
+        x: [minValue, maxValue], y: [minValue, maxValue], 
+        type: 'scatter', mode: 'lines', name: 'Line 1:1', showlegend: false,
+        line: { color: 'black', dash: 'dash', width: 1.5 }, hoverinfo: 'skip'
+    });
+    // Plotly layout
+    const layout = {
+        title: {
+            text:
+                `<b>Simulation vs. Observation (Station: ${data.station})</b><br>` +
+                `Total RMSE = ${totalRMSE.toFixed(3)}°C` + `</span>`,
+            font: { size: 15, weight: "bold" }
+        },
+        xaxis: {
+            title: {text: `<b>Observation (°C)<b>`, standoff: 15, 
+                font: { size: 16, family: 'Arial', weight: 700}
+            }, 
+            range: [minValue, maxValue], showline: true, 
+            linewidth: 1, linecolor: 'black', ticks: 'outside',
+            ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+        },
+        yaxis: {
+            title: {text: `<b>Simulation (°C)<b>`, standoff: 10, 
+                font: { size: 16, family: 'Arial', weight: 700}
+            },
+            range: [minValue, maxValue], showline: true, linewidth: 1, 
+            linecolor: 'black', ticks: 'outside', ticklen: 6, 
+            tickwidth: 1, tickcolor: 'black',
+        },
+        legend: {
+            x: 0.03, y: 0.95, xanchor: 'left', yanchor: 'top', 
+            bgcolor: 'rgba(228, 221, 221, 0.5)',
+            bordercolor: 'gray', borderwidth: 1, font: { size: 12 }
+        },
+        margin: margin, autosize: true, hovermode: 'closest'
+    };
+    const config = { responsive: true, displaylogo: false };
+    Plotly.newPlot(parityChart, traces, layout, config).then(() => {
+        requestAnimationFrame(() => { Plotly.Plots.resize(parityChart)})
+    });
+}
 
-    // ------------------------------------------------------------
-    // Prepare data
-    // ------------------------------------------------------------
+function plotOptuna(container, trials, importance, key) {
+    if (!container || !Array.isArray(trials) || trials.length === 0) {
+        container.innerHTML = '<p>No optimal trial data available.</p>'; return;
+    }
     const validTrials = trials.filter(
         trial =>
-            trial.value !== null &&
-            trial.value !== undefined &&
+            trial.value !== null && trial.value !== undefined &&
             Number.isFinite(Number(trial.value))
     );
-
     if (validTrials.length === 0) {
-        container.innerHTML = '<p>No valid trial results available.</p>';
-        return;
+        container.innerHTML = '<p>No valid trial results available.</p>'; return;
     }
-
     const values = validTrials.map(trial => Number(trial.value));
-    const trialNumbers = validTrials.map(
-        (trial, index) => trial.number ?? index
-    );
-
+    const trialNumbers = validTrials.map((trial, index) => trial.number ?? index);
     const bestValue = Math.min(...values);
-
-    // Parameter columns: params_Vicouv, params_Dicouv, ...
-    const paramColumns = Object.keys(validTrials[0])
-        .filter(key => key.startsWith('params_'));
-
-    const paramNames = paramColumns.map(
-        key => key.replace(/^params_/, '')
-    );
-
-
-    // ------------------------------------------------------------
-    // Create chart containers
-    // ------------------------------------------------------------
     container.innerHTML = `
         <div class="optuna-chart-grid">
             <div class="optuna-chart" id="optuna-convergence"></div>
@@ -374,333 +579,183 @@ function plotOptuna(container, trials) {
             <div class="optuna-chart" id="optuna-sensitivity"></div>
         </div>
     `;
-
-
-    // ------------------------------------------------------------
-    // 1. Convergence
-    // ------------------------------------------------------------
-    let currentBest = Infinity;
-
+    let currentBest = Infinity, name, y1, x2, unit;
     const cumulativeBest = values.map(value => {
-        currentBest = Math.min(currentBest, value);
-        return currentBest;
+        currentBest = Math.min(currentBest, value); return currentBest;
     });
-
+    if (key === 'RMSE') {
+        y1 = 'Smallest RMSE (°C)'; x2 = 'RMSE (°C)'; name = 'RMSE'; unit = ' (°C)';
+    } else if (key === 'R2') {
+        y1 = 'Highest R²'; x2 = 'R²'; name = 'R²'; unit = '';
+    }
+    // Convergence Process
     Plotly.newPlot(
         'optuna-convergence',
-        [
-            {
-                x: trialNumbers,
-                y: cumulativeBest,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Best RMSE so far',
-                line: {
-                    width: 2
-                }
-            }
-        ],
+        [{
+            x: trialNumbers, y: cumulativeBest, type: 'scatter',
+            mode: 'lines', name: 'Best target so far', line: { width: 2 }
+        }],
         {
             title: {
-                text: "Optuna's Convergence Process"
+                text: "Optimal Convergence Process", font: { size: 20, weight: "bold" }
             },
-            xaxis: {
-                title: 'Iterations (Trials)'
+            xaxis: { 
+                title: {text: '<b>Iterations (Trials)<b>', standoff: 15, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+            }, 
+            yaxis: { 
+                title: {text: `<b>${y1}<b>`, standoff: 10, 
+                    font: { size: 16, family: 'Arial', weight: 700 }
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black',
             },
-            yaxis: {
-                title: 'Smallest RMSE (°C)'
-            },
-            margin: {
-                l: 70,
-                r: 30,
-                t: 60,
-                b: 60
-            },
-            hovermode: 'x unified'
+            margin: { l: 70, r: 30, t: 60, b: 60 }, hovermode: 'x unified'
         },
-        {
-            responsive: true,
-            displaylogo: false
-        }
+        { responsive: true, displaylogo: false }
     );
-
-
-    // ------------------------------------------------------------
-    // 2. RMSE Distribution
-    // ------------------------------------------------------------
+    // Error handling for the Optuna distribution plot
     Plotly.newPlot(
         'optuna-distribution',
-        [
-            {
-                x: values,
-                type: 'histogram',
-                name: 'RMSE',
-                nbinsx: 25,
-                opacity: 0.75
-            },
-            {
-                x: [bestValue, bestValue],
-                y: [0, Math.max(1, values.length)],
-                type: 'scatter',
-                mode: 'lines',
-                name: `Best: ${bestValue.toFixed(4)} °C`,
-                line: {
-                    dash: 'dash',
-                    width: 2
-                }
-            }
-        ],
-        {
-            title: {
-                text: 'RMSE Distribution Across Trials'
-            },
-            xaxis: {
-                title: 'RMSE (°C)'
-            },
-            yaxis: {
-                title: 'Number of Trials'
-            },
-            margin: {
-                l: 70,
-                r: 30,
-                t: 60,
-                b: 60
-            },
-            bargap: 0.05
+        [{
+            x: values, type: 'histogram', name: name, nbinsx: 25, opacity: 0.75
         },
         {
-            responsive: true,
-            displaylogo: false
-        }
+            x: [bestValue, bestValue], y: [0, Math.max(1, values.length)],
+            type: 'scatter', mode: 'lines', name: `Best: ${bestValue.toFixed(4)}`,
+            line: { dash: 'dash', width: 2 }
+        }],
+        {
+            title: {
+                text: 'Error Distribution Across Trials', font: { size: 20, weight: "bold" }
+            },
+            xaxis: { 
+                title: {text: `<b>${x2}<b>`, standoff: 15, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+            }, 
+            yaxis: { 
+                title: {text: '<b>Number of Trials<b>', standoff: 10, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black',
+            },
+            legend: {
+                x: 1, y: 1, xanchor: 'right', yanchor: 'top',
+                bgcolor: 'rgba(255,255,255,0.7)', bordercolor: 'gray', borderwidth: 1
+            },
+            margin: { l: 70, r: 30, t: 60, b: 60 }, bargap: 0.05
+        },
+        { responsive: true, displaylogo: false }
     );
-
-
-    // ------------------------------------------------------------
-    // 3. Parameter Importance
-    //
-    // Here we calculate importance in the frontend using
-    // absolute correlation between parameter and RMSE.
-    //
-    // This is not exactly the same evaluator as:
-    // optuna.importance.MeanDecreaseImpurityImportanceEvaluator
-    // ------------------------------------------------------------
-    const importance = {};
-
-    for (const param of paramNames) {
-        const column = `params_${param}`;
-
-        const data = validTrials
-            .map(trial => ({
-                x: Number(trial[column]),
-                y: Number(trial.value)
-            }))
-            .filter(
-                item =>
-                    Number.isFinite(item.x) &&
-                    Number.isFinite(item.y)
-            );
-
-        if (data.length < 2) {
-            importance[param] = 0;
-            continue;
-        }
-
-        const x = data.map(item => item.x);
-        const y = data.map(item => item.y);
-
-        const meanX =
-            x.reduce((sum, value) => sum + value, 0) / x.length;
-
-        const meanY =
-            y.reduce((sum, value) => sum + value, 0) / y.length;
-
-        let numerator = 0;
-        let denominatorX = 0;
-        let denominatorY = 0;
-
-        for (let i = 0; i < x.length; i++) {
-            const dx = x[i] - meanX;
-            const dy = y[i] - meanY;
-
-            numerator += dx * dy;
-            denominatorX += dx * dx;
-            denominatorY += dy * dy;
-        }
-
-        const denominator =
-            Math.sqrt(denominatorX * denominatorY);
-
-        const correlation =
-            denominator === 0 ? 0 : numerator / denominator;
-
-        importance[param] = Math.abs(correlation);
-    }
-
-
-    // Sort from smallest -> largest
-    const sortedImportance = Object.entries(importance)
-        .sort((a, b) => a[1] - b[1]);
-
-    const importanceNames = sortedImportance.map(
-        item => item[0]
-    );
-
-    const importanceValues = sortedImportance.map(
-        item => item[1]
-    );
-
-
+    const importanceNames = importance.map(item => item[0]);
+    const importanceValues = importance.map(item => item[1]);
+    // Parameter Importance
     Plotly.newPlot(
         'optuna-importance',
-        [
-            {
-                x: importanceValues,
-                y: importanceNames,
-                type: 'bar',
-                orientation: 'h',
-                text: importanceValues.map(
-                    value => `${(value * 100).toFixed(1)}%`
-                ),
-                textposition: 'outside',
-                hovertemplate:
-                    '%{y}<br>Importance: %{x:.3f}<extra></extra>'
-            }
-        ],
-        {
-            title: {
-                text: 'Importance of Parameters'
+        [{
+            x: importanceValues, y: importanceNames, type: 'bar', orientation: 'h',
+            marker: {
+                color: importanceValues, colorscale: 'Viridis', showscale: false
             },
+            text: importanceValues.map(value => `${(value * 100).toFixed(1)}%`),
+            textposition: 'outside', font: { size: 14 },
+            hovertemplate:'%{y}<br>Importance: %{x:.3f}<extra></extra>'
+        }],
+        {
+            title: { text: 'Importance of Parameters', font: { size: 20, weight: "bold" }},
             xaxis: {
-                title: 'Relative Importance',
-                range: [
-                    0,
-                    Math.max(...importanceValues, 0.1) * 1.15
-                ]
-            },
+                title: {text: '<b>Relative Importance<b>', standoff: 15, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                range: [0, Math.max(...importanceValues, 0.1) * 1.15],
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+            }, 
             yaxis: {
-                title: ''
+                title: {text: '', standoff: 10},
+                tickfont: { size: 17, family: 'Arial', weight: 700 },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black',
             },
-            margin: {
-                l: 100,
-                r: 60,
-                t: 60,
-                b: 60
-            }
+            margin: { l: 100, r: 60, t: 60, b: 60 }
         },
-        {
-            responsive: true,
-            displaylogo: false
-        }
+        { responsive: true, displaylogo: false }
     );
-
-
-    // ------------------------------------------------------------
-    // 4. Sensitivity Analysis
-    // ------------------------------------------------------------
-    const mostImportantParam =
-        importanceNames.length > 0
-            ? importanceNames[importanceNames.length - 1]
-            : null;
-
+    const mostImportantParam = importanceNames.length > 0 
+        ? importanceNames[importanceNames.length - 1] : null;
     if (!mostImportantParam) {
         document.getElementById('optuna-sensitivity').innerHTML =
             '<p>No parameter data available.</p>';
         return;
     }
-
-    const sensitivityColumn =
-        `params_${mostImportantParam}`;
-
+    const sensitivityColumn = `params_${mostImportantParam}`;
     const sensitivityData = validTrials
         .map(trial => ({
-            x: Number(trial[sensitivityColumn]),
-            y: Number(trial.value),
-            trial: trial.number
+            x: Number(trial[sensitivityColumn]), y: Number(trial.value), trial: trial.number
         }))
-        .filter(
-            item =>
-                Number.isFinite(item.x) &&
-                Number.isFinite(item.y)
-        );
-
+        .filter(item => Number.isFinite(item.x) && Number.isFinite(item.y));
     const bestTrial = validTrials.reduce(
-        (best, trial) =>
-            Number(trial.value) < Number(best.value)
-                ? trial
-                : best,
-        validTrials[0]
+        (best, trial) => Number(trial.value) < Number(best.value) ? trial : best, validTrials[0]
     );
-
-    const bestParamValue =
-        Number(bestTrial[sensitivityColumn]);
-
-
+    const bestParamValue = Number(bestTrial[sensitivityColumn]);
+    const xLabel = calibrationParams.find(
+        param => param.value === mostImportantParam)?.name ?? mostImportantParam;
     Plotly.newPlot(
         'optuna-sensitivity',
-        [
-            {
-                x: sensitivityData.map(item => item.x),
-                y: sensitivityData.map(item => item.y),
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Trials',
-                marker: {
-                    size: 7,
-                    opacity: 0.65
-                },
-                text: sensitivityData.map(
-                    item => `Trial ${item.trial}`
-                ),
-                hovertemplate:
-                    `${mostImportantParam}: %{x}<br>` +
-                    `RMSE: %{y:.4f} °C<br>` +
-                    `%{text}<extra></extra>`
+        [{
+            x: sensitivityData.map(item => item.x), y: sensitivityData.map(item => item.y),
+            type: 'scatter', mode: 'markers', name: 'Trials',
+            marker: { 
+                size: 6, opacity: 0.9, color: sensitivityData.map(item => item.y),
+                colorscale: 'RdBu', showscale: false,
+                colorbar: {title: { text: `<b>${name}${unit}</b>`, side: 'right' }}
             },
-            {
-                x: [bestParamValue, bestParamValue],
-                y: [
-                    Math.min(...values),
-                    Math.max(...values)
-                ],
-                type: 'scatter',
-                mode: 'lines',
-                name: `Best: ${formatOptunaValue(bestParamValue)}`,
-                line: {
-                    dash: 'dash',
-                    width: 2
-                }
-            }
-        ],
-        {
-            title: {
-                text: `Sensitivity Analysis: ${mostImportantParam}`
-            },
-            xaxis: {
-                title: mostImportantParam
-            },
-            yaxis: {
-                title: 'RMSE (°C)'
-            },
-            margin: {
-                l: 70,
-                r: 30,
-                t: 60,
-                b: 60
-            },
-            hovermode: 'closest'
+            text: sensitivityData.map(item => `Trial ${item.trial}`),
+            hovertemplate:
+                `${xLabel}: %{x}<br>` + `${name}: %{y:.4f}${unit}<br>` + `%{text}<extra></extra>`
         },
         {
-            responsive: true,
-            displaylogo: false
-        }
+            x: [bestParamValue, bestParamValue], y: [Math.min(...values),Math.max(...values)],
+            type: 'scatter', mode: 'lines', name: `Best: ${numberFormatter(bestParamValue)}`,
+            line: { dash: 'dash', width: 2 }
+        }],
+        {
+            title: {
+                text: `Sensitivity Analysis: ${xLabel} - ${mostImportantParam}`,
+                font: { size: 20, weight: "bold" }
+            },
+            xaxis: { 
+                title: {text: `<b>${xLabel} (${mostImportantParam})<b>`, standoff: 15, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black', showgrid: true,
+            }, 
+            yaxis: { 
+                title: {text: `<b>${x2}<b>`, standoff: 10, 
+                    font: { size: 16, family: 'Arial', weight: 700}
+                },
+                showline: true, linewidth: 1, linecolor: 'black', ticks: 'outside',
+                ticklen: 6, tickwidth: 1, tickcolor: 'black',
+            },
+            legend: {
+                x: 1, y: 1, xanchor: 'right', yanchor: 'top',
+                bgcolor: 'rgba(255,255,255,0.7)', bordercolor: 'gray', borderwidth: 1
+            },
+            margin: { l: 70, r: 30, t: 60, b: 60 }, hovermode: 'closest'
+        },
+        { responsive: true, displaylogo: false }
     );
-
-
 }
 
-
-
-function updateLogOptimization(project, key, logObject, progressBarObject, progressTextObject, seconds, logFile) {
+function updateLogOptimization(project, key, logObject, progressBarObject, progressTextObject, seconds, logFile, onFinish=false) {
     activeProject = project; isRunning = true;
     // Prevent multiple polling intervals
     if (logInterval !== null) { clearInterval(logInterval); logInterval = null; }
@@ -713,27 +768,28 @@ function updateLogOptimization(project, key, logObject, progressBarObject, progr
             if (progressBarObject !== null) { progressBarObject.value = statusRes.progress; }
             if (statusRes.status !== "running") {
                 logObject.value += statusRes.message; isRunning = false;
-                if (statusRes.best_params !== '') {
+                if (statusRes.best_params !== '' && statusRes.best_params) {
                     obj.optimizationResults.style.display = 'block';
                     // Update optimal parameter container
                     const bestParams = statusRes.best_params;
                     const container = document.querySelector('.parameter-optimal');
                     container.innerHTML = `
                         <div class="parameter-header-optimal">
-                            <div>Parameter</div><div>Value</div>
+                            <div>Parameter</div><div>Abbreviation</div><div>Value</div>
                         </div>
                         ${Object.entries(bestParams).map(([key, value]) => {
                             const param = calibrationParams.find(p => p.value === key);
                             return `
                                 <div class="parameter-row-optimal" data-param="${param.value}">
-                                    <div>${param.name}</div>
-                                    <div><input type="text" value="${bestParams[param.value]}"></div>
+                                    <div>${param.name}</div><div>${param.value}</div>
+                                    <div><input type="text" value="${value}"></div>
                                 </div>
                             `;
                         }).join('')}
                     `;
                 }
                 if (logInterval) { clearInterval(logInterval); logInterval = null; }
+                if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
             }
             const res = await fetch(`/calibration_log_tail/${project}?offset=${lastOffsetHYD}&log_file=${logFile}`);
             if (!res.ok) return;
@@ -950,10 +1006,3 @@ function pearsonCorrelation(x, y) {
     if (denominator === 0) { return NaN; }
     return numerator/Math.sqrt(denominatorX * denominatorY);
 }
-
-
-
-
-
-
-

@@ -17,7 +17,6 @@ units = constants.units
 
 
 def encoding_detect(file_path: str) -> str:
-    """Detect the encoding of a file."""
     encoding = 'utf-8'
     if not os.path.exists(file_path) or not os.path.isfile(file_path): return encoding
     with open(file_path, 'rb') as f:

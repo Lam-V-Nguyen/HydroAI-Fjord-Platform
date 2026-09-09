@@ -15,11 +15,11 @@ body {
 .wrapper { 
   max-width: 100%; padding: 10px;  margin: 10px 0; height: 100%;
 }
-#project-name-wrapper {
+.project-name-wrapper {
   display: flex; align-items: center; position: relative;
   flex: 1 1 auto; min-width: 0;
 }
-#project-list {
+.project-list {
   position: absolute; bottom: 100%; left: 0; width: 100%;
   margin: 5px; list-style: none; padding: 8px 6px; 
   font-size: 15px; font-weight: normal; z-index: 10000;
@@ -27,11 +27,11 @@ body {
   background: var(--card); border-radius: 8px; display: none;
   box-shadow: 0 6px 18px rgba(30,136,229,0.2);
 }
-#project-list li:hover { 
+.project-list li:hover { 
   background: rgb(9, 48, 155); border-radius: 8px;
   padding: 8px 6px; cursor: pointer;
 }
-#project-name { width: 100%; }
+.project-name { width: 100%; }
 ul { line-height: 1.4; font-size: 16px; text-align: center; }
 
 .pourpoint-container {
