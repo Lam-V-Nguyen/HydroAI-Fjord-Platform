@@ -53,8 +53,9 @@ soilManager(); landManager(); riverManager(); weatherManager();
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
-    const respond = await getProjectList(`${currentProject}/flows`, '');
-    await projectRender(obj.projectName, obj.projectList, respond);
+    const respond = await getProjectList(currentProject, '', true);
+    console.log(respond);
+    // await projectRender(obj.projectName, obj.projectList, respond);
 }
 
 function settingManager() {

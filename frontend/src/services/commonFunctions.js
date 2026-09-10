@@ -390,8 +390,11 @@ export async function fileUploader(targetFile, targetText, projectName, gridName
     if (data.status === "error") { return; }
 }
 
-export async function getProjectList(userName='', folderCheck='') {
-    const contents = { filename: userName, key: 'getProjects', folder_check: folderCheck };
+export async function getProjectList(userName='', folderCheck='', flowChecker=false) {
+    const contents = { 
+        filename: userName, key: 'getProjects', folder_check: folderCheck,
+        flow_checked: flowChecker
+    };
     const data = await jsonLoader('select_project', contents);
     if (data.status === "error") { alert(data.message); return; }
     return data.content;

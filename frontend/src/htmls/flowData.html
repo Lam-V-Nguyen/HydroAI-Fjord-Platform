@@ -28,10 +28,10 @@
                         <div class="tile"><h3>Project</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label for="project-name">Scenario:</label>
+                                    <label>Scenario:</label>
                                     <div id="project-name-wrapper">
-                                        <input type="text" id="project-name" placeholder="Click to select a scenario">
-                                        <ul id="project-list"></ul>
+                                        <input type="text" class="project-name" id="project-name" placeholder="Click to select a scenario">
+                                        <ul class="project-list" id="project-list"></ul>
                                     </div>
                                     <button id="create-btn">Create/Open</button>
                                 </div>
@@ -40,7 +40,7 @@
                         <div class="tile"><h3>Water Area</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label for="water-area">Water area (Lake/Pond etc.,):</label>
+                                    <label for="water-area">Water Area (Lake/Pond etc.,):</label>
                                     <input type="text" id="water-input-text" placeholder="Water area">
                                     <input type="file" id="water-input-file" accept=".geojson" hidden>
                                     <button id="water-btn">Upload File (*.geojson)</button>
@@ -121,7 +121,7 @@
                 <!-- Tab 2: Soil Properties -->
                 <div class="tabpanel main-panel" data-panel="soil-tab">
                     <div class="grid">
-                        <div class="tile"><h3>Soil Import and Download</h3>
+                        <div class="tile"><h3>Soil Import & Download</h3>
                             <div class="row">
                                 <label>Upload a Catchment to define the area:</label>
                                 <button type="button" id="soil-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
@@ -362,11 +362,11 @@
                                 <button type="button" id="weather-catchment-btn">Upload Catchment (*.geojson)</button>
                             </div>
                             <div class="row" id="weather-station-start" style="display: none;">
-                                <label for="weather-start-date">Start time:</label>
+                                <label for="weather-start-date">Start Time (UTC):</label>
                                 <input type="text" class="datetime" id="weather-start-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                             </div>
                             <div class="row" id="weather-station-end" style="display: none;">
-                                <label for="weather-end-date">End time:</label>
+                                <label for="weather-end-date">End Time (UTC):</label>
                                 <input type="text" class="datetime" id="weather-end-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                             </div>
                             <div class="row">
@@ -392,12 +392,12 @@
                                 <div class="table-container">
                                     <table class="attributes-table" id="weather-table" style="margin-top: -10px;">
                                         <thead><tr>
-                                            <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th><th>Shortwave Radiation (W/m²)</th>
+                                            <th>Time (in UTC)</th><th>Precipitation (mm)</th><th>Temperature (°C)</th><th>Shortwave Radiation (W/m²)</th>
                                             <th>Longwave Radiation (W/m²)</th><th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
                                         </tr></thead>
                                         <tbody>
                                             <tr>
-                                                <td><input type="text" placeholder="Time"></td>
+                                                <td><input type="text" placeholder="Time (in UTC)"></td>
                                                 <td><input type="text" placeholder="Precipitation"></td>
                                                 <td><input type="text" placeholder="Temperature"></td>
                                                 <td><input type="text" placeholder="Shortwave Radiation"></td>

@@ -23,10 +23,10 @@
                         <div class="tile"><h3>Flow Project</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label for="project-name">Scenario:</label>
+                                    <label>Scenario:</label>
                                     <div id="project-name-wrapper">
-                                        <input type="text" id="project-name" placeholder="Click to select a scenario">
-                                        <ul id="project-list"></ul>
+                                        <input type="text" class="project-name" id="project-name" placeholder="Click to select a scenario">
+                                        <ul class="project-list" id="project-list"></ul>
                                     </div>
                                     <button id="create-btn" style="max-width: 80px;">Open</button>
                                 </div>
@@ -34,11 +34,11 @@
                         </div>
                         <div class="tile"><h3>Simulation Options</h3>
                             <div class="row">
-                                <label for="model-start">Start time:</label>
+                                <label for="model-start">Start Time (UTC):</label>
                                 <input type="text" class="datetime" id="model-start" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                             </div>
                             <div class="row">
-                                <label for="model-end">End time:</label>
+                                <label for="model-end">End Time (UTC):</label>
                                 <input type="text" class="datetime" id="model-end" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                             </div>
                             <div class="row">
@@ -53,39 +53,39 @@
                         </div>
                         <div class="tile input-parameters" style="grid-column: span 8;"><h3>Initial Conditions</h3>
                             <div class="single-row">
-                                <label for="k_sat_ratio">Subsurface conductivity ratio:</label>
+                                <label for="k_sat_ratio">Subsurface Conductivity Ratio:</label>
                                 <input type="text" id="k_sat_ratio" value='100'>
                             </div>
                             <div class="single-row">
-                                <label for="dd_snow">Snow degree-day coefficient (mm/°C/day):</label>
+                                <label for="dd_snow">Snow Degree-day Coefficient (mm/°C/day):</label>
                                 <input type="text" id="dd_snow" value='3.75653'>
                             </div>
                             <div class="single-row">
-                                <label for="inf_red">Infiltration reduction:</label>
+                                <label for="inf_red">Infiltration Reduction:</label>
                                 <input type="text" id="inf_red" value='0.038'>
                             </div>
                             <div class="single-row">
-                                <label for="canopy_evap_ratio">Canopy evaporation ratio:</label>
+                                <label for="canopy_evap_ratio">Canopy Evaporation Ratio:</label>
                                 <input type="text" id="canopy_evap_ratio" value='0.11'>
                             </div>
                             <div class="single-row">
-                                <label for="inf_cap">Compacted soil infiltration capacity (mm/h):</label>
+                                <label for="inf_cap">Compacted Soil Infiltration Capacity (mm/h):</label>
                                 <input type="text" id="inf_cap" value='10'>
                             </div>
                             <div class="single-row">
-                                <label for="leak_max">Max leakage flux (mm/h):</label>
+                                <label for="leak_max">Max Leakage Flux (mm/h):</label>
                                 <input type="text" id="leak_max" value='0'>
                             </div>
                             <div class="single-row">
-                                <label for="soil_sigmoid">Sigmoid function shape:</label>
+                                <label for="soil_sigmoid">Sigmoid Function Shape:</label>
                                 <input type="text" id="soil_sigmoid" value='-500'>
                             </div>
                             <div class="single-row">
-                                <label for="snowfall_t0">Snowfall temperature threshold (°C):</label>
+                                <label for="snowfall_t0">Snowfall Temperature Threshold (°C):</label>
                                 <input type="text" id="snowfall_t0" value='0'>
                             </div>
                             <div class="single-row">
-                                <label for="snowfall_dt">Snowfall temperature interval (°C):</label>
+                                <label for="snowfall_dt">Snowfall Temperature Interval (°C):</label>
                                 <input type="text" id="snowfall_dt" value='2'>
                             </div>
                             <div class="single-row">
@@ -93,19 +93,19 @@
                                 <input type="text" id="melt_t0_snow" value='0'>
                             </div>
                             <div class="single-row">
-                                <label for="snow_liq_cap">Liquid water holding capacity:</label>
+                                <label for="snow_liq_cap">Liquid Water Holding Capacity:</label>
                                 <input type="text" id="snow_liq_cap" value='0.1'>
                             </div>
                             <div class="single-row">
-                                <label for="dd_glacier">Glacier degree-day coefficient (mm/°C/day):</label>
+                                <label for="dd_glacier">Glacier Degree-day Coefficient (mm/°C/day):</label>
                                 <input type="text" id="dd_glacier" value='3'>
                             </div>
                             <div class="single-row">
-                                <label for="firn_dry_frac">Dry snow equivalent depth fraction:</label>
+                                <label for="firn_dry_frac">Dry Snow Equivalent Depth Fraction:</label>
                                 <input type="text" id="firn_dry_frac" value='0.001'>
                             </div>
                             <div class="single-row">
-                                <label for="melt_t0_glacier">Glacier melting temperature threshold (°C):</label>
+                                <label for="melt_t0_glacier">Glacier Melting Temperature Threshold (°C):</label>
                                 <input type="text" id="melt_t0_glacier" value='0'>
                             </div>
                         </div>
@@ -129,7 +129,7 @@
                         <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
                             <div class="tab-header">
                                 <div class="tabs-list">
-                                    <button class="tab-btn" data-tab="wflow-setting-1">Overland flow Outputs</button>
+                                    <button class="tab-btn" data-tab="wflow-setting-1">Overland Flow Outputs</button>
                                     <button class="tab-btn" data-tab="wflow-setting-2">Soil Outputs</button>
                                     <button class="tab-btn" data-tab="wflow-setting-3">Lake Outputs</button>
                                     <button class="tab-btn" data-tab="wflow-setting-4">Reservoir Outputs</button>
@@ -145,15 +145,15 @@
                                     <div class="tile output-columns">
                                         <div class="single-row">
                                             <input type="checkbox" id="overland_flow" checked>
-                                            <label for="overland_flow">Overland discharge flow (m³/s)</label>
+                                            <label for="overland_flow">Overland Discharge Flow (m³/s)</label>
                                         </div>
                                         <div class="single-row">
                                             <input type="checkbox" id="overland_depth" checked>
-                                            <label for="overland_depth">Overland depth (m)</label>
+                                            <label for="overland_depth">Overland Depth (m)</label>
                                         </div>
                                         <div class="single-row">
                                             <input type="checkbox" id="overland_volume">
-                                            <label for="overland_volume">Overland volume (m³)</label>
+                                            <label for="overland_volume">Overland Volume (m³)</label>
                                         </div>
                                     </div>
                                 </div>

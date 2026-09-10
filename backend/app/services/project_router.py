@@ -117,10 +117,12 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
         key, folder_check = body.get('key'), body.get('folder_check')
         project_name, _ = functions.project_definer(body.get('filename'), user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+        if body.get('flow_checked'): project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
         if key == 'getProjects':
             project = [p.name for p in os.scandir(project_dir) if p.is_dir()]
             project = [p for p in project if os.path.exists(os.path.normpath(os.path.join(project_dir, p, folder_check)))]
             data = sorted(project)
+            print(data)
         elif key == 'getWAQs': # List the scenarios for water quality
             scenario_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
             if not os.path.exists(scenario_dir):

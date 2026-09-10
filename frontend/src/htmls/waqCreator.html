@@ -31,7 +31,7 @@
                     <li>A scenario with hydrodynamics simulation was run successfully.</li>
                     <li>List of observation points (inside the grid).</li>
                     <li>Time-series data for Load points.</li>
-                    <li>Time format: YYYY-MM-DD HH:MM:SS.</li>
+                    <li>Time format: YYYY-MM-DD HH:MM:SS (in UTC).</li>
                 </ul>
             </section>
             <section class="main-tab" id="control-tab" hidden>
@@ -47,23 +47,23 @@
                         <div class="grid">
                             <div class="tile"><h3>Hydrodynamics (*.hyd)</h3>
                                 <div class="row">
-                                    <label for="hyd-filename">Hydrodynamics file:</label>
+                                    <label for="hyd-filename">Hydrodynamics File:</label>
                                     <input type="text" id="hyd-filename" readonly>
                                 </div>
                             </div>
                             <div class="tile"><h3>Layers</h3>
                                 <div class="row">
-                                    <label for="n-layer">Nr. sigma layers:</label>
+                                    <label for="n-layer">Nr. Sigma Layers:</label>
                                     <input type="number" id="n-layer" readonly>
                                 </div>
                             </div>
-                            <div class="tile"><h3>Simulation time</h3>
+                            <div class="tile"><h3>Simulation Time</h3>
                                 <div class="row">
-                                    <label for="start-time">Start time:</label>
+                                    <label for="start-time">Start Time (UTC):</label>
                                     <input type="text" class="datetime" id="start-time" placeholder="YYYY-mm-dd HH:mm:ss">
                                 </div>
                                 <div class="row">
-                                    <label for="stop-time">Stop time:</label>
+                                    <label for="stop-time">Stop Time (UTC):</label>
                                     <input type="text" class="datetime" id="stop-time" placeholder="YYYY-mm-dd HH:mm:ss">
                                 </div>
                             </div>
@@ -147,8 +147,8 @@
                                             <label for="wq-physical">Select model:</label>
                                             <select id="wq-physical">
                                                 <option value="" selected>--- No selected ---</option>
-                                                <option value="conservative-tracers">Conservative and decaying tracers</option>
-                                                <option value="suspend-sediment">Suspended sediment (three fractions)</option>
+                                                <option value="conservative-tracers">Conservative and Decaying Tracers</option>
+                                                <option value="suspend-sediment">Suspended Sediment (three fractions)</option>
                                                 <option value="trwp-metals">Metals for Tire and Road Wear Particles</option>
                                             </select>
                                         </div>
@@ -177,20 +177,20 @@
                                             </div>
                                         </div>
                                         <div class="row">
-                                            <label>Intergration method</label>
+                                            <label>Intergration Method</label>
                                             <select id="wq-scheme-physical">
                                                 <option value="15" selected>Scheme 15</option>
                                                 <option value="22">Scheme 22</option>
                                             </select>
                                         </div>
                                         <div class="row" style="flex-wrap: nowrap;">
-                                            <label>Max iterations</label>
+                                            <label>Max Iterations</label>
                                             <input type="text" id="max-iterations-physical" value="500">
                                             <label>Tolerance</label>
                                             <input type="text" id="tolerance-physical" value="1E-07">
                                         </div>
                                         <div class="row">
-                                            <button class="wq-simulation" type="button" data-info="physical">Save physical model</button>
+                                            <button class="wq-simulation" type="button" data-info="physical">Save Physical Model</button>
                                         </div>
                                     </div>
                                     <!-- Sub Tab 2: Chemical Settings -->
@@ -199,11 +199,11 @@
                                             <label for="wq-chemical">Select model:</label>
                                             <select id="wq-chemical">
                                                 <option value="" selected>--- No selected ---</option>
-                                                <option value="simple-oxygen">Simple oxygen</option>
-                                                <option value="oxygen-bod-water">Oxygen and BOD (water phase only)</option>
+                                                <option value="simple-oxygen">Simple Oxygen</option>
+                                                <option value="oxygen-bod-water">Oxygen and BOD (Water Phase Only)</option>
                                                 <option value="cadmium">Cadmium</option>
                                                 <option value="eutrophication">Eutrophication (Eutrof 1a)</option>
-                                                <option value="trace-metals">Trace metals</option>
+                                                <option value="trace-metals">Trace Metals</option>
                                             </select>
                                         </div>
                                         <div class="row">
@@ -231,20 +231,20 @@
                                             </div>
                                         </div>
                                         <div class="row">
-                                            <label>Intergration method</label>
+                                            <label>Intergration Method</label>
                                             <select id="wq-scheme-chemical">
                                                 <option value="15" selected>Scheme 15</option>
                                                 <option value="22">Scheme 22</option>
                                             </select>
                                         </div>
                                         <div class="row" style="flex-wrap: nowrap;">
-                                            <label>Max iterations</label>
+                                            <label>Max Iterations</label>
                                             <input type="text" id="max-iterations-chemical" value="500">
                                             <label>Tolerance</label>
                                             <input type="text" id="tolerance-chemical" value="1E-07">
                                         </div>
                                         <div class="row">
-                                            <button class="wq-simulation" type="button" data-info="chemical">Save chemical model</button>
+                                            <button class="wq-simulation" type="button" data-info="chemical">Save Chemical Model</button>
                                         </div>
                                     </div>
                                     <!-- Sub Tab 3: Microbial Settings -->
@@ -253,7 +253,7 @@
                                             <label for="wq-microbial">Select model:</label>
                                             <select id="wq-microbial">
                                                 <option value="" selected>--- No selected ---</option>
-                                                <option value="coliform">Coliform bacteria</option>
+                                                <option value="coliform">Coliform Bacteria</option>
                                             </select>
                                         </div>
                                         <div class="row">
@@ -281,20 +281,20 @@
                                             </div>
                                         </div>
                                         <div class="row">
-                                            <label>Intergration method</label>
+                                            <label>Intergration Method</label>
                                             <select id="wq-scheme-microbial">
                                                 <option value="15" selected>Scheme 15</option>
                                                 <option value="22">Scheme 22</option>
                                             </select>
                                         </div>
                                         <div class="row" style="flex-wrap: nowrap;">
-                                            <label>Max iterations</label>
+                                            <label>Max Iterations</label>
                                             <input type="text" id="max-iterations-microbial" value="500">
                                             <label>Tolerance</label>
                                             <input type="text" id="tolerance-microbial" value="1E-07">
                                         </div>
                                         <div class="row">
-                                            <button class="wq-simulation" type="button" data-info="microbial">Save microbial model</button>
+                                            <button class="wq-simulation" type="button" data-info="microbial">Save Microbial Model</button>
                                         </div>
                                     </div>
                                 </div>
@@ -302,15 +302,15 @@
                             <!-- Right Layout -->
                             <div class="tile"><h3>Time-Series Preparation</h3>
                                 <div class="row">
-                                    <button type="button" id="time-series-add-row">Add row</button>
+                                    <button type="button" id="time-series-add-row">Add Row</button>
                                     <input type="file" id="input-csv" style="display:none;" />
                                     <button type="button" id="time-series-csv">Upload CSV</button>
                                     <button type="button" id="time-series-remove"
-                                        style="color: crimson; background-color: aliceblue;">Delete table</button>
+                                        style="color: crimson; background-color: aliceblue;">Delete Table</button>
                                 </div>
                                 <table class="attributes-table" id="wq-time-series-table">
                                     <thead>
-                                        <tr><th>Time</th><th>Location</th><th>Substance</th><th>Value</th></tr>
+                                        <tr><th>Time (in UTC)</th><th>Location</th><th>Substance</th><th>Value</th></tr>
                                     </thead>
                                     <tbody>
                                         <tr>

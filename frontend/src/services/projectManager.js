@@ -52,6 +52,7 @@ export function pdfOpener(pdfName=null) {
 }
 
 export async function projectRender(objectInput, objectList, fullList) {
+    console.log(fullList);
     // Update project list
     objectInput.addEventListener('input', (e) => { 
         if (fullList.length === 0) return;

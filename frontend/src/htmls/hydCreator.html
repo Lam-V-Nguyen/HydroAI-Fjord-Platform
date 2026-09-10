@@ -33,7 +33,7 @@
                 <li>Time-series data for Boundary conditions.</li>
                 <li>Time-series data for Sources/Sinks.</li>
                 <li>Time-series data for Meteorological data/weather data.</li>
-                <li>Time format: YYYY-MM-DD HH:MM:SS.</li>
+                <li>Time format: YYYY-MM-DD HH:MM:SS (in UTC).</li>
             </ul>
         </section>
         <section class="main-tab" id="control-tab" hidden>
@@ -65,15 +65,15 @@
                                     <!-- Location -->
                                     <div class="tile"><h3>Location</h3>
                                         <div class="row">
-                                            <label for="latitude">Avg. latitude (°):</label>
+                                            <label for="latitude">Avg. Latitude (°):</label>
                                             <input type="text" id="latitude" placeholder="Latitude">
-                                            <button id="location">Pick from map</button>
+                                            <button id="location">Pick from Map</button>
                                         </div>
                                     </div>
                                     <!-- Layer -->
                                     <div class="tile"><h3>Layers</h3>
                                         <div class="row">
-                                        <label for="n-layer">Nr. sigma layers:</label>
+                                        <label for="n-layer">Nr. Sigma Layers:</label>
                                         <input type="number" id="n-layer" placeholder="Number of layers" value=10 min=1>
                                         </div>
                                     </div>
@@ -90,25 +90,25 @@
                             <!-- Sub Tab 2: Time Frame -->
                             <div class="tabpanel" data-panel="model-setting-2">
                                 <div class="grid">
-                                    <div class="tile"><h3>Simulation time</h3>
+                                    <div class="tile"><h3>Simulation Time</h3>
                                         <div class="row">
-                                            <label for="start-date">Start time:</label>
+                                            <label for="start-date">Start time (UTC):</label>
                                             <input type="text" class="datetime" id="start-date" placeholder="YYYY-mm-dd HH:mm:ss">
                                         </div>
                                         <div class="row">
-                                            <label for="stop-date">Stop time:</label>
+                                            <label for="stop-date">Stop time (UTC):</label>
                                             <input type="text" class="datetime" id="stop-date" placeholder="YYYY-mm-dd HH:mm:ss">
                                         </div>
                                     </div>
-                                    <div class="tile"><h3>Time interval</h3>
+                                    <div class="tile"><h3>Time Interval</h3>
                                         <div class="row-block">
-                                            <label>User time step:</label>
+                                            <label>User Time Step:</label>
                                             <input type="text" id="user-date" value="0">
                                             <label for="user-date">days</label>
                                             <input type="text" class="datetime-interval" id="user-time" value="12:00:00">
                                         </div>
                                         <div class="row-block">
-                                            <label>Nodal update interval:</label>
+                                            <label>Nodal Update Interval:</label>
                                             <input type="text" id="nodal-date" value="0">
                                             <label>days</label>
                                             <input type="text" class="datetime-interval" id="nodal-time" value="12:00:00">
@@ -122,7 +122,7 @@
                                     <div class="tile"><h3>Observation Points</h3>
                                         <div class="row-radio" data-tab="observation-point-new">
                                             <input type="radio" id="observation-point-new" name="observation" value="1" checked=true>
-                                            <label for="observation-point-new">Create a new observation point</label>
+                                            <label for="observation-point-new">Create a New Observation Point</label>
                                         </div>
                                         <div class="row-radio" data-tab="observation-point-exist">
                                             <input type="radio" id="observation-point-exist" name="observation" value="2">
@@ -143,9 +143,9 @@
                                                 <input type="text" id="obs-longitude" placeholder="Longitude">
                                             </div>
                                             <div class="row">
-                                                <button type="button" id="obs-picker">Pick on map</button>
-                                                <button type="button" id="obs-add-list">Add to list</button>
-                                                <button type="button" id="obs-add-row">Add row</button>
+                                                <button type="button" id="obs-picker">Pick on Map</button>
+                                                <button type="button" id="obs-add-list">Add to List</button>
+                                                <button type="button" id="obs-add-row">Add Row</button>
                                                 <button type="button" id="obs-remove"
                                                     style="color: crimson; background-color: aliceblue;">Remove Point
                                                 </button>
@@ -171,7 +171,7 @@
                                         </table>
                                         <div class="row">
                                             <button type="button" id="obs-update" style="display: none;"
-                                                >Update observation points on map
+                                                >Update Observation Points on Map
                                             </button>
                                         </div>
                                     </div>
@@ -181,9 +181,9 @@
                                             <input type="text" id="cross-section" placeholder="Enter name">
                                         </div>
                                         <div class="row">
-                                            <button type="button" id="cross-section-picker">Draw on map</button>
+                                            <button type="button" id="cross-section-picker">Draw on Map</button>
                                             <button type="button" id="cross-section-remove"
-                                                style="color: crimson; background-color: aliceblue;">Delete list
+                                                style="color: crimson; background-color: aliceblue;">Delete List
                                             </button>
                                         </div>
                                         <table class="attributes-table" id="cross-section-table">
@@ -202,13 +202,13 @@
                             <!-- Sub Tab 4: Boundary Conditions -->
                             <div class="tabpanel" data-panel="model-setting-4">
                                 <div class="grid">
-                                    <div class="tile"><h3>Add boundary condition</h3>
+                                    <div class="tile"><h3>Add Boundary Condition</h3>
                                         <div class="row">
                                             <label for="boundary-name">Name:</label>
                                             <input type="text" id="boundary-name" placeholder="Enter name">
                                         </div>
                                         <div class="row">
-                                            <button type="button" id="boundary-picker">Draw on map</button>
+                                            <button type="button" id="boundary-picker">Draw on Map</button>
                                             <button type="button" id="boundary-remove"
                                                 style="color: crimson; background-color: aliceblue;">Delete BC
                                             </button>
@@ -224,15 +224,15 @@
                                             </tbody>
                                         </table>
                                     </div>                              
-                                    <div class="tile"><h3>Edit sub-boundary condition</h3>
+                                    <div class="tile"><h3>Edit Sub-boundary Condition</h3>
                                         <div class="row">
                                             <label for="boundary-edit">Sub-boundary:</label>
                                             <select id="boundary-edit"></select>
                                         </div>
                                         <div class="row">
-                                            <label for="boundary-type">Select type:</label>
+                                            <label for="boundary-type">Select Type:</label>
                                             <select id="boundary-type">
-                                                <option value="WaterLevel">Water level</option>
+                                                <option value="WaterLevel">Water Level</option>
                                                 <option value="Contaminant">Contaminant</option>
                                             </select>
                                         </div>
@@ -240,11 +240,11 @@
                                             <input type="file" id="boundary-picker-file" accept=".csv" hidden>
                                             <input type="text" id="boundary-picker-text" hidden>
                                             <button type="button" id="boundary-upload-csv">Upload CSV</button>
-                                            <button type="button" id="boundary-add-row">Add row</button>
+                                            <button type="button" id="boundary-add-row">Add Row</button>
                                         </div>
                                         <table class="attributes-table" id="boundary-edit-table">
                                             <thead>
-                                                <tr><th>Time</th><th>Value</th></tr>
+                                                <tr><th>Time (in UTC)</th><th>Value</th></tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
@@ -254,18 +254,18 @@
                                             </tbody>
                                         </table>
                                         <div class="row">
-                                            <button type="button" id="boundary-update">Create/Update boundary</button>
+                                            <button type="button" id="boundary-update">Create/Update Boundary</button>
                                             <button type="button" id="boundary-edit-remove"
-                                                style="color: crimson; background-color: aliceblue;">Delete table
+                                                style="color: crimson; background-color: aliceblue;">Delete Table
                                             </button>
                                         </div>
                                     </div>
-                                    <div class="tile"><h3>View boundary conditions</h3>
+                                    <div class="tile"><h3>View Boundary Conditions</h3>
                                         <div class="row">
-                                            <label for="boundary-type-view">Select type:</label>
+                                            <label for="boundary-type-view">Select Type:</label>
                                             <select id="boundary-type-view">
                                                 <option value="" selected>--- No selected ---</option>
-                                                <option value="WaterLevel">Water level</option>
+                                                <option value="WaterLevel">Water Level</option>
                                                 <option value="Contaminant">Contaminant</option>
                                             </select>
                                         </div>
@@ -289,14 +289,14 @@
                                             <select id="option-temperature">
                                                 <option value="0">None</option>
                                                 <option value="1">Transport only</option>
-                                                <option value="3">Excess temperature</option>
-                                                <option value="5" selected=true>Composite model</option>
+                                                <option value="3">Excess Temperature</option>
+                                                <option value="5" selected=true>Composite Model</option>
                                             </select>
                                         </div>                                    
                                     </div>
                                     <div class="tile"><h3>Initial Conditions</h3>
                                         <div class="row">
-                                            <label for="initial-water-level">Water level (m):</label>
+                                            <label for="initial-water-level">Water Level (m):</label>
                                             <input type="text" id="initial-water-level" value='0'>
                                         </div>
                                         <div class="row">
@@ -326,14 +326,14 @@
                             <!-- Tab 1: Hydrological Parameters -->
                             <div class="tabpanel" data-panel="hydro-meteo-1">
                                 <div class="grid">
-                                    <div class="tile"><h3>Data source</h3>
+                                    <div class="tile"><h3>Data Source</h3>
                                         <div class="row-radio" data-tab="source-sink-new">
                                             <input type="radio" id="source-sink-new" name="source" value="1" checked=true>
-                                            <label for="source-sink-new">Create a new source/sink</label>
+                                            <label for="source-sink-new">Create a New Source/Sink</label>
                                         </div>
                                         <div class="row-radio" data-tab="source-sink-exist">
                                             <input type="radio" id="source-sink-exist" name="source" value="2">
-                                            <label for="source-sink-exist">Load from CSV file</label>
+                                            <label for="source-sink-exist">Load from CSV File</label>
                                         </div>
                                         <div class="row">
                                             <label for="source-name">Name:</label>
@@ -350,7 +350,7 @@
                                         <!-- Layer 1: "Create a new source/sink" -->
                                         <div class="radio-panel" data-panel="source-sink-new" style="display: block;">
                                             <div class="row">
-                                                <button type="button" id="source-picker">Pick from map</button>
+                                                <button type="button" id="source-picker">Pick from Map</button>
                                             </div>
                                         </div>
                                         <!-- Layer 2: "Load from CSV file" -->
@@ -362,9 +362,9 @@
                                             </div>
                                         </div>                                  
                                     </div>
-                                    <div class="tile"><h3>Remove source</h3>
+                                    <div class="tile"><h3>Remove Source</h3>
                                         <div class="row">
-                                            <label for="option-source-remove">Select source/sink:</label>
+                                            <label for="option-source-remove">Select Source/Sink:</label>
                                             <select id="option-source-remove"></select>
                                         </div>
                                         <table class="attributes-table" id="source-remove-table">
@@ -380,22 +380,22 @@
                                         </table>
                                         <div class="row">
                                             <button type="button" id="source-remove"
-                                                style="color: crimson; background-color: aliceblue;">Remove from project
+                                                style="color: crimson; background-color: aliceblue;">Remove from Project
                                             </button>
                                         </div>
                                     </div>
                                     <div class="tile" style="grid-column: span 8;"><h3>Attribute Table</h3>
                                         <div class="row">
-                                            <button type="button" id="add-source-btn">Add row</button>
-                                            <button type="button" id="plot-source-btn">Plot data</button>
+                                            <button type="button" id="add-source-btn">Add Row</button>
+                                            <button type="button" id="plot-source-btn">Plot Data</button>
                                             <button type="button" id="delete-source-btn"
-                                                style="color: crimson; background-color: aliceblue;">Delete table
+                                                style="color: crimson; background-color: aliceblue;">Delete Table
                                             </button>
-                                            <button type="button" id="save-source-btn">Create/Update source data</button>
+                                            <button type="button" id="save-source-btn">Create/Update Source Data</button>
                                         </div>
                                         <table class="attributes-table" id="source-table">
                                             <thead>
-                                                <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
+                                                <tr><th>Time (in UTC)</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
                                                     <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th></tr>
                                             </thead>
                                             <tbody>
@@ -414,7 +414,7 @@
                             <!-- Tab 2: Meteological Parameters -->
                             <div class="tabpanel" data-panel="hydro-meteo-2">
                                 <div class="grid">
-                                    <div class="tile" style="grid-column: span 8;"><h3>Meteo data</h3>
+                                    <div class="tile" style="grid-column: span 8;"><h3>Meteo Data</h3>
                                         <div class="row">
                                             <label for="meteo-picker-file">Click to Upload CSV:</label>
                                             <input type="file" id="meteo-picker-file" accept=".csv" hidden>
@@ -422,18 +422,18 @@
                                         </div>
                                         <div class="tile" style="grid-column: span 8;"><h3>Attribute Table</h3>
                                             <div class="row">
-                                                <button type="button" id="add-meteo-btn">Add row</button>
-                                                <button type="button" id="plot-meteo-btn">Plot data</button>
+                                                <button type="button" id="add-meteo-btn">Add Row</button>
+                                                <button type="button" id="plot-meteo-btn">Plot Data</button>
                                                 <button type="button" id="delete-meteo-btn"
-                                                    style="color: crimson; background-color: aliceblue;">Delete table
+                                                    style="color: crimson; background-color: aliceblue;">Delete Table
                                                 </button>
-                                                <button type="button" id="save-meteo-btn">Create/Update meteo data</button>
+                                                <button type="button" id="save-meteo-btn">Create/Update Meteo Data</button>
                                             </div>
                                         </div>
                                         <table class="attributes-table" id="edit-meteo-table">
                                             <thead>
-                                                <tr><th>Time</th><th>Humidity (%)</th><th>Air temperature (°C)</th>
-                                                    <th>Cloud coverage (%)</th><th>Solar radiation (W/m²)</th>
+                                                <tr><th>Time (in UTC)</th><th>Humidity (%)</th><th>Air Temperature (°C)</th>
+                                                    <th>Cloud Coverage (%)</th><th>Solar Radiation (W/m²)</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -469,12 +469,12 @@
                                                 <label for="weather-update-file">Upload CSV:</label>
                                                 <input type="file" id="weather-update-file" accept=".csv" hidden>
                                                 <input type="text" id="weather-update-text" placeholder="Click to Upload Weather data">
-                                                <button type="button" id="weather-add-row">Add row</button>
+                                                <button type="button" id="weather-add-row">Add Row</button>
                                             </div>
                                         </div>
                                         <table class="attributes-table" id="weather-edit-table" style="display: none;">
                                             <thead>
-                                                <tr><th>Time</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
+                                                <tr><th>Time (in UTC)</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
                                             </thead>
                                             <tbody>
                                                 <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
@@ -483,9 +483,9 @@
                                             </tbody>
                                         </table>
                                         <div class="row">
-                                            <button type="button" id="weather-update" style="display: none;">Create/Update Weather data</button>
+                                            <button type="button" id="weather-update" style="display: none;">Create/Update Weather Data</button>
                                             <button type="button" id="weather-remove" 
-                                                style="display: none; color: crimson; background-color: aliceblue;">Delete table
+                                                style="display: none; color: crimson; background-color: aliceblue;">Delete Table
                                             </button>
                                         </div>
                                     </div>
@@ -511,18 +511,18 @@
                                         <input type="text" class="datetime-interval" id="his-output-interval-time" value="06:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="his-output-start">Start time:</label>
+                                        <label for="his-output-start">Start Time (UTC):</label>
                                         <input type="text" class="datetime" id="his-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="his-output-end">Stop time:</label>
+                                        <label for="his-output-end">Stop Time (UTC):</label>
                                         <input type="text" class="datetime" id="his-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
                                 <div class="tile"><h3>Map</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-map-file">
-                                        <label for="write-map-file">Write Map file:</label>
+                                        <label for="write-map-file">Write Map File:</label>
                                     </div>                                  
                                     <div class="row-block">
                                         <label for="map-output-interval-date">Interval:</label>
@@ -531,18 +531,18 @@
                                         <input type="text" class="datetime-interval" id="map-output-interval-time" value="06:00:00">
                                     </div>                                  
                                     <div class="row">
-                                        <label for="map-output-start">Start time:</label>
+                                        <label for="map-output-start">Start Time (UTC):</label>
                                         <input type="text" class="datetime" id="map-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="map-output-end">Stop time:</label>
+                                        <label for="map-output-end">Stop Time (UTC):</label>
                                         <input type="text" class="datetime" id="map-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
                                 <div class="tile"><h3>Water Quality</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-water-quality-file">
-                                        <label for="write-water-quality-file">Write Water Quality file:</label>                                    
+                                        <label for="write-water-quality-file">Write Water Quality File:</label>                                    
                                     </div>
                                     <div class="row-block">
                                         <label for="water-quality-output-interval-date">Interval:</label>
@@ -551,18 +551,18 @@
                                         <input type="text" class="datetime-interval" id="water-quality-output-interval-time" value="00:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="water-quality-output-start">Start time:</label>
+                                        <label for="water-quality-output-start">Start Time (UTC):</label>
                                         <input type="text" class="datetime" id="water-quality-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="water-quality-output-end">Stop time:</label>
+                                        <label for="water-quality-output-end">Stop Time (UTC):</label>
                                         <input type="text" class="datetime" id="water-quality-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
                                 <div class="tile" hidden><h3>Restart</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-restart-file">
-                                        <label for="write-restart-file">Write Restart file:</label>                                    
+                                        <label for="write-restart-file">Write Restart File:</label>                                    
                                     </div>
                                     <div class="row-block">
                                         <label for="restart-interval-date">Interval:</label>
@@ -571,23 +571,23 @@
                                         <input type="text" class="datetime-interval" id="restart-interval-time" value="00:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="restart-output-start">Start time:</label>
+                                        <label for="restart-output-start">Start Time (UTC):</label>
                                         <input type="text" class="datetime" id="restart-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="restart-output-end">Stop time:</label>
+                                        <label for="restart-output-end">Stop Time (UTC):</label>
                                         <input type="text" class="datetime" id="restart-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
                                 <div class="tile"><h3>Others</h3>                                
                                     <div class="row-block">
-                                        <label for="statistic-output-interval-date">Statistic output interval:</label>
+                                        <label for="statistic-output-interval-date">Statistic Output Interval:</label>
                                         <input type="text" id="statistic-output-interval-date" value="1">
                                         <label for="statistic-output-interval-time">days</label>
                                         <input type="text" class="datetime-interval" id="statistic-output-interval-time" value="00:00:00">
                                     </div>                                
                                     <div class="row-block">
-                                        <label for="timing-statistic-output-interval-date">Timing statistic output interval:</label>
+                                        <label for="timing-statistic-output-interval-date">Timing Statistic Output Interval:</label>
                                         <input type="text" id="timing-statistic-output-interval-date" value="1">
                                         <label for="timing-statistic-output-interval-time">days</label>
                                         <input type="text" class="datetime-interval" id="timing-statistic-output-interval-time" value="00:00:00">
