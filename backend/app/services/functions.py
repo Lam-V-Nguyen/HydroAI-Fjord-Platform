@@ -11,6 +11,25 @@ from uuid import uuid4
 import numpy as np, xarray as xr, pandas as pd
 import geopandas as gpd, dask.array as da
 from services import constants
+from zoneinfo import available_timezones, ZoneInfo
+from functools import lru_cache
+from datetime import datetime, timezone
+
+
+_SKIP_PREFIXES = ("posix/", "right/", "SystemV/", "US/", "Etc/")
+_SKIP_EXACT = {
+    "Factory", "localtime", "GMT", "GMT+0", "GMT-0", "GMT0",
+    "Greenwich", "Universal", "UCT", "Zulu",
+}
+@lru_cache(maxsize=1)
+def _all_timezones() -> list[str]:
+    return [
+        name for name in sorted(available_timezones())
+        if not name.startswith(_SKIP_PREFIXES) and name not in _SKIP_EXACT
+    ]
+_ALL_TZ = sorted(_all_timezones())
+
+
 
 variablesNames = constants.variablesNames
 units = constants.units
@@ -85,6 +104,41 @@ def project_reader(user_name, project_name):
         "current_params": current_params, "waq_model": waq_model
     }
 
+def time_zone_get(time_zone:str, count:int):
+    result, n = [], 0
+    q_lower = time_zone.strip().lower()
+    if not q_lower: return _ALL_TZ[:count]
+    for name in _ALL_TZ:
+        if q_lower in name.lower():
+            result.append(name)
+            n += 1
+            if n > count: break
+    return sorted(result)
+
+def local_to_utc(local_str:str, tz_name: str) -> datetime:
+    tz = ZoneInfo(tz_name)
+    local = datetime.fromisoformat(local_str).replace(tzinfo=tz)
+    return local.astimezone(timezone.utc)
+
+def utc_to_local(utc_time:pd.Series, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S") -> str:
+    is_series = isinstance(utc_time, pd.Series)
+    if is_series:
+        s = utc_time.copy()
+        if s.empty: return s
+        if not pd.api.types.is_datetime64_any_dtype(s):
+            if pd.api.types.is_numeric_dtype(s): s = pd.to_datetime(s, unit="s", utc=True)
+            else: s = pd.to_datetime(s, utc=False)
+        if s.dt.tz is None: aware = s.dt.tz_localize("UTC")
+        else: aware = s.dt.tz_convert("UTC")
+        local = aware.dt.tz_convert(tz_name)
+        return local.dt.strftime(fmt)
+    if isinstance(utc_time, (int, float)):
+        ts = pd.Timestamp(utc_time, unit="s", tz="UTC")
+    else:
+        ts = pd.Timestamp(utc_time)
+        if ts.tzinfo is None: ts = ts.tz_localize("UTC")
+        else: ts = ts.tz_convert("UTC")
+    return ts.tz_convert(tz_name).strftime(fmt)
 
 def safe_remove(path, retries=10, delay=1):
     for _ in range(retries):

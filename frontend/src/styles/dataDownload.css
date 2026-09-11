@@ -91,13 +91,6 @@ body {
   display: flex; align-items: center; gap: 8px; padding: 4px 0;
 }
 
-.control-tab {
-  margin-left: 0; display: flex; flex-direction: column;
-  gap: 10px; padding-right: 5px; margin-right: 10px; margin-top: 5px;
-}
-.control-tab label {
-  font-size: 16px; color: var(--text); font-weight: 500; margin-top: 5px;
-}
 .checkbox-right { display: flex; align-items: center; gap: 10px; }
 
 .attributes-table {
@@ -205,4 +198,11 @@ body {
   width: 100%; padding: 8px 8px; border-radius: 12px; min-height: 160px;
   border: 1px solid var(--border); overflow: auto; resize: none;
   white-space: pre; word-wrap: normal; height: 100%;
+}
+
+.field-inline {
+  display: flex; align-items: center; gap: 10px; width: 100%; flex-wrap: wrap;
+}
+.field-inline label, .field-inline button {
+  flex-shrink: 0;
 }

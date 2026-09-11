@@ -8,10 +8,17 @@ import numpy as np
 
 router = APIRouter()
 
+
 @router.post("/auth_check")
 async def auth_check(user=Depends(functions.basic_auth)):
     output = 'ok' if user == 'admin' else 'error'
     return {"user": user, "output": output}
+
+@router.post("/get_timezone")
+async def get_timezone(request: Request):
+    body = await request.json()
+    query, count = body.get('query'), int(body.get('n'))
+    return functions.time_zone_get(query, count)
 
 # Remove folder configuration
 @router.post("/reset_config")

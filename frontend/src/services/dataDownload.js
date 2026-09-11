@@ -4,7 +4,7 @@ import { getDataFromTable, signalSender, jsonLoader, fillTable,
     formatDate, moveWindow, closeWindow, deleteTable, getUser
 } from "./commonFunctions.js";
 import { plotTimeSeries } from "./chartManager.js";
-import { L } from "./constant.js";
+import { L, getLastTimeZone } from "./constant.js";
 
 const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
@@ -71,25 +71,40 @@ function updateManager() {
         });
     });
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
+        const filter = ['flow'];
         if (e.target.checked === true) {
             waterFlowLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'water flow', 'flow', waterFlowLayer
+                currentProject, e.target, obj.stationTable, 'water flow', 
+                'flow', waterFlowLayer, filter
             );
-        } else { waterFlowLayer = clearMap(waterFlowLayer); deleteTable(obj.stationTable); }
+        } else { 
+            waterFlowLayer = clearMap(waterFlowLayer);
+            removeStationsByType(obj.stationTable, filter);
+        }
     });
     obj.waterLevelCheckbox.addEventListener('change', async (e) => {
+        const filter = ['overflow'];
         if (e.target.checked === true) {
             waterLevelLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'water level', 'level', waterLevelLayer
+                currentProject, e.target, obj.stationTable, 'water level', 
+                'level', waterLevelLayer, filter
             );
-        } else { waterLevelLayer = clearMap(waterLevelLayer); deleteTable(obj.stationTable); }
+        } else { 
+            waterLevelLayer = clearMap(waterLevelLayer);
+            removeStationsByType(obj.stationTable, filter);
+        }
     });
     obj.rainfallCheckbox.addEventListener('change', async (e) => {
+        const filter = ['permanent', 'permanentTemp'];
         if (e.target.checked === true) {
             preLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'rainfall', 'rain', preLayer
+                currentProject, e.target, obj.stationTable, 'rainfall', 
+                'rain', preLayer, filter
             );
-        } else { preLayer = clearMap(preLayer); deleteTable(obj.stationTable); }
+        } else { 
+            preLayer = clearMap(preLayer);
+            removeStationsByType(obj.stationTable, filter);
+        }
     });
     obj.typeSelector.addEventListener('change', () => {
         selectStations(obj.typeSelector.value, obj.stationSelectedTable, obj.stationSelectedLabel);
@@ -108,7 +123,7 @@ function updateManager() {
             for (const file of tableData.rows) {
                 const name = `${file[0]}_${startTime.replace(' ', '_')}-${endTime.replace(' ', '_')}`;
                 obj.downloadListArea.value += `Downloading: ${name} ...\n`;
-                const contents = { mode: downloadType, downloadInterval: interval,
+                const contents = { mode: downloadType, downloadInterval: interval, timeZone: getLastTimeZone(),
                     startTime: startTime, endTime: endTime, id: [Number(file[1].trim())] };
                 const response = await jsonLoader('download_station', contents);
                 if (response.status === 'error') { 
@@ -149,6 +164,8 @@ function updateManager() {
             obj.rainfallCheckbox.checked === false) {
             alert('No station type selected. Please select at least one type first.'); return;
         }
+        const ok = confirm('Do you want to delete the selected stations?');
+        if (!ok) return;
         signalSender('showOverlay', 'Deleting Station(s). Please wait...');
         const contents = { 
             projectName: currentProject, flow: obj.waterFlowCheckbox.checked, 
@@ -162,6 +179,7 @@ function updateManager() {
     });
     mapOptions(mapObj);
 }
+
 
 function mapOptions(mapObject) {
     mapObject.on('mousemove', function (e) { 
@@ -233,12 +251,9 @@ function updateLayerTooltips(layerGroup) {
     });
 }
 
-async function loadStations(projectName, target, table, label, type, layer) {
-    const data = getDataFromTable(table, true); let filter = [];
-    if (type === 'rain') { filter = ['permanent', 'permanentTemp']; }
-    else if (type === 'flow') { filter = ['flow']; }
-    else if (type === 'level') { filter = ['overflow']; }
-    const fillter = data.rows.filter(row => !filter.includes(row[1])); layer = clearMap(layer);
+async function loadStations(projectName, target, table, label, type, layer, filter) {
+    const data = getDataFromTable(table, true);
+    const filtered = data.rows.filter(row => !filter.includes(row[1])); layer = clearMap(layer);
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);
         const contents = { projectName: projectName, key: type };
@@ -247,19 +262,28 @@ async function loadStations(projectName, target, table, label, type, layer) {
         if (response.status === "error") { alert(response.message); target.checked = false; return; }
         const stationNames = response.content.name, stationLocations = response.content.point;
         layer = await pointPloter(stationLocations, type);
-        stationNames.forEach(item => fillter.push(item));
+        stationNames.forEach(item => filtered.push(item));
     }
-    deleteTable(table); fillTable(fillter, table, true);
-    if (fillter.length > 0) { obj.plotContainer.style.display = 'flex';
+    deleteTable(table); fillTable(filtered, table, true);
+    if (filtered.length > 0) { obj.plotContainer.style.display = 'flex';
     } else { obj.plotContainer.style.display = 'none'; }
     return layer;
 }
+
+function removeStationsByType(table, filter) {
+    const data = getDataFromTable(table, true);
+    const remaining = data.rows.filter(row => !filter.includes(row[1]));
+    deleteTable(table);
+    if (remaining.length > 0) { fillTable(remaining, table, true); }
+}
+
 
 async function pointPloter(points, pointType) {
     let iconUrl = `/src_frontend/images/station.png?v=${Date.now()}`, note = '';
     if (pointType === 'flow') { iconUrl = `/src_frontend/images/water_flow.png?v=${Date.now()}`; }
     else if (pointType === 'level') { iconUrl = `/src_frontend/images/water_level.png?v=${Date.now()}`; }
     else if (pointType === 'rain') { iconUrl = `/src_frontend/images/rain.png?v=${Date.now()}`; }
+    const timeZone = getLastTimeZone();
     const tempLayer = L.geoJSON(points, {
         pointToLayer: (_, latlng) => {
             const marker = L.marker(latlng, {
@@ -273,13 +297,15 @@ async function pointPloter(points, pointType) {
             layer.on('click', async () => { 
                 const id = feature.properties.id, name = feature.properties.name;
                 if (plotChecked) {
-                    const mode = feature.properties.mode;
-                    const startTime = obj.plotStart.value, endTime = obj.plotEnd.value, interval = obj.plotInterval.value;
+                    const mode = feature.properties.mode, interval = obj.plotInterval.value;
+                    const startTime = obj.plotStart.value, endTime = obj.plotEnd.value;
                     const titleY = obj.plotInterval.selectedOptions[0].text;
-                    signalSender('showOverlay', `Getting '${obj.plotInterval.selectedOptions[0].text}' for station '${name}'.\nThis takes a while. Please wait...`);
+                    signalSender('showOverlay', 
+                        `Getting '${obj.plotInterval.selectedOptions[0].text}' for station '${name}'.\nThis takes a while. Please wait...`
+                    );
                     const contents = { 
-                        id: [id], name: name, mode: mode, startTime: startTime, 
-                        endTime: endTime, interval: interval 
+                        id: [id], name: name, mode: mode, timeZone: timeZone,
+                        startTime: startTime, endTime: endTime, interval: interval
                     };
                     const response = await jsonLoader('plot_station', contents);
                     signalSender('hideOverlay');

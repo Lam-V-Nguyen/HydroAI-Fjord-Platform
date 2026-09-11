@@ -42,18 +42,19 @@ def modify_mdu_key(mdu_lines: list, key: str, value: str = '') -> list:
     mdu[index] = f'{new[0]}= {value.ljust(len(new1[0])-2)} #{new1[1]}'
     return mdu
 
-def clip_data(df: pd.DataFrame, time_column:str='Time', start:str=None, end:str=None) -> dict:
+def clip_data(df: pd.DataFrame, time_column:str, time_zone:str, start:str=None, end:str=None) -> dict:
     if df.empty: return {}
-    df[time_column], content = pd.to_datetime(df[time_column], utc=True), {}
+    df[time_column], content = functions.local_to_utc(df[time_column], time_zone), {}
     if not start is None and not end is None:
-        start, end = pd.to_datetime(start, utc=True), pd.to_datetime(end, utc=True)
+        start = functions.local_to_utc(start, time_zone)
+        end = functions.local_to_utc(end, time_zone)
         df = df[(df[time_column] >= start) & (df[time_column] <= end)]
     if df.empty: return {}
     start_time, end_time = df[time_column].iloc[0], df[time_column].iloc[-1]
-    content['start'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
-    content['end'] = end_time.strftime('%Y-%m-%d %H:%M:%S')
+    content['start'] = functions.utc_to_local(start_time, time_zone)
+    content['end'] = functions.utc_to_local(end_time, time_zone)
     df = df.replace([np.inf, -np.inf], np.nan)
-    df[time_column] = df[time_column].dt.strftime('%Y-%m-%d %H:%M:%S')
+    df[time_column] = functions.utc_to_local(df[time_column], time_zone)
     content['data'] = df.astype(object).where(df.notna(), None).to_numpy().tolist()
     return content
 

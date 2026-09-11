@@ -3,7 +3,7 @@ import { projectRender } from "./projectManager.js";
 import { getProjectList, signalSender, jsonLoader, fillTable, 
     getDataFromTable, numberFormatter, nameChecker, stringToUTC
 } from "./commonFunctions.js";
-import { calibrationParams, getCalibrationParam } from "./constant.js";
+import { calibrationParams, getCalibrationParam, getLastTimeZone } from "./constant.js";
 
 
 const $ = (id) => document.getElementById(id);
@@ -175,7 +175,7 @@ function calibrationManager() {
         if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
         const file = e.target.files[0]; if (!file) return;
         const formData = new FormData(); formData.append('file', file); 
-        formData.append('projectName', currentProject);
+        formData.append('projectName', currentProject); formData.append('timeZone', getLastTimeZone());
         formData.append('simStart', simStart); formData.append('simEnd', simEnd);
         signalSender('showOverlay', 'Reading observation data. Please wait...');
         const response = await fetch('/obs_calibration_upload', { method: 'POST', body: formData });

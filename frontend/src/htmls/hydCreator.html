@@ -33,7 +33,7 @@
                 <li>Time-series data for Boundary conditions.</li>
                 <li>Time-series data for Sources/Sinks.</li>
                 <li>Time-series data for Meteorological data/weather data.</li>
-                <li>Time format: YYYY-MM-DD HH:MM:SS (in UTC).</li>
+                <li>Time format: YYYY-MM-DD HH:MM:SS.</li>
             </ul>
         </section>
         <section class="main-tab" id="control-tab" hidden>
@@ -92,11 +92,11 @@
                                 <div class="grid">
                                     <div class="tile"><h3>Simulation Time</h3>
                                         <div class="row">
-                                            <label for="start-date">Start time (UTC):</label>
+                                            <label for="start-date">Start Time:</label>
                                             <input type="text" class="datetime" id="start-date" placeholder="YYYY-mm-dd HH:mm:ss">
                                         </div>
                                         <div class="row">
-                                            <label for="stop-date">Stop time (UTC):</label>
+                                            <label for="stop-date">End Time:</label>
                                             <input type="text" class="datetime" id="stop-date" placeholder="YYYY-mm-dd HH:mm:ss">
                                         </div>
                                     </div>
@@ -244,7 +244,7 @@
                                         </div>
                                         <table class="attributes-table" id="boundary-edit-table">
                                             <thead>
-                                                <tr><th>Time (in UTC)</th><th>Value</th></tr>
+                                                <tr><th>Time</th><th>Value</th></tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
@@ -395,7 +395,7 @@
                                         </div>
                                         <table class="attributes-table" id="source-table">
                                             <thead>
-                                                <tr><th>Time (in UTC)</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
+                                                <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
                                                     <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th></tr>
                                             </thead>
                                             <tbody>
@@ -432,7 +432,7 @@
                                         </div>
                                         <table class="attributes-table" id="edit-meteo-table">
                                             <thead>
-                                                <tr><th>Time (in UTC)</th><th>Humidity (%)</th><th>Air Temperature (°C)</th>
+                                                <tr><th>Time</th><th>Humidity (%)</th><th>Air Temperature (°C)</th>
                                                     <th>Cloud Coverage (%)</th><th>Solar Radiation (W/m²)</th>
                                                 </tr>
                                             </thead>
@@ -474,7 +474,7 @@
                                         </div>
                                         <table class="attributes-table" id="weather-edit-table" style="display: none;">
                                             <thead>
-                                                <tr><th>Time (in UTC)</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
+                                                <tr><th>Time</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
                                             </thead>
                                             <tbody>
                                                 <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
@@ -511,11 +511,11 @@
                                         <input type="text" class="datetime-interval" id="his-output-interval-time" value="06:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="his-output-start">Start Time (UTC):</label>
+                                        <label for="his-output-start">Start Time:</label>
                                         <input type="text" class="datetime" id="his-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="his-output-end">Stop Time (UTC):</label>
+                                        <label for="his-output-end">End Time:</label>
                                         <input type="text" class="datetime" id="his-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
@@ -531,11 +531,11 @@
                                         <input type="text" class="datetime-interval" id="map-output-interval-time" value="06:00:00">
                                     </div>                                  
                                     <div class="row">
-                                        <label for="map-output-start">Start Time (UTC):</label>
+                                        <label for="map-output-start">Start Time:</label>
                                         <input type="text" class="datetime" id="map-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="map-output-end">Stop Time (UTC):</label>
+                                        <label for="map-output-end">End Time:</label>
                                         <input type="text" class="datetime" id="map-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
@@ -551,11 +551,11 @@
                                         <input type="text" class="datetime-interval" id="water-quality-output-interval-time" value="00:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="water-quality-output-start">Start Time (UTC):</label>
+                                        <label for="water-quality-output-start">Start Time:</label>
                                         <input type="text" class="datetime" id="water-quality-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="water-quality-output-end">Stop Time (UTC):</label>
+                                        <label for="water-quality-output-end">End Time:</label>
                                         <input type="text" class="datetime" id="water-quality-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>
@@ -571,11 +571,11 @@
                                         <input type="text" class="datetime-interval" id="restart-interval-time" value="00:00:00">
                                     </div>
                                     <div class="row">
-                                        <label for="restart-output-start">Start Time (UTC):</label>
+                                        <label for="restart-output-start">Start Time:</label>
                                         <input type="text" class="datetime" id="restart-output-start" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>
                                     <div class="row">
-                                        <label for="restart-output-end">Stop Time (UTC):</label>
+                                        <label for="restart-output-end">End Time:</label>
                                         <input type="text" class="datetime" id="restart-output-end" placeholder="YYYY-mm-dd HH:mm:ss">
                                     </div>                                    
                                 </div>

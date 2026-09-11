@@ -1,11 +1,26 @@
 <div class="menu-item">
+    <a class="menu-link" id="timezone-menu">
+        Change Time Zone<span class="arrow">&#x27A4;</span>
+    </a>
+    <div class="submenu" class="timezone-submenu">
+        <input type="text" class="tz-search" id="tz-search"
+            placeholder="Search... (Oslo, New York, UTC)" autocomplete="off">
+        <div id="tz-results" class="tz-results"></div>
+        <div class="tz-modal-footer">
+            <small>Use IANA. Default: Get from browser.</small>
+        </div>
+    </div>
+</div>
+<hr style="width: 100%; border-top: 1px solid #0414f5; margin: 0 15px 0 0;">
+
+<div class="menu-item">
     <a class="menu-link" id="data-download"
         data-url="/src_frontend/htmls/dataDownload.html">Data Download</a>
 </div>
 <hr style="width: 100%; border-top: 1px solid #0414f5; margin: 0 15px 0 0;">
 
 <div class="menu-item">
-    <a class="menu-link">&#x25C2; Hydrodynamics - HYD</a>
+    <a class="menu-link">Hydrodynamics - HYD<span class="arrow">&#x27A4;</span></a>
     <div class="submenu">
         <div class="submenu-item" id="preparation-hyd"
             data-url="/src_frontend/htmls/hydPreparation.html">Data Preparation
@@ -24,7 +39,7 @@
 </div>
 
 <div class="menu-item">
-    <a class="menu-link">&#x25C2; Water Quality - WAQ</a>
+    <a class="menu-link">Water Quality - WAQ<span class="arrow">&#x27A4;</span></a>
     <div class="submenu">
         <div class="submenu-item" id="new-waq"
             data-url="/src_frontend/htmls/waqCreator.html">Create WAQ Scenario
@@ -47,7 +62,7 @@
 </div>
 
 <div class="menu-item">
-    <a class="menu-link">&#x25C2; Flow Estimation</a>
+    <a class="menu-link">Flow Estimation<span class="arrow">&#x27A4;</span></a>
     <div class="submenu">
         <div class="submenu-item" id="flow-preparation"
             data-url="/src_frontend/htmls/flowData.html">Data Preparation
@@ -63,7 +78,7 @@
 
 <hr style="width: 100%; border-top: 1px solid #0414f5; margin: 5px;">
 <div class="menu-item">
-    <a class="menu-link">&#x25C2; Help</a>
+    <a class="menu-link">Help<span class="arrow">&#x27A4;</span></a>
     <div class="submenu">
         <a class="submenu-item" id="help-docs" data-url="QuickManual.pdf">User Manual</a>
         <a class="submenu-item" id="about" 

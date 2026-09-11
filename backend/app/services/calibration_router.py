@@ -50,7 +50,8 @@ async def calibration_project(request: Request, user=Depends(functions.basic_aut
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/obs_calibration_upload")
-async def obs_calibration_upload(file: UploadFile = File(...), projectName: str = Form(...), 
+async def obs_calibration_upload(file: UploadFile = File(...), 
+    projectName: str = Form(...), timeZone: str = Form(...), 
     simStart: str = Form(...), simEnd: str = Form(...), user=Depends(functions.basic_auth)):
     try:
         project_name, _ = functions.project_definer(projectName, user)
@@ -62,7 +63,7 @@ async def obs_calibration_upload(file: UploadFile = File(...), projectName: str 
                 if not chunk: break
                 f.write(chunk)
         df = pd.read_csv(path, low_memory=False)
-        content = calibration_functions.clip_data(df, 'Time', simStart, simEnd)
+        content = calibration_functions.clip_data(df, 'Time', timeZone, simStart, simEnd)
         if len(content) == 0:
             return JSONResponse({'status': 'error', 
                 'message': f"No data in the uploaded CSV file falls within the simulation dates ({simStart} to {simEnd})."

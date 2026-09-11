@@ -31,7 +31,7 @@
                     <li>A scenario with hydrodynamics simulation was run successfully.</li>
                     <li>List of observation points (inside the grid).</li>
                     <li>Time-series data for Load points.</li>
-                    <li>Time format: YYYY-MM-DD HH:MM:SS (in UTC).</li>
+                    <li>Time format: YYYY-MM-DD HH:MM:SS.</li>
                 </ul>
             </section>
             <section class="main-tab" id="control-tab" hidden>
@@ -59,11 +59,11 @@
                             </div>
                             <div class="tile"><h3>Simulation Time</h3>
                                 <div class="row">
-                                    <label for="start-time">Start Time (UTC):</label>
+                                    <label for="start-time">Start Time:</label>
                                     <input type="text" class="datetime" id="start-time" placeholder="YYYY-mm-dd HH:mm:ss">
                                 </div>
                                 <div class="row">
-                                    <label for="stop-time">Stop Time (UTC):</label>
+                                    <label for="stop-time">End Time:</label>
                                     <input type="text" class="datetime" id="stop-time" placeholder="YYYY-mm-dd HH:mm:ss">
                                 </div>
                             </div>
@@ -310,7 +310,7 @@
                                 </div>
                                 <table class="attributes-table" id="wq-time-series-table">
                                     <thead>
-                                        <tr><th>Time (in UTC)</th><th>Location</th><th>Substance</th><th>Value</th></tr>
+                                        <tr><th>Time</th><th>Location</th><th>Substance</th><th>Value</th></tr>
                                     </thead>
                                     <tbody>
                                         <tr>

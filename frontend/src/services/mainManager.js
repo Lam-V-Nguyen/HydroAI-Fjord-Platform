@@ -2,7 +2,9 @@ import { menuManager } from "./menuManager.js";
 import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
 import { startLoading, stopLoading, htmlLoader, jsonLoader } from "./commonFunctions.js";
-import { setPendingRequest, clearPendingRequest, origin, getLastProject } from "./constant.js";
+import { setPendingRequest, clearPendingRequest, origin, getLastProject, 
+    getLastTimeZone, setLastTimeZone
+} from "./constant.js";
 import { renderPreview } from "./mapManager.js";
 
 
@@ -10,17 +12,54 @@ const widgetMenu = document.getElementById("widgetMenu");
 const menuContainer = document.getElementById('menu-container');
 
 const githubCache = {}, pendingRequests = new Map();
-let isLoaded = false, userName = null, prevSource = null;
+let isLoaded = false, userName = null, prevSource = null, 
+    currentTimeZone = null, selectedTimeZone = null;
 
-await login(); 
-loadWidget(); widgetMenuManager(); updateComponent(); 
+await login(); loadWidget(); widgetMenuManager(); updateComponent();
 showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
 
 
 async function login() {
+    currentTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (getLastTimeZone() === '') {setLastTimeZone(currentTimeZone);}
     const data = await jsonLoader('auth_check', {});
     if (data.user === 'admin') { userName = ''; } else { userName = data.user; }
     const project = getLastProject(); showNotes(`${userName}/${project}`);
+    selectedTimeZone = getLastTimeZone(); showTimeZone(currentTimeZone, selectedTimeZone);
+}
+
+async function bindTimezoneSearchOnce() {
+    const searchInput = document.getElementById("tz-search");
+    const resultsBox  = document.getElementById("tz-results");
+    if (!searchInput || !resultsBox) return;
+    if (searchInput.dataset.bound === "1") return;
+    searchInput.dataset.bound = "1"; let timer = null;
+    searchInput.addEventListener("input", () => {
+        clearTimeout(timer);
+        const q = searchInput.value.trim();
+        timer = setTimeout(() => { renderTimezoneList(resultsBox, q); }, 150);
+    });
+    searchInput.addEventListener("click", (e) => e.stopPropagation());
+    if (resultsBox.dataset.bound !== "1") {
+        resultsBox.dataset.bound = "1";
+        resultsBox.addEventListener("click", (e) => {
+            const item = e.target.closest(".tz-result-item");
+            if (!item?.dataset.tz) return;
+            e.stopPropagation(); e.preventDefault();
+            setLastTimeZone(item.dataset.tz);
+            showTimeZone(currentTimeZone, item.dataset.tz);
+            closeMenuAndSubmenu();
+        });
+    }
+}
+
+function closeMenuAndSubmenu() {
+    const menuItem = document.getElementById("timezone-menu")?.closest(".menu-item");
+    if (menuItem) menuItem.classList.remove("active");
+    const menuContainer = document.getElementById("menu-container")
+        || document.querySelector(".menu-container");
+    if (menuContainer) menuContainer.style.display = "none";
+    if (typeof isLoaded !== "undefined") isLoaded = false;
 }
 
 function widgetMenuManager() {
@@ -32,15 +71,15 @@ function widgetMenuManager() {
             const res = await htmlLoader('getWidgetMenu'); 
             if (!res) { alert('Could not load menu.'); return; }
             menuManager(menuContainer, res); isLoaded = true;
-            menuContainer.style.display = 'flex'; 
+            menuContainer.style.display = 'flex';
+            await bindTimezoneSearchOnce();
         } else { 
-            isLoaded = false;
-            menuContainer.style.display = 'none';
+            isLoaded = false; menuContainer.style.display = 'none';
         }
     }); 
     // Menu click handler
     widgetMenu.addEventListener("mouseenter", (e) => { e.target.dispatchEvent(new Event('click')); });
-    menuContainer.addEventListener("click", (e) => { 
+    menuContainer.addEventListener("click", async (e) => { 
         const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
         if (!item) return;
         const id = item.id; if (!id) return;
@@ -49,7 +88,17 @@ function widgetMenuManager() {
         const closeMenu = () => { menuContainer.style.display = 'none'; };
         if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
         // Selections
-        if (id === 'data-download') { w = 7; h = 12; }
+        if (id === 'timezone-menu') {
+            const searchInput = document.getElementById("tz-search");
+            const resultsBox = document.getElementById("tz-results");
+            const menuItem = document.getElementById("timezone-menu")?.closest(".menu-item");
+            if (menuItem) { menuItem.classList.toggle("active"); }
+            if (menuItem?.classList.contains("active") && searchInput) {
+                searchInput.value = ""; requestAnimationFrame(() => searchInput.focus());
+                await renderTimezoneList(resultsBox, "");
+            }
+            return; 
+        } else if (id === 'data-download') { w = 9; h = 12; }
         else if (id === 'preparation-hyd') { w = 12; h = 7; 
             title = 'Data Preparation for HYD Scenario'; }
         else if (id === 'grid-generation') { w = 12; h = 10; }
@@ -209,4 +258,42 @@ export function showNotes(note) {
     const noteDiv = document.querySelector('.project-note');
     if (!noteDiv) return;
     noteDiv.textContent = `Project: ${note}`;
+}
+function showTimeZone(curentTimeZone, selectedTimeZone) {
+    const noteDiv = document.querySelector('.time-zone');
+    if (!noteDiv) return;
+    noteDiv.textContent = `Timezone (Current: ${curentTimeZone} - Selected: ${selectedTimeZone})`;
+}
+
+async function renderTimezoneList(resultsBox, query='') {
+    if (!resultsBox) return; resultsBox.innerHTML = ""; let list = [];
+    try { list = await jsonLoader('get_timezone', {query: query, n: 20});
+    } catch (e) { alert(`Error: ${e}`); list = []; }
+    if (!list || !list.length) {
+        const empty = document.createElement("div");
+        empty.className = "tz-result-item";
+        empty.textContent = "Couldn't find timezone.";
+        resultsBox.appendChild(empty); return;
+    }
+    const frag = document.createDocumentFragment();
+    list.forEach(tz => {
+        const item = document.createElement("div");
+        item.className = "tz-result-item";
+        if (tz === selectedTimeZone) item.classList.add("active");
+        item.dataset.tz = tz;
+        item.innerHTML =
+            `<span>${tz}</span><span class="tz-offset">${getOffsetLabel(tz)}</span>`;
+        frag.appendChild(item);
+    });
+    resultsBox.appendChild(frag);
+}
+
+function getOffsetLabel(tzName) {
+    try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: tzName, timeZoneName: "shortOffset",
+        }).formatToParts(new Date());
+        const tzPart = parts.find(p => p.type === "timeZoneName");
+        return tzPart ? tzPart.value : "";
+    } catch (e) { return ""; }
 }

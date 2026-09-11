@@ -15,8 +15,8 @@
                 <div class="tabs-list">
                     <button class="tab-btn" data-tab="rosim-tab">ROSIM</button>
                     <button class="tab-btn" data-tab="era5-tab">Climate Data Store (ERA5)</button>
-                    <button class="tab-btn" data-tab="eklima-tab">MET</button>
-                    <button class="tab-btn" data-tab="nve-tab">NVE</button>
+                    <!-- <button class="tab-btn" data-tab="eklima-tab">MET</button>
+                    <button class="tab-btn" data-tab="nve-tab">NVE</button> -->
                 </div>
             </div>
             <div class="tabs-content">
@@ -39,9 +39,33 @@
                         <div class="tabs-content">
                             <div class="tabpanel" data-panel="rosim-tab-1">
                                 <div class="grid">
+                                    <!-- Plot options -->
+                                    <div class="tile" id="plot-container" style="grid-column: span 2; flex-direction: column;">
+                                        <h3>Plot Options</h3>
+                                        <div class="row">
+                                            <div class="field-inline">
+                                                <label for="start-plot">Start Time:</label>
+                                                <input type="text" class="datetime" id="start-plot" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="end-plot">End Time:</label>
+                                                <input type="text" class="datetime" id="end-plot" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="interval-plot">Interval:</label>
+                                                <select id="interval-plot">
+                                                    <option value="Raw" selected>Raw Data</option>
+                                                    <option value="Minute">1min Data</option>
+                                                    <option value="FiveMinute">5min Data</option>
+                                                    <option value="Hour">Hourly Data</option>
+                                                    <option value="Day">Daily Data</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <!-- Stations -->
                                     <div class="tile" style="grid-column: span 2; flex-direction: column;"><h3>Station Types</h3>
-                                        <div class="control-tab">
+                                        <div class="variables-grid">
                                             <label class="checkbox-right"><input type="checkbox" id="water-flow-checkbox">Water Flow</label>
                                             <label class="checkbox-right"><input type="checkbox" id="water-level-checkbox">Water Level</label>
                                             <label class="checkbox-right"><input type="checkbox" id="rainfall-checkbox">Rainfall</label>
@@ -55,33 +79,11 @@
                                         </div>
                                     </div>
                                     <!-- Names -->
-                                    <div class="tile" style="grid-column: span 2; flex-direction: column;"><h3>List of Stations</h3>
+                                    <div class="tile" style="grid-column: span 4; flex-direction: column;"><h3>List of Stations</h3>
                                         <table class="attributes-table" id="station-table">
                                             <thead><tr><th>Name</th><th>Type</th></tr></thead>
                                             <tbody></tbody>
                                         </table>
-                                    </div>
-                                    <!-- Plot options -->
-                                    <div class="tile" id="plot-container" style="display: flex; flex-direction: column;">
-                                        <h3>Plot Options</h3>
-                                        <div class="row inline-row">
-                                            <label for="start-plot">Start Time (UTC):</label>
-                                            <input type="text" class="datetime" id="start-plot" placeholder="YYYY-mm-dd HH:mm:ss">
-                                        </div>
-                                        <div class="row inline-row">
-                                            <label for="end-plot">End Time (UTC):</label>
-                                            <input type="text" class="datetime" id="end-plot" placeholder="YYYY-mm-dd HH:mm:ss">
-                                        </div>
-                                        <div class="row inline-row">
-                                            <label for="interval-plot">Interval:</label>
-                                            <select id="interval-plot">
-                                                <option value="Raw">Raw Data</option>
-                                                <option value="Minute">1min Data</option>
-                                                <option value="FiveMinute">5min Data</option>
-                                                <option value="Hour" selected>Hourly Data</option>
-                                                <option value="Day">Daily Data</option>
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -99,36 +101,41 @@
                                         </table>
                                     </div>
                                     <!-- Download period -->
-                                    <div class="tile" style="grid-column: span 2;"><h3>Download Period</h3>
-                                        <div class="row"><label for="start-download">Start Time (UTC):</label></div>
+                                    <div class="tile" id="plot-container" style="grid-column: span 2; flex-direction: column;">
+                                        <h3>Download Period</h3>
                                         <div class="row">
-                                            <input type="text" class="datetime" id="start-download" placeholder="YYYY-mm-dd HH:mm:ss">
-                                        </div>
-                                        <div class="row"><label for="end-download">End Time (UTC):</label></div>
-                                        <div class="row">
-                                            <input type="text" class="datetime" id="end-download" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            <div class="field-inline">
+                                                <label for="start-download">Start Time:</label>
+                                                <input type="text" class="datetime" id="start-download" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="end-download">End Time:</label>
+                                                <input type="text" class="datetime" id="end-download" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
                                         </div>
                                     </div>
                                     <!-- Download Options -->
                                     <div class="tile" style="grid-column: span 2;"><h3>Download Options</h3>
-                                        <div class="row inline-row">
-                                            <label for="type-download">Data type:</label>
-                                            <select id="type-download">
-                                                <option value="flow">Water Flow</option>
-                                                <option value="level">Water Level</option>
-                                                <option value="rain">Rainfall</option>
-                                                <!-- <option value="temperature">Temperature</option> -->
-                                            </select>
-                                        </div>
-                                        <div class="row inline-row">
-                                            <label for="interval-download">Interval:</label>
-                                            <select id="interval-download">
-                                                <option value="Raw">Raw Data</option>
-                                                <option value="Minute">1min Data</option>
-                                                <option value="FiveMinute">5min Data</option>
-                                                <option value="Hour" selected>Hourly Data</option>
-                                                <option value="Day">Daily Data</option>
-                                            </select>
+                                        <div class="row">
+                                            <div class="field-inline">
+                                                <label for="type-download">Data type:</label>
+                                                <select id="type-download">
+                                                    <option value="flow">Water Flow</option>
+                                                    <option value="level">Water Level</option>
+                                                    <option value="rain">Rainfall</option>
+                                                    <!-- <option value="temperature">Temperature</option> -->
+                                                </select>
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="interval-download">Interval:</label>
+                                                <select id="interval-download">
+                                                    <option value="Raw" selected>Raw Data</option>
+                                                    <option value="Minute">1min Data</option>
+                                                    <option value="FiveMinute">5min Data</option>
+                                                    <option value="Hour">Hourly Data</option>
+                                                    <option value="Day">Daily Data</option>
+                                                </select>
+                                            </div>
                                         </div>
                                         <div style="display: flex; font-size: 13px; margin: 15px 0 15px 0; text-align: center; color: greenyellow;">
                                             <label id="station-selected-label"></label>
@@ -166,26 +173,28 @@
                         <div class="tabs-content">
                             <div class="tabpanel" data-panel="era5-tab-1">
                                 <div class="grid">
-                                    <div class="tile" style="grid-column: span 4;"><h3>Location & Period</h3>
-                                        <div class="row inline-row">
-                                            <label for="era5-latitude">Avg. Latitude (°):</label>
-                                            <input type="text" id="era5-latitude" placeholder="Latitude">
-                                        </div>
-                                        <div class="row inline-row">
-                                            <label for="era5-longitute">Avg. Longitude (°):</label>
-                                            <input type="text" id="era5-longitude" placeholder="Longitude">
-                                        </div>
+                                    <div class="tile" style="grid-column: span 3;"><h3>Location & Period</h3>
+                                        <div class="row">
+                                            <div class="field-inline">
+                                                <label for="era5-latitude">Avg. Latitude (°):</label>
+                                                <input type="text" id="era5-latitude" placeholder="Latitude">
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="era5-longitute">Avg. Longitude (°):</label>
+                                                <input type="text" id="era5-longitude" placeholder="Longitude">
+                                            </div>
 
-                                        <div class="row inline-row">
-                                            <label for="era5-start">Start Time (UTC):</label>
-                                            <input type="text" class="datetime" id="era5-start" placeholder="YYYY-mm-dd HH:mm:ss">
-                                        </div>
-                                        <div class="row inline-row">
-                                            <label for="era5-end">End Time (UTC):</label>
-                                            <input type="text" class="datetime" id="era5-end" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            <div class="field-inline">
+                                                <label for="era5-start">Start Time:</label>
+                                                <input type="text" class="datetime" id="era5-start" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
+                                            <div class="field-inline">
+                                                <label for="era5-end">End Time:</label>
+                                                <input type="text" class="datetime" id="era5-end" placeholder="YYYY-mm-dd HH:mm:ss">
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="tile"><h3>Variables</h3>
+                                    <div class="tile" style="grid-column: span 5;"><h3>Variables</h3>
                                         <div class="variables-grid">
                                             <label class="checkbox-right">
                                                 <input type="checkbox" id="era5-2m-temperature-checkbox" value="2m_temperature" checked>Temperature (at 2m)
@@ -211,9 +220,9 @@
                                             <label class="checkbox-right">
                                                 <input type="checkbox" id="era5-cloud-checkbox" value="total_cloud_cover">Total Cloud Cover
                                             </label>
-                                        </div>
-                                        <div class="control-tab">
-                                            <label class="checkbox-right"><input type="checkbox" id="era5-wind-checkbox">Compute Wind Speed & Direction</label>
+                                            <label class="checkbox-right">
+                                                <input type="checkbox" id="era5-wind-checkbox">Compute Wind Speed & Direction
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
@@ -228,7 +237,7 @@
                                         </div>
                                         <table class="attributes-table" id="era5-table">
                                             <thead>
-                                                <tr><th>Time (in UTC)</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
+                                                <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
                                                     <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th>
                                                 </tr>
                                             </thead>

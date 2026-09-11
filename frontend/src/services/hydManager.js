@@ -1,4 +1,4 @@
-import { hydMapId } from "./constant.js";
+import { hydMapId, getLastTimeZone } from "./constant.js";
 import { setupTabs } from "./tabManager.js";
 import { jsonLoader, nameChecker, fillTable, updateTable, iframeConnector, closeWindow,
     getDataFromTable, csvUploader, fileUploader, deleteTable, copyPaste, moveWindow,
@@ -303,7 +303,7 @@ async function hydManager(){
     // Update parameters of boundary from file
     const handleBoundaryChange = async () => {
         const content = {
-            projectName: obj.projectName.value.trim(), 
+            projectName: obj.projectName.value.trim(), timeZone: getLastTimeZone(),
             boundaryName: obj.boundarySelector.value, 
             boundaryType: obj.boundaryTypeSelector.value
         };
@@ -470,7 +470,8 @@ async function hydManager(){
 
 async function loadScenario(scenarioName){
     // Get average latitude
-    const data = await jsonLoader('get_scenario', {projectName: scenarioName});
+    const content = {projectName: scenarioName, timeZone: getLastTimeZone()};
+    const data = await jsonLoader('get_scenario', content);
     if (data.status === 'new') { return; }
     if (data.status === 'error') { alert(data.message); return; }
     obj.latitude.value = data.content.avgLat;

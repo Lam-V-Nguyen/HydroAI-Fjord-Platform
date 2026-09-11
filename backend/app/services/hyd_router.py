@@ -1,9 +1,10 @@
-import os, datetime, re, traceback, asyncio
+import os, re, traceback, asyncio
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from services import functions
 from config import PROJECT_ROOT, SOURCE_BACKEND
 import numpy as np, pandas as pd
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -12,13 +13,14 @@ router = APIRouter()
 async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        name, time_zone = body.get('projectName'), body.get('timeZone')
+        project_name, _ = functions.project_definer(name, user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
         in_dir, data = os.path.normpath(os.path.join(project_dir, "input")), {}
         if os.path.exists(in_dir):
             mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
             if not os.path.exists(mdu_path):
-                return JSONResponse({"status": 'error', "message": f"Scenario '{body.get('projectName')}' doesn't have an *.mdu file."})
+                return JSONResponse({"status": 'error', "message": f"Scenario '{name}' doesn't have an *.mdu file."})
             with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
                 for raw_line in f:
                     line = raw_line.split("#")[0].strip()
@@ -34,13 +36,13 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     elif line.startswith('TStart'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            temp = datetime.datetime.fromtimestamp(int(parts[1].strip()))
-                            data["startDate"] = temp.strftime("%Y-%m-%d %H:%M:%S")
+                            temp = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
+                            data["startDate"] = functions.utc_to_local(temp, time_zone)
                     elif line.startswith('TStop'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            temp = datetime.datetime.fromtimestamp(int(parts[1].strip()))
-                            data["stopDate"] = temp.strftime("%Y-%m-%d %H:%M:%S")
+                            temp = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
+                            data["stopDate"] = functions.utc_to_local(temp, time_zone)
                     elif line.startswith('ObsFile'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -95,10 +97,10 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["hisIntervalDate"], data["hisIntervalTime"] = values[0], values[1]
                             temp_start = int(temp.split(" ")[1].strip())
                             temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.datetime.fromtimestamp(temp_start)
-                            stop = datetime.datetime.fromtimestamp(temp_stop)
-                            data["hisStart"] = start.strftime("%Y-%m-%d %H:%M:%S")
-                            data["hisStop"] = stop.strftime("%Y-%m-%d %H:%M:%S")
+                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                            data["hisStart"] = functions.utc_to_local(start, time_zone)
+                            data["hisStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('MapInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -108,10 +110,10 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["mapIntervalDate"], data["mapIntervalTime"] = values[0], values[1]
                             temp_start = int(temp.split(" ")[1].strip())
                             temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.datetime.fromtimestamp(temp_start)
-                            stop = datetime.datetime.fromtimestamp(temp_stop)
-                            data["mapStart"] = start.strftime("%Y-%m-%d %H:%M:%S")
-                            data["mapStop"] = stop.strftime("%Y-%m-%d %H:%M:%S")
+                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                            data["mapStart"] = functions.utc_to_local(start, time_zone)
+                            data["mapStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('WaqInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -121,10 +123,10 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["wqIntervalDate"], data["wqIntervalTime"] = values[0], values[1]
                             temp_start = int(temp.split(" ")[1].strip())
                             temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.datetime.fromtimestamp(temp_start)
-                            stop = datetime.datetime.fromtimestamp(temp_stop)
-                            data["wqStart"] = start.strftime("%Y-%m-%d %H:%M:%S")
-                            data["wqStop"] = stop.strftime("%Y-%m-%d %H:%M:%S")
+                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                            data["wqStart"] = functions.utc_to_local(start, time_zone)
+                            data["wqStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('StatsInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -153,7 +155,8 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if len(line.strip().split()) != 5: continue
                     temp = line.strip().split()
-                    temp[0] = datetime.datetime.fromtimestamp(int(temp[0].strip())*60).strftime("%Y-%m-%d %H:%M:%S")
+                    val = datetime.fromtimestamp(int(temp[0].strip())*60, tz=timezone.utc)
+                    temp[0] = functions.utc_to_local(val, time_zone)
                     meteos.append(temp)
                 data["meteoPath"] = meteos
             data["weatherPath"], weathers, data["weatherType"], data["weatherName"] = '', [], '', "windxy.tim"
@@ -165,7 +168,8 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if not line.strip(): continue
                     temp = line.strip().split()
-                    temp[0] = datetime.datetime.fromtimestamp(int(temp[0].strip())*60).strftime("%Y-%m-%d %H:%M:%S")
+                    val = datetime.fromtimestamp(int(temp[0].strip())*60, tz=timezone.utc)
+                    temp[0] = functions.utc_to_local(val, time_zone)
                     weathers.append(temp)
                 if len(temp) == 3: data["weatherType"] = "wind-magnitude-direction"
                 data["weatherPath"] = weathers
@@ -310,7 +314,8 @@ async def get_boundary_params(request: Request, user=Depends(functions.basic_aut
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        boundary_name, boundary_type = body.get('boundaryName'), body.get('boundaryType')     
+        boundary_name, boundary_type = body.get('boundaryName'), body.get('boundaryType')
+        time_zone = body.get('timeZone')
         input_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         type_path = os.path.normpath(os.path.join(input_dir, f"{boundary_type}.bc"))
         if not os.path.exists(type_path): return JSONResponse({"status": 'new'})
@@ -326,8 +331,8 @@ async def get_boundary_params(request: Request, user=Depends(functions.basic_aut
             if line.startswith("[forcing]"): check = False
         for line in current_data:
             temp = line.strip().split()
-            val = datetime.datetime.fromtimestamp(int(temp[0]))
-            content.append([val.strftime("%Y-%m-%d %H:%M:%S"), temp[1]])
+            val = datetime.fromtimestamp(int(temp[0]), tz=timezone.utc)
+            content.append([functions.utc_to_local(val, time_zone), temp[1]])
         if not content: return JSONResponse({"status": 'new'})
         return JSONResponse({"status": 'ok', "content": content})   
     except Exception as e:

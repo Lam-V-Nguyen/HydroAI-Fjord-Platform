@@ -33,12 +33,19 @@ const saveState = (projectId, state) => {
     localStorage.setItem(getKey(projectId), JSON.stringify(state));
 };
 
-const LAST_PROJECT_KEY = 'demo';
+const LAST_PROJECT_KEY = 'demo', LAST_TIMEZONE = "";
 export const getLastProject = () => {
     return localStorage.getItem(LAST_PROJECT_KEY) || 'demo';
 }
 export const setLastProject = (projectId) => {
     localStorage.setItem(LAST_PROJECT_KEY, projectId);
+}
+
+export const getLastTimeZone = () => {
+    return localStorage.getItem(LAST_TIMEZONE) || '';
+}
+export const setLastTimeZone = (newTimeZone) => {
+    localStorage.setItem(LAST_TIMEZONE, newTimeZone);
 }
 
 export function getMap() { return mapInstance; }

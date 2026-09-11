@@ -5,7 +5,6 @@ from services import functions
 from config import PROJECT_ROOT
 import geopandas as gpd
 from services.data_functions import Regnbyge as regnbyge
-from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -64,17 +63,19 @@ async def init_station(request: Request, user=Depends(functions.basic_auth)):
 async def plot_station(request: Request):
     try:
         body = await request.json()
-        id, mode, name = body.get('id'), body.get('mode'), body.get('name')
+        id, mode = body.get('id'), body.get('mode')
+        name, time_zone = body.get('name'), body.get('timeZone')
         start, end, interval = body.get('startTime'), body.get('endTime'), body.get('interval')
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        if start_time >= end_time:
+        start_utc = functions.local_to_utc(start, time_zone)
+        end_utc = functions.local_to_utc(end, time_zone)
+        if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: 'Start time' must be earlier than 'End time'."})
-        df = regnbyge().get_Values(mode, id, interval, start_time, end_time)
+        df = regnbyge().get_Values(mode, id, interval, start_utc, end_utc)
         if df.empty: 
             return JSONResponse({'status': 'error', 'message': f"No data available for station '{name}' between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
-        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        # Convert time back to local time zone
+        df['timestamp'] = functions.utc_to_local(df['timestamp'], time_zone)
         content = {'columns': df.columns.tolist(), 'rows': df.values.tolist()}
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
@@ -87,16 +88,17 @@ async def download_station(request: Request):
     try:
         body = await request.json()
         mode, download_interval = body.get('mode'), body.get('downloadInterval')
-        start, end, id = body.get('startTime'), body.get('endTime'), body.get('id')
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        if start_time >= end_time:
+        start, end = body.get('startTime'), body.get('endTime')
+        id, time_zone = body.get('id'), body.get('timeZone')
+        start_utc = functions.local_to_utc(start, time_zone)
+        end_utc = functions.local_to_utc(end, time_zone)
+        if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: Start time is later than end time."})
-        df = regnbyge().get_Values(mode, id, download_interval, start_time, end_time)
+        df = regnbyge().get_Values(mode, id, download_interval, start_utc, end_utc)
         if df.empty: 
-            return JSONResponse({'status': 'error', 'message': f"No data available between '{start_time}' and '{end_time}'."})
+            return JSONResponse({'status': 'error', 'message': f"No data available between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
-        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        df['timestamp'] = functions.utc_to_local(df['timestamp'], time_zone)
         csv_string = df.to_csv(index=False)
         return JSONResponse({'status': 'ok', 'content': csv_string})
     except Exception as e:
