@@ -42,19 +42,15 @@ def modify_mdu_key(mdu_lines: list, key: str, value: str = '') -> list:
     mdu[index] = f'{new[0]}= {value.ljust(len(new1[0])-2)} #{new1[1]}'
     return mdu
 
-def clip_data(df: pd.DataFrame, time_column:str, time_zone:str, start:str=None, end:str=None) -> dict:
+def clip_data(df: pd.DataFrame, time_column:str, start:str=None, end:str=None) -> dict:
     if df.empty: return {}
-    df[time_column], content = functions.local_to_utc(df[time_column], time_zone), {}
+    content = {}
     if not start is None and not end is None:
-        start = functions.local_to_utc(start, time_zone)
-        end = functions.local_to_utc(end, time_zone)
         df = df[(df[time_column] >= start) & (df[time_column] <= end)]
     if df.empty: return {}
     start_time, end_time = df[time_column].iloc[0], df[time_column].iloc[-1]
-    content['start'] = functions.utc_to_local(start_time, time_zone)
-    content['end'] = functions.utc_to_local(end_time, time_zone)
+    content['start'], content['end'] = start_time, end_time
     df = df.replace([np.inf, -np.inf], np.nan)
-    df[time_column] = functions.utc_to_local(df[time_column], time_zone)
     content['data'] = df.astype(object).where(df.notna(), None).to_numpy().tolist()
     return content
 
@@ -295,9 +291,8 @@ def interpolate_profile_to_depths(group: pd.DataFrame, depths: list, time_col="T
     g = group.sort_values("depth").drop_duplicates("depth").reset_index(drop=True)
     d_arr, t_arr = g["depth"].to_numpy(), g["temperature"].to_numpy()
     if len(d_arr) < 2: return pd.DataFrame()
-    t_start = g[time_col].iloc[0]
+    t_start, rows = g[time_col].iloc[0], []
     dt_sec = (g[time_col] - t_start).dt.total_seconds().to_numpy()
-    rows = []
     for d in depths:
         d_num = float(d)
         if d_arr.min() <= d_num <= d_arr.max():
@@ -404,7 +399,7 @@ def surrogate_model(processes: dict, key: str, df: pd.DataFrame,
                     best_log_likelihood = gpr.log_marginal_likelihood_value_
                     best_kernel, best_name = kernel_obj, k_name
             functions.append_log(log_path, f"Best kernel: {best_name} - {best_kernel}")
-            functions.append_log(log_path, "Retraining model with best kernel...")
+            functions.append_log(log_path, "Retraining model with the best kernel...")
             final_gpr = GaussianProcessRegressor(
                 kernel=kernel_obj, n_restarts_optimizer=30, 
                 alpha=1e-6, normalize_y=True, random_state=42

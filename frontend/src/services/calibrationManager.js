@@ -88,7 +88,7 @@ async function openProject(projectObj, startObj, endObj, key='') {
     const project = projectObj.value.trim();
     if (project === '') { alert('Please select a HYD scenario first.'); return; }
     signalSender('Reading information from project "' + project + '". Please wait...');
-    const content = { projectName: project, key: key };
+    const content = { projectName: project, key: key, timeZone: getLastTimeZone() };
     const data = await jsonLoader('calibration_project', content); signalSender('hideOverlay');
     if (data.status === 'error') { alert(data.message); return; }
     startObj.value = data.content['start']; endObj.value = data.content['end'];
@@ -112,7 +112,7 @@ function calibrationManager() {
         activeProject = currentProject; isRunning = true;
         obj.progressText.innerText = 'Iteration is in progress. Please wait...'; 
         obj.progressContainer.style.display = 'flex'; obj.progressBar.value = 0; 
-        obj.calibrationLog.value = ''; 
+        obj.calibrationLog.value = ''; const key = 'iteration';
         const content = { 
             projectName: currentProject, key: key, 
             iterationNumber: iterationNumber, params: params_in
@@ -175,7 +175,7 @@ function calibrationManager() {
         if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
         const file = e.target.files[0]; if (!file) return;
         const formData = new FormData(); formData.append('file', file); 
-        formData.append('projectName', currentProject); formData.append('timeZone', getLastTimeZone());
+        formData.append('projectName', currentProject);
         formData.append('simStart', simStart); formData.append('simEnd', simEnd);
         signalSender('showOverlay', 'Reading observation data. Please wait...');
         const response = await fetch('/obs_calibration_upload', { method: 'POST', body: formData });
@@ -190,8 +190,7 @@ function calibrationManager() {
         const currentProject = obj.projectName.value.trim();
         if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         signalSender('showOverlay', 'Getting station data from simulation "' + currentProject + '".\nPlease wait...');
-        const content = { projectName: currentProject };
-        const data = await jsonLoader('get_stations_calibration', content);
+        const data = await jsonLoader('get_stations_calibration', { projectName: currentProject });
         signalSender('hideOverlay');
         if (data.status === "error") { alert(data.message); return; }
         // Add content to the selector
@@ -216,13 +215,12 @@ function calibrationManager() {
         if (observationData.length === 0) { alert('Please upload observation data first.'); return; }
         signalSender('showOverlay', 'Summarizing information from different iterations for station "' + station + '".\nPlease wait...');
         const content = { 
-            projectName: currentProject, simStart: simStart, simEnd: simEnd,
+            projectName: currentProject, simStart: simStart, simEnd: simEnd, timeZone: getLastTimeZone(),
             obsStart: obsStart, obsEnd: obsEnd, station: station, depthSelection: depthSelection,
-            obsData: observationData, targetValue: targetValue, weightValue: weightValue
+            obsData: observationData, targetValue: targetValue, weightValue: weightValue, timeZone: getLastTimeZone()
         };
         const data = await jsonLoader('summarize_calibration', content);
         signalSender('hideOverlay'); alert(data.message); 
-        if (data.status === "error") { return; }
     });
     obj.correlationBtn.addEventListener('click', async () => {    
         const currentProject = obj.projectName.value.trim();
@@ -357,7 +355,7 @@ function calibrationManager() {
         const simStart = obj.simStartDate.value; const simEnd = obj.simEndDate.value;
         if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
         const file = e.target.files[0]; if (!file) return;
-        const formData = new FormData(); formData.append('file', file); 
+        const formData = new FormData(); formData.append('file', file); formData.append('timeZone', getLastTimeZone()); 
         formData.append('simStart', simStart); formData.append('simEnd', simEnd);
         signalSender('showOverlay', 'Reading observation data. Please wait...');
         const response = await fetch('/obs_comparison_upload', { method: 'POST', body: formData });
@@ -383,9 +381,9 @@ function calibrationManager() {
         if (obsData.length === 0) { alert('Please upload observation data first.'); return; }
         signalSender('showOverlay', 'Preparing data for comparison. Please wait...');
         const content = { 
-            projectName: currentProject, simStart: simStart, simEnd: simEnd, 
-            obsStart: obsStart, obsEnd: obsEnd, depthSelection: depthSelection, 
-            obsData: obsData, station: stationName
+            projectName: currentProject, timeZone: getLastTimeZone(), simStart: simStart, 
+            simEnd: simEnd, obsStart: obsStart, obsEnd: obsEnd, 
+            depthSelection: depthSelection, obsData: obsData, station: stationName
         };
         const data = await jsonLoader('comparison_plot', content); signalSender('hideOverlay'); 
         if (data.status === "error") { alert(data.message); return; }

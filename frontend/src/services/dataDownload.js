@@ -1,7 +1,7 @@
 import { setupTabs } from "./tabManager.js";
 import { initMap } from "./visualizationMap.js";
 import { getDataFromTable, signalSender, jsonLoader, fillTable,
-    formatDate, moveWindow, closeWindow, deleteTable, getUser
+    formatDate, moveWindow, closeWindow, deleteTable, getUser, addRowToTable
 } from "./commonFunctions.js";
 import { plotTimeSeries } from "./chartManager.js";
 import { L, getLastTimeZone } from "./constant.js";
@@ -25,12 +25,19 @@ const obj = {
     // overFlowCheckbox: $("overflow-checkbox"), temperatureCheckbox: $("temperature-checkbox"),
     // evaporationCheckbox: $("evaporation-checkbox"), weirCheckbox: $("weir-checkbox"),
     stationSelectedLabel: $("station-selected-label"), resertStationBtn: $("reset-station-btn"),
-    downloadListContainer: $("download-list-container"), downloadListArea: $("download-list")
+    downloadListContainer: $("download-list-container"), downloadListArea: $("download-list"),
+    // ERA5 options
+    era5LocationBtn: $("era5-location-btn"), era5Lat: $("era5-latitude"), 
+    era5Lon: $("era5-longitude"), era5WindSpeed: $("wind-speed-checkbox"),
+    era5WWindU: $("wind-u-checkbox"), era5WWindV: $("wind-v-checkbox"),
+    era5Start: $("era5-start"), era5End: $("era5-end"), era5Table: $("era5-table"), 
+    era5LogContainer: $("era5-log-container"), era5LogText: $("era5-log-text"),
+    era5DownloadBtn: $("era5-download-btn"), era5SaveBtn: $("era5-save-btn")
 };
 
-let plotChecked = true, waterFlowLayer = null, waterLevelLayer = null,
-    overFlowLayer = null, tempLayer = null, preLayer = null,
-    weirLayer = null, evaLayer = null, currentProject = null;
+let activeProject = null, plotChecked = true, waterFlowLayer = null, 
+    waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
+    weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
@@ -50,6 +57,7 @@ function updateManager() {
     hightlightRows(obj.stationSelectedTable);
     obj.plotStart.value = formatDate(startOfDay); obj.plotEnd.value = formatDate(now);
     obj.downloadStart.value = formatDate(startOfDay); obj.downloadEnd.value = formatDate(now);
+    obj.era5Start.value = formatDate(startOfDay); obj.era5End.value = formatDate(now);
     obj.selectBox.addEventListener("click", () => { obj.checkboxList.style.display === 'block'; });
     document.addEventListener('click', (event) => {
         if (!obj.dropdown.contains(event.target)) obj.checkboxList.style.display = 'none';
@@ -62,6 +70,26 @@ function updateManager() {
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
             }
             else if (tabName === 'rosim-tab-2') { plotChecked = false; }
+            else if (tabName === 'era5-tab') {
+                // Clear map
+                plotChecked = true; deleteTable(obj.stationSelectedTable); 
+                obj.waterFlowCheckbox.checked = false;
+                obj.waterFlowCheckbox.dispatchEvent(new Event('change'));
+                obj.waterLevelCheckbox.checked = false;
+                obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
+                obj.rainfallCheckbox.checked = false;
+                obj.rainfallCheckbox.dispatchEvent(new Event('change'));
+            } else if (tabName === 'era5-tab-2') {
+                // Get values of options
+                const selectedValues = [...document.querySelectorAll(
+                    '#era5-variables-grid input[type="checkbox"]:checked'
+                )].map(checkbox => ({
+                    value: checkbox.value, label: checkbox.getAttribute('data-label'),
+                    des: checkbox.parentElement.textContent.trim()
+                }));
+                selectedValues.unshift({ label: 'Time', des: 'YYYY-MM-DD HH:MM:SS' });
+                fillWeatherAttributeTable(obj.era5Table, selectedValues, true);
+            }
             setTimeout(() => { mapObj.invalidateSize(); }, 10);
             obj.stationSelectedLabel.style.display = 'none';
             updateLayerTooltips(waterFlowLayer); updateLayerTooltips(waterLevelLayer);
@@ -70,6 +98,7 @@ function updateManager() {
             updateLayerTooltips(weirLayer);
         });
     });
+    // Work on ROSIM option
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
         const filter = ['flow'];
         if (e.target.checked === true) {
@@ -117,6 +146,9 @@ function updateManager() {
         }
         const startTime = obj.downloadStart.value, endTime = obj.downloadEnd.value,
             downloadType = obj.typeSelector.value, interval = obj.downloadInterval.value;
+        if (startTime === '' || endTime === '') { 
+            alert('Please select start and end time to download.'); return; 
+        }
         try { 
             const dirHandle = await window.showDirectoryPicker();
             obj.downloadListContainer.style.display = 'flex'; obj.downloadListArea.value = '';
@@ -177,9 +209,158 @@ function updateManager() {
         obj.rainfallCheckbox.checked = false; preLayer = clearMap(preLayer);           
         alert(response.message); signalSender('hideOverlay');
     });
+    // Work on ERA5
+    obj.era5LocationBtn.addEventListener('click', () => { era5Checked = true; });
+    obj.era5WindSpeed.addEventListener('change', (e) => {
+        if (e.target.checked === true) { 
+            obj.era5WWindU.checked = true ; obj.era5WWindV.checked = true;
+        }
+    });
+    obj.era5DownloadBtn.addEventListener('click', async () => {
+        const lat = obj.era5Lat.value, lon = obj.era5Lon.value;
+        if (lat === '' || lon === '') { 
+            alert('Please select a location.'); return; 
+        }
+        const startTime = obj.era5Start.value, endTime = obj.era5End.value;
+        if (startTime === '' || endTime === '') { 
+            alert('Please select start and end time to download.'); return; 
+        }
+        const selectedValues = [...document.querySelectorAll(
+            '#era5-variables-grid input[type="checkbox"]:checked'
+        )].map(checkbox => ({
+            value: checkbox.value, label: checkbox.getAttribute('data-label'),
+            des: checkbox.parentElement.textContent.trim()
+        }));
+        if (selectedValues.length === 0) { 
+            alert('Please select at least one variable to download.'); return; 
+        }
+        try {
+            const statusRes = await jsonLoader('check_download_status_era5', {projectName: currentProject});
+            if (statusRes.status === "running") { alert("Weather download is already running."); return; }
+            obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
+            obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none';
+            const contents = { 
+                projectName: currentProject, lat: lat, lon: lon, 
+                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(), 
+                variables: selectedValues.map(v => v.value)
+            };
+            const data = await jsonLoader('download_era5', contents);
+            if (data.status === 'error') { alert(data.message); return; }
+            updateLog(currentProject, obj.era5LogText, 2, 'era5', async () => {
+                alert('Downloading weather completed.');
+                const content_csv = {projectName: currentProject, timeZone: getLastTimeZone()};
+                const csv = await jsonLoader('upload_era5_csv', content_csv);
+                if (csv.status === 'error') { alert(csv.message); return; }
+                addDataToTable(obj.era5Table, csv.columns, csv.content);
+                obj.era5SaveBtn.style.display = 'block';
+                obj.era5LogContainer.style.display = 'none';
+                obj.era5Table.style.display = 'table';
+            });
+        } catch (error) { 
+            alert(error.message || error); 
+            obj.era5SaveBtn.style.display = 'none'; return;
+        }
+    });
+    obj.era5SaveBtn.addEventListener('click', async () => {
+        const data = getDataFromTable(obj.era5Table, true);
+        if (data.rows.length === 0) { alert('No data to save.'); return; }
+        const response = await jsonLoader('save_era5', {data: data});
+        if (response.status === 'ok') { 
+            await saveCSVSmart(response.content, `era5_${Date.now()}.csv`); 
+        }
+        alert(response.message);
+    });
     mapOptions(mapObj);
 }
 
+function addDataToTable(table, header, data) {
+    table.querySelector('thead')?.remove();
+    table.querySelector('tbody')?.remove();
+    const thead = document.createElement('thead');
+    const trHead = document.createElement('tr');
+    header.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col; trHead.appendChild(th);
+    });
+    thead.appendChild(trHead); table.prepend(thead);
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    fillTable(data, table, true);
+}
+
+export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
+    const new_key = `${currentProject}_${key}`; let lastOffset = 0; activeProject = new_key; 
+    async function loop() {
+        if (activeProject !== new_key) return;
+        try {
+            const res = await fetch(
+                `/log_tail_download_era5/${currentProject}?offset=${lastOffset}&log_file=log.txt`
+            );
+            const statusRes = await jsonLoader('check_download_status_era5', {projectName: currentProject});
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.lines)) {
+                    if (reloadLog) { info.value = data.lines.join("\n");
+                    } else {
+                        for (const line of data.lines) { info.value += line + "\n"; }
+                    }
+                }
+                if (!reloadLog) { lastOffset = data.offset; }
+            }
+            if (statusRes.status !== "running") {
+                if (statusRes.message) { info.value += "\n" + statusRes.message + "\n"; }
+                if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
+                return;
+            }
+        } catch (error) { alert(error); return; }
+        setTimeout(loop, seconds * 1000);
+    }
+    loop();
+}
+
+async function saveCSVSmart(csvString, suggestedName) {
+    // Try File System Access API
+    if (window.showSaveFilePicker) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(csvString);
+            await writable.close(); return true;
+        } catch (err) {
+            if (err.name === 'AbortError') return false; // user cancel
+            console.warn('Picker failed, fallback to download:', err);
+        }
+    }
+    // Fallback: <a download>
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = suggestedName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    return true;
+}
+
+function fillWeatherAttributeTable(table, values, addRow=true) {
+    if (!table) { alert('Table is null/undefined'); return; }
+    // Delete old thead
+    table.querySelector('thead')?.remove();
+    table.querySelector('tbody')?.remove();
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    const placeholders = [];
+    values.forEach(v => {
+        const th = document.createElement('th');
+        th.textContent = v.label; tr.appendChild(th);
+        placeholders.push(v.des);
+    }); thead.appendChild(tr);
+    // Add new thead
+    table.prepend(thead); 
+    if (addRow) addRowToTable(table, placeholders);
+}
 
 function mapOptions(mapObject) {
     mapObject.on('mousemove', function (e) { 
@@ -187,7 +368,19 @@ function mapOptions(mapObject) {
             const html = `- Left click to select station to add the download list.<br>- Right click to remove the last station.`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             mapObject.openTooltip(hoverTooltip);
+        } else if (era5Checked) {
+            mapObject.getContainer().style.cursor = "crosshair";
+            const html = `Click the left mouse button to select a point.`;
+            hoverTooltip.setLatLng(e.latlng).setContent(html);
+            mapObject.openTooltip(hoverTooltip);
         } else { if (hoverTooltip) mapObject.closeTooltip(hoverTooltip); }
+    });
+    mapObject.on('click', async function (e) {
+        if (era5Checked) {
+            const lat = e.latlng.lat.toFixed(1), lon = e.latlng.lng.toFixed(1);
+            obj.era5Lat.value = lat; obj.era5Lon.value = lon; 
+            mapObject.getContainer().style.cursor = ""; era5Checked = false;
+        }
     });
     mapObject.on('contextmenu', async function (e) { 
         e.originalEvent.preventDefault();
@@ -230,8 +423,7 @@ function updateLayerTooltips(layerGroup) {
     if (!layerGroup) return;
     layerGroup.eachLayer(layer => {
         if (!layer.feature) return;
-        const feature = layer.feature;
-        let note = '';
+        const feature = layer.feature; let note = '';
         if (plotChecked) {
             note = `<hr style="border-top: 1px solid #0414f5; margin: 5px 0;">
                 <span style="display:block;font-weight:bold;text-align:center;">
@@ -277,7 +469,6 @@ function removeStationsByType(table, filter) {
     if (remaining.length > 0) { fillTable(remaining, table, true); }
 }
 
-
 async function pointPloter(points, pointType) {
     let iconUrl = `/src_frontend/images/station.png?v=${Date.now()}`, note = '';
     if (pointType === 'flow') { iconUrl = `/src_frontend/images/water_flow.png?v=${Date.now()}`; }
@@ -299,6 +490,7 @@ async function pointPloter(points, pointType) {
                 if (plotChecked) {
                     const mode = feature.properties.mode, interval = obj.plotInterval.value;
                     const startTime = obj.plotStart.value, endTime = obj.plotEnd.value;
+                    if (startTime === '' || endTime === '') { alert('Please select a time range to plot.'); return; }
                     const titleY = obj.plotInterval.selectedOptions[0].text;
                     signalSender('showOverlay', 
                         `Getting '${obj.plotInterval.selectedOptions[0].text}' for station '${name}'.\nThis takes a while. Please wait...`

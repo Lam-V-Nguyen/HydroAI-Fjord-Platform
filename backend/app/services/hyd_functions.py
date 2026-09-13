@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 
 dataset, resolution, delta = 'reanalysis-era5-single-levels', 0.25, 0.125
 
-def meteo_downloader(project_name, processes, lat, lon, start, end, key):
+def meteo_downloader(project_name, processes, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
@@ -35,8 +35,8 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, key):
     try:
         logger.info("Meteo downloader started")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
+        start_time = functions.local_to_utc(start, time_zone)
+        end_time = functions.local_to_utc(end, time_zone)
         lat_new = round(float(lat) / resolution) * resolution
         lon_new = round(float(lon) / resolution) * resolution
         area = [lat_new + delta, lon_new - delta, lat_new - delta, lon_new + delta]
@@ -68,7 +68,7 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, key):
                 client.retrieve(dataset, request, out_path)
                 logger.info(f"Save data to: {out_path}")
                 with xr.open_dataset(out_path) as ds:
-                    df = pd.DataFrame(index=pd.to_datetime(ds['valid_time'].values))
+                    df = pd.DataFrame(index=pd.to_datetime(ds['valid_time'].values, utc=True))
                     df[var] = ds[var].values.flatten()
                 df_temp = pd.concat([df_temp, df], axis=1)
                 functions.safe_remove(out_path)
@@ -84,6 +84,7 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, key):
         weather = weather.rename(columns=new_columns)
         weather = weather[['Humidity [%]', 'Air temperature [°C]', 'Cloud coverage [%]', 'Solar radiation [W/m2]']]
         weather.index.name = 'Time'
+        weather.index = functions.utc_to_local(weather.index, time_zone)
         weather.to_csv(csv_path)
         logger.info(f"Meteo saved: {csv_path}")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
@@ -102,7 +103,7 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, key):
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def wind_downloader(project_name, processes, lat, lon, start, end, key):
+def wind_downloader(project_name, processes, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
@@ -125,8 +126,8 @@ def wind_downloader(project_name, processes, lat, lon, start, end, key):
     try:
         logger.info("Wind downloader started")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
+        start_time = functions.local_to_utc(start, time_zone)
+        end_time = functions.local_to_utc(end, time_zone)
         lat_new = round(float(lat) / resolution) * resolution
         lon_new = round(float(lon) / resolution) * resolution
         area = [lat_new + delta, lon_new - delta, lat_new - delta, lon_new + delta]
@@ -170,6 +171,7 @@ def wind_downloader(project_name, processes, lat, lon, start, end, key):
         weather = weather.drop(columns=['u10', 'v10'], axis=0)
         weather = weather[['Magnitude [m/s]', 'Angle [deg]']]
         weather.index.name = 'Time'
+        weather.index = functions.utc_to_local(weather.index, time_zone)
         weather.to_csv(csv_path)
         logger.info(f"Wind saved: {csv_path}")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
@@ -187,6 +189,3 @@ def wind_downloader(project_name, processes, lat, lon, start, end, key):
             h.close()
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
-
-
-

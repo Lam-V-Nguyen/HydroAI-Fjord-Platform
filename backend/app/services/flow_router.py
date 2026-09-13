@@ -32,7 +32,7 @@ router, processes, process_lock = APIRouter(), {}, threading.Lock()
 async def flow_project(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     try:
-        flow_name, key = body.get('flowName'), body.get('key')
+        flow_name, key, time_zone = body.get('flowName'), body.get('key'), body.get('timeZone')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_dir = os.path.join(PROJECT_ROOT, project_name, "flows")
         os.makedirs(flow_dir, exist_ok=True)
@@ -48,16 +48,24 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
             dtm_file = files[0].replace("_filled", "") if len(files) > 0 else ''
             dtm_path = os.path.join(dir, dtm_file)
             content['dtm'] = dtm_file if os.path.exists(dtm_path) else ''
-        elif key == 'open':
-            forcing_path = os.path.join(dir, 'forcing', 'weather_forcing.nc')
-            if not os.path.exists(forcing_path):
-                return JSONResponse({'status': 'error', 'message': f"Forcing file not found."})
-            with xr.open_dataset(forcing_path) as forcing:
-                start, end = forcing.time.values[0], forcing.time.values[-1]
-            dt_start = pd.Timedelta(start).tz_localize('UTC')
-            dt_end = pd.Timedelta(end).tz_localize('UTC')
-            content['start'] = dt_start.strftime('%Y-%m-%d %H:%M:%S')
-            content['end'] = dt_end.strftime('%Y-%m-%d %H:%M:%S')
+        # elif key == 'open':
+        #     forcing_path = os.path.join(dir, 'forcing', 'weather_forcing.nc')
+        #     if not os.path.exists(forcing_path):
+        #         return JSONResponse({'status': 'error', 'message': f"Forcing file not found."})
+        #     with xr.open_dataset(forcing_path) as forcing:
+        #         start, end = forcing.time.values[0], forcing.time.values[-1]
+
+
+
+
+
+
+        #     # dt_start = pd.Timedelta(start).tz_localize('UTC')
+        #     # dt_end = pd.Timedelta(end).tz_localize('UTC')
+
+
+        #     content['start'] = functions.utc_to_local(dt_start, time_zone)
+        #     content['end'] = functions.utc_to_local(dt_end, time_zone)
         return JSONResponse({'content': content})
     except Exception as e:
         print('/flow_project:\n==============')
@@ -164,8 +172,7 @@ async def terrain_upload(file: UploadFile = File(...), flowName: str = Form(...)
                 reproject(
                     source=rasterio.band(src, 1), destination=rasterio.band(dst, 1),
                     src_transform=src.transform, src_crs=src.crs,
-                    dst_transform=transform, dst_crs=dst_crs,
-                    resampling=Resampling.bilinear
+                    dst_transform=transform, dst_crs=dst_crs, resampling=Resampling.bilinear
                 )
         # Get min and max
         with rasterio.open(cog_path) as src:
@@ -625,9 +632,6 @@ async def log_tail_download(project_name: str, offset: int = Query(0),
         new_offset = f.tell()
     return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
 
-
-
-
 # Download weather
 @router.post("/start_download_weather")
 async def start_download_weather(request: Request, user=Depends(functions.basic_auth)):
@@ -640,11 +644,11 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
         if project_name in processes and processes[project_name]["status"] == "running":
             return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
         catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
-        start, end = body.get('start'), body.get('end')
+        start, end, time_zone = body.get('start'), body.get('end'), body.get('timeZone')
         processes[project_name] = {"status": "running", "message": "Preparing download..."}
         threading.Thread(
             target=flow_functions.weather_downloader, 
-            args=(project_name, processes, flow_name, start, end, catchment_WGS84), daemon=True
+            args=(project_name, processes, flow_name, time_zone, start, end, catchment_WGS84), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
@@ -655,10 +659,10 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_name, data = body.get('flowName'), dict(body.get('data'))
         flow_dir = os.path.join(PROJECT_ROOT, project_name, "flows", flow_name)
-        forcing_dir = os.path.join(flow_dir, 'forcing')
+        forcing_dir, time_zone = os.path.join(flow_dir, 'forcing'), body.get('timeZone')
         os.makedirs(forcing_dir, exist_ok=True)
         df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
-        df['Time'] = pd.to_datetime(df['Time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+        df['Time'] = functions.local_to_utc(df['Time'], time_zone)
         df = df.set_index('Time')
         # # Resample
         # weather_new = weather_new.resample('1H').interpolate(method='time')
@@ -678,7 +682,7 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
         }
         for var, (col, unit) in forcing.items():
             data = df[col].values.astype(np.float32)
-            data_3d = flow_functions.create_forcing(time, ny, nx, data, mask_nan, True)
+            data_3d = flow_functions.create_forcing(data, ny, nx, mask_nan, True)
             datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
         x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
         y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
@@ -707,7 +711,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, project_id = functions.project_definer(body.get('projectName'), user)
-        key, flow_name = body.get('key'), body.get('flowName')
+        key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
         flow_dir = os.path.join(PROJECT_ROOT, project_name, "flows", flow_name)
         redis, model_name = request.app.state.redis, 'wflow_model'
         lock = redis.lock(f"{project_id}:wflow_{key}", timeout=1000, blocking_timeout=10)
@@ -764,7 +768,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 threading.Thread(
                     target=flow_functions.prepare_hydromt, 
                     args=(
-                        project_name, processes, flow_name, model_name, start, end, step, data_lib, region, 
+                        project_name, processes, flow_name, model_name, start, end, time_zone, step, data_lib, region, 
                         resolution, soil_layers, params_input, params_output, lulc_fn, lulc_mapping, lai_fn
                     ), daemon=False).start()
                 return JSONResponse({"status": "ok", 'message': 'Preparing Wflow model started.'})
@@ -802,7 +806,7 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, project_id = functions.project_definer(body.get('projectName'), user)
         redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
-        lat, lon, key = body.get('lat'), body.get('lon'), body.get('key')
+        lat, lon, key, time_zone = body.get('lat'), body.get('lon'), body.get('key'), body.get('timeZone')
         lock = redis.lock(f"{project_id}:meteo", timeout=1000, blocking_timeout=10)
         async with lock:
             # Check if process already running
@@ -812,7 +816,7 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
             if key == 'meteo': target = hyd_functions.meteo_downloader
             elif key == 'wind': target = hyd_functions.wind_downloader
             threading.Thread(
-                target=target, args=(project_name, processes, lat, lon, start, end, key), daemon=True
+                target=target, args=(project_name, processes, lat, lon, start, end, time_zone, key), daemon=True
             ).start()
         return JSONResponse({"status": "ok", "message": "Meteo downloading started", 'content': body})
     except Exception as e:

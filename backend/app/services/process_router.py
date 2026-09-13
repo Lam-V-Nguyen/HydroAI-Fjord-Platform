@@ -66,13 +66,13 @@ async def upload_data(file: UploadFile = File(...), projectName: str = Form(...)
         await file.close()
 
 # Process data
-async def process_internal(query: str, key: str, redis, project_cache, project_name: str):
+async def process_internal(query: str, key: str, redis, project_cache, project_name: str, time_zone: str):
     # Internal function to process data
     message = ''
     if key == 'summary':
         dia_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "output", "HYD", "FlowFM.dia"))
         hyd_his, waq_his = project_cache.get("hyd_his"), project_cache.get("waq_his")
-        data = functions.getSummary(dia_path, [hyd_his, waq_his])
+        data = functions.getSummary(dia_path, [hyd_his, waq_his], time_zone)
     elif key == 'hyd_station':
         temp, message = functions.hydCreator(project_cache.get("hyd_his"))
         data = json.loads(temp.to_json())
@@ -87,7 +87,10 @@ async def process_internal(query: str, key: str, redis, project_cache, project_n
         data = json.loads(temp.to_json())
     elif key == '_in-situ':
         name, station_id, typ = query.split('*')
-        temp = functions.selectInsitu(project_cache.get("hyd_his"), project_cache.get("hyd_map"), name, station_id, typ)
+        temp = functions.selectInsitu(
+            project_cache.get("hyd_his"), project_cache.get("hyd_map"), 
+            name, station_id, typ, time_zone
+        )
         data = { 'columns': temp.columns.tolist(), 'rows': temp.values.tolist() }
     elif key == 'substance_check':
         substance_raw = await redis.hget(project_name, 'config')
@@ -97,7 +100,9 @@ async def process_internal(query: str, key: str, redis, project_cache, project_n
             message = functions.valueToKeyConverter(data)
         else: data, message = None, f"No substance defined."
     elif key == 'substance':
-        temp = functions.timeseriesCreator(project_cache.get("waq_his"), query, timeColumn='nTimesDlwq')
+        temp = functions.timeseriesCreator(
+            project_cache.get("waq_his"), query, time_zone, 'nTimesDlwq'
+        )
         data = { 'columns': temp.columns.tolist(), 'rows': temp.values.tolist() }
     elif key == 'static':
         # Create static data for map
@@ -115,7 +120,7 @@ async def process_internal(query: str, key: str, redis, project_cache, project_n
         }
     else:
         # Create time series data
-        temp = functions.timeseriesCreator(project_cache.get("hyd_his"), key)
+        temp = functions.timeseriesCreator(project_cache.get("hyd_his"), key, time_zone)
         data = { 'columns': temp.columns.tolist(), 'rows': temp.values.tolist() }
     return message, data
 
@@ -127,9 +132,11 @@ async def process_data(request: Request, user=Depends(functions.basic_auth)):
         query, key, redis = body.get('query'), body.get('key'), request.app.state.redis
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         project_cache = request.app.state.project_cache.setdefault(project_name)
-        lock = redis.lock(f"{project_name}:{key}", timeout=10)
+        lock, time_zone = redis.lock(f"{project_name}:{key}", timeout=10), body.get('timeZone')
         async with lock:
-            message, data = await process_internal(query, key, redis, project_cache, project_name)
+            message, data = await process_internal(
+                query, key, redis, project_cache, project_name, time_zone
+            )
             if data is None: return JSONResponse({'status': 'error', 'message': message})
             return JSONResponse({'content': data, 'status': 'ok', 'message': message})
     except Exception as e:
@@ -178,11 +185,13 @@ async def load_general_dynamic(request: Request, user=Depends(functions.basic_au
         redis, query, key = request.app.state.redis, body.get('query'), body.get('key')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         project_cache = request.app.state.project_cache.setdefault(project_name)
-        if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory"})
+        if not project_cache: 
+            return JSONResponse({"status": "error", "message": "Project is not available in memory"})
         hyd_his, hyd_map = project_cache.get("hyd_his"), project_cache.get("hyd_map")
         waq_his, waq_map = project_cache.get("waq_his"), project_cache.get("waq_map")
-        if not any([hyd_his, hyd_map, waq_his, waq_map]): return JSONResponse({"status": "error", "message": "Project not initialized."})        
-        temp = query.split('|')
+        if not any([hyd_his, hyd_map, waq_his, waq_map]): 
+            return JSONResponse({"status": "error", "message": "Project not initialized."})        
+        temp, time_zone = query.split('|'), body.get('timeZone')
         is_hyd = temp[0] == '' # hydrodynamic or waq
         # Split cache data by hydrodynamic or waq
         dataset_type = "hyd" if is_hyd else "waq"
@@ -229,10 +238,10 @@ async def load_general_dynamic(request: Request, user=Depends(functions.basic_au
                 'values': functions.encode_array(fmt(new_arr)), 'min_max': [
                     fmt(np.nanmin(values)).tolist(), fmt(np.nanmax(values)).tolist()
                     ], 'timestamps': [
-                        pd.to_datetime(t, utc=True).strftime('%Y-%m-%d %H:%M:%S') 
-                        for t in data_ds[time_column].data
+                        pd.to_datetime(t, utc=True) for t in data_ds[time_column].data
                     ]
             }
+            data['timestamps'] = [functions.utc_to_local(t, time_zone) for t in data['timestamps']]
         else: # Update value of polygons
             arr_np, fmt = np.array(arr), functions.numberFormatter
             new_arr = arr_np[int(temp[2]), :] if arr_np.ndim == 2 else arr_np
@@ -248,7 +257,7 @@ async def load_general_dynamic(request: Request, user=Depends(functions.basic_au
 async def load_vector_dynamic(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        query, key = body.get('query'), body.get('key')
+        query, key, time_zone = body.get('query'), body.get('key'), body.get('timeZone')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, vector_cache_key = request.app.state.redis, f"{project_name}:vector_cache"
         project_cache = request.app.state.project_cache.setdefault(project_name)
@@ -261,7 +270,7 @@ async def load_vector_dynamic(request: Request, user=Depends(functions.basic_aut
         if raw_cache: vector_cache = msgpack.unpackb(raw_cache, raw=False)
         else: vector_cache = {"layers": {}}
         if not value_type in vector_cache['layers']:
-            layer_dict = functions.vectorComputer(data_ds, value_type, row_idx)
+            layer_dict = functions.vectorComputer(data_ds, value_type, row_idx, time_zone)
             lock = redis.lock(f"{project_name}:vector:{value_type}", timeout=10)
             async with lock:
                 vector_cache['layers'][value_type] = layer_dict
@@ -278,8 +287,7 @@ async def load_vector_dynamic(request: Request, user=Depends(functions.basic_aut
                 vmin = fnm(np.nanmin(data_ds['mesh2d_ucmag'])).tolist()
                 vmax = fnm(np.nanmax(data_ds['mesh2d_ucmag'])).tolist()
             data['timestamps'] = [
-                pd.to_datetime(t, utc=True).strftime('%Y-%m-%d %H:%M:%S') 
-                for t in data_ds['time'].data
+                functions.utc_to_local(pd.to_datetime(t, utc=True), time_zone) for t in data_ds['time'].data
             ]
             data['min_max'] = [vmin, vmax]
         else: data = functions.vectorComputer(data_ds, value_type, row_idx, int(query))
@@ -296,7 +304,7 @@ async def select_meshes(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         key, query, idx = body.get('key'), body.get('query'), body.get('idx')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        redis, points = request.app.state.redis, body.get('points')
+        redis, points, time_zone = request.app.state.redis, body.get('points'), body.get('timeZone')
         project_cache = request.app.state.project_cache.setdefault(project_name)
         if not project_cache: return JSONResponse({"status": "error", "message": "Project is not available in memory"})
         hyd_map, waq_map = project_cache.get("hyd_map"), project_cache.get("waq_map")
@@ -321,7 +329,8 @@ async def select_meshes(request: Request, user=Depends(functions.basic_auth)):
                 mesh_cache = { "depth_values": depth_values, "n_rows": n_rows, "df": None}
                 await redis.set(mesh_cache_key, msgpack.packb(mesh_cache, use_bin_type=True), ex=600)
                 time_column = 'time' if is_hyd else 'nTimesDlwq'
-                time_stamps = pd.to_datetime(data_ds[time_column], utc=True).strftime('%Y-%m-%d %H:%M:%S').tolist()
+                time_stamps = pd.to_datetime(data_ds[time_column], utc=True)
+                time_stamps = functions.utc_to_local(time_stamps, time_zone).tolist()
                 arr = values[0,:,:] if is_hyd else values[0,:,:].T
                 # Create GeoDataFrame for interpolation
                 grid, points_arr = project_cache.get("grid"), np.array(points)
@@ -407,7 +416,8 @@ async def delete_gis(request: Request, user=Depends(functions.basic_auth)):
 async def select_thermocline(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key, query, typ, idx = body.get('key'), body.get('query'), body.get('type'), body.get('idx')
+        key, query, typ = body.get('key'), body.get('query'), body.get('type')
+        idx, time_zone = body.get('idx'), body.get('timeZone')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, thermo_cache_key = request.app.state.redis, f"{project_name}:thermocline_cache"
         project_cache = request.app.state.project_cache.setdefault(project_name)
@@ -429,7 +439,10 @@ async def select_thermocline(request: Request, user=Depends(functions.basic_auth
                 await redis.delete(thermo_cache_key)
             elif typ == 'thermocline_init':
                 time_column = 'time' if is_hyd else 'nTimesDlwq'
-                time_stamps = pd.to_datetime(data_ds[time_column], utc=True).strftime('%Y-%m-%d %H:%M:%S').tolist()
+                time_stamps = [
+                    functions.utc_to_local(pd.to_datetime(t, utc=True), time_zone) 
+                    for t in data_ds[time_column].values
+                ]
                 # Load layer reverse from Redis
                 layer_key = "layer_reverse_hyd" if is_hyd else "layer_reverse_waq"
                 layer_reverse_raw = await redis.hget(project_name, layer_key)

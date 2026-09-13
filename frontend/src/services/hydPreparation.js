@@ -1,5 +1,5 @@
 import { setupTabs } from "./tabManager.js";
-import { hydPrepareMapId } from "./constant.js";
+import { hydPrepareMapId, getLastTimeZone } from "./constant.js";
 import { getUser, signalSender, iframeConnector, updateLog, 
     jsonLoader, fillTable, getDataFromTable, saveCSV
 } from "./commonFunctions.js";
@@ -75,7 +75,8 @@ function meteoManagement() {
         if (statusRes.status === "running") { alert("Meteo download is already running."); return; }
         obj.meteoLog.value = '';
         const content = { 
-            projectName: currentProject, lat: lat, lon: lon, start: start, end: end, key: key
+            projectName: currentProject, lat: lat, lon: lon, 
+            start: start, end: end, key: key, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('start_meteo', content);
         if (request.status === 'error') { alert(request.message); return; }
@@ -113,7 +114,8 @@ function weatherManagement() {
         if (statusRes.status === "running") { alert("Wind download is already running."); return; }
         obj.weatherLog.value = '';
         const content = { 
-            projectName: currentProject, lat: lat, lon: lon, start: start, end: end, key: key
+            projectName: currentProject, lat: lat, lon: lon, 
+            start: start, end: end, key: key, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('start_meteo', content);
         if (request.status === 'error') { alert(request.message); return; }

@@ -1,5 +1,5 @@
 import { signalSender, jsonLoader, decodeArray, updateMapByTime } from "./commonFunctions.js";
-import { setStateVisualization, getStateVisualization, L, arrowShape } from "./constant.js";
+import { setStateVisualization, getStateVisualization, L, arrowShape, getLastTimeZone } from "./constant.js";
 import { getColorFromValue, updateColorbar } from "./unstructuredGrid.js";
 import { clearMap } from "./mapManager.js";
 
@@ -120,7 +120,9 @@ export async function plot2DMapStatic(
     currentProject, map, timeControl, substanceContainer, 
     colorbarContainer, key, legend, colorbarKey) {
     signalSender('showOverlay', 'Preparing Static Map.\nPlease wait...');
-    const content = { query: key, projectName: currentProject, key: 'static' };
+    const content = { 
+        query: key, projectName: currentProject, key: 'static', timeZone: getLastTimeZone() 
+    };
     const data = await jsonLoader('process_data', content);
     signalSender('hideOverlay');
     if (data.status === 'error') { alert(data.message); return; }
@@ -130,7 +132,9 @@ export async function plot2DMapStatic(
     // Get the min and max values of the data
     const vmin = data.content.min_max[0], vmax = data.content.min_max[1];
     const meshes = data.content.meshes, values = data.content.values;
-    layerMap = layerCreator(colorbarContainer, map, meshes, values, key, vmin, vmax, legend, colorbarKey);
+    layerMap = layerCreator(
+        colorbarContainer, map, meshes, values, key, vmin, vmax, legend, colorbarKey
+    );
     map.addLayer(layerMap);
 }
 
@@ -250,7 +254,8 @@ function initDynamicMap(projectName, map, timeControl, colorbarContainer,
         const requestId = ++lastRequestId;
         if (data_below && layerMap) {
             const content = { 
-                query: `${query}|${currentIndex}`, key: key_below, projectName: projectName 
+                query: `${query}|${currentIndex}`, key: key_below, 
+                projectName: projectName, timeZone: getLastTimeZone()
             };
             const frame_below = await jsonLoader('load_general_dynamic', content);
             if (requestId !== lastRequestId) return;
@@ -264,7 +269,8 @@ function initDynamicMap(projectName, map, timeControl, colorbarContainer,
         }
         if (data_above && layerAbove) {
             const content = { 
-                query: currentIndex, key: key_above, projectName: projectName 
+                query: currentIndex, key: key_above, 
+                projectName: projectName, timeZone: getLastTimeZone()
             };
             const frame_above = await jsonLoader('load_vector_dynamic', content);
             if (frame_above.status === 'error') return alert(frame_above.message);
@@ -312,7 +318,9 @@ export async function plot2DMapDynamic(projectName, map, timeControl, colorbarCo
     setStateVisualization({showedQuery: key}); 
     setStateVisualization({isHYD: waterQuality});  // Set HYD flag
     // Process below layer
-    const content = { query: `${query}|load`, key: key, projectName: projectName };
+    const content = { 
+        query: `${query}|load`, key: key, projectName: projectName, timeZone: getLastTimeZone() 
+    };
     const dataBelow = await jsonLoader('load_general_dynamic', content);
     signalSender('hideOverlay');
     if (dataBelow.status === 'error') { alert(dataBelow.message); return; }
@@ -335,7 +343,9 @@ export async function plot2DMapDynamic(projectName, map, timeControl, colorbarCo
             colorbarTitleAbove = `${vector.selectedOptions[0].text} (m/s)\n${title}`; 
             colorbarKeyAbove = 'vector';
         }
-        const content = { query: 'load', key: key_above, projectName: projectName };
+        const content = { 
+            query: 'load', key: key_above, projectName: projectName, timeZone: getLastTimeZone()
+        };
         const dataAbove = await jsonLoader('load_vector_dynamic', content);
         data_above = dataAbove.content; 
     }
@@ -349,7 +359,8 @@ export async function plot2DMapDynamic(projectName, map, timeControl, colorbarCo
 export async function plot2DVectorMap(projectName, map, timeControl, colorbarContainer, 
     colorbarVectorContainer, scaleObj, query, key, colorbarTitle, colorbarKey, vectorScaler) {
     signalSender('showOverlay', 'Preparing Dynamic Vector Map.\nPlease wait...');
-    const data = await jsonLoader('load_vector_dynamic', {query: query, key: key, projectName: projectName});
+    const content = {query: query, key: key, projectName: projectName, timeZone: getLastTimeZone()};
+    const data = await jsonLoader('load_vector_dynamic', content);
     signalSender('hideOverlay'); 
     if (data.status === 'error') { alert(data.message); return; }
     layerMap = clearMap(layerMap, map); layerAbove = clearMap(layerAbove, map);

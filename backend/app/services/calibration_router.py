@@ -4,7 +4,7 @@ from fastapi import UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT
 from services import calibration_functions, functions
-from datetime import timezone, datetime, timedelta
+from datetime import datetime, timedelta
 import pandas as pd, numpy as np
 from sklearn.metrics import mean_squared_error, r2_score
 
@@ -15,7 +15,8 @@ router, processes = APIRouter(), {}
 async def calibration_project(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     try:
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        name, time_zone = body.get('projectName'), body.get('timeZone')
+        project_name, _ = functions.project_definer(name, user)
         input_dir = os.path.join(PROJECT_ROOT, project_name, "input")
         mdu_path = os.path.join(input_dir, [f for f in os.listdir(input_dir) if f.endswith(".mdu")][0])
         if not os.path.exists(mdu_path):
@@ -30,7 +31,7 @@ async def calibration_project(request: Request, user=Depends(functions.basic_aut
         end_date = calibration_functions.get_values_from_mdu(mdu_content, 'TStop')
         ref_date = calibration_functions.get_values_from_mdu(mdu_content, 'RefDate')
         unit = calibration_functions.get_values_from_mdu(mdu_content, 'Tunit')
-        ref_dt = datetime.strptime(ref_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+        ref_dt = datetime.strptime(ref_date, "%Y%m%d")
         if unit == 'S':
             start_dt = ref_dt + timedelta(seconds=int(start_date))
             end_dt = ref_dt + timedelta(seconds=int(end_date))
@@ -40,8 +41,8 @@ async def calibration_project(request: Request, user=Depends(functions.basic_aut
         elif unit == 'H':
             start_dt = ref_dt + timedelta(hours=int(start_date))
             end_dt = ref_dt + timedelta(hours=int(end_date))
-        start_date = start_dt.strftime('%Y-%m-%d %H:%M:%S')
-        end_date = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+        start_date = functions.utc_to_local(start_dt, time_zone)
+        end_date = functions.utc_to_local(end_dt, time_zone)
         content = {'start': start_date, 'end': end_date}
         return JSONResponse({'content': content})
     except Exception as e:
@@ -50,8 +51,7 @@ async def calibration_project(request: Request, user=Depends(functions.basic_aut
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/obs_calibration_upload")
-async def obs_calibration_upload(file: UploadFile = File(...), 
-    projectName: str = Form(...), timeZone: str = Form(...), 
+async def obs_calibration_upload(file: UploadFile = File(...), projectName: str = Form(...),
     simStart: str = Form(...), simEnd: str = Form(...), user=Depends(functions.basic_auth)):
     try:
         project_name, _ = functions.project_definer(projectName, user)
@@ -63,7 +63,7 @@ async def obs_calibration_upload(file: UploadFile = File(...),
                 if not chunk: break
                 f.write(chunk)
         df = pd.read_csv(path, low_memory=False)
-        content = calibration_functions.clip_data(df, 'Time', timeZone, simStart, simEnd)
+        content = calibration_functions.clip_data(df, 'Time', simStart, simEnd)
         if len(content) == 0:
             return JSONResponse({'status': 'error', 
                 'message': f"No data in the uploaded CSV file falls within the simulation dates ({simStart} to {simEnd})."
@@ -73,6 +73,135 @@ async def obs_calibration_upload(file: UploadFile = File(...),
         print('/obs_calibration_upload:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/get_stations_calibration")
+async def get_stations_calibration(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
+        scenario_dir = os.path.join(calibration_dir, 'scenarios')
+        if not os.path.exists(scenario_dir):
+            return JSONResponse({"status": "error", "message": f"Scenario directory not found. Please run iteration first."})
+        list_sorted = sorted([int(x) for x in os.listdir(scenario_dir) if os.path.isdir(os.path.join(scenario_dir, x))])
+        if not list_sorted:
+            return JSONResponse({"status": "error", "message": "No simulation scenarios found. Please run simulation first."})
+        output_checked, his_path = False, ''
+        for scenario in list_sorted:
+            output_dir = os.path.join(scenario_dir, str(scenario), "output")
+            if not os.path.exists(output_dir): continue
+            output_path = os.path.join(output_dir, "FlowFM_his.nc")
+            if os.path.exists(output_path):
+                output_checked, his_path = True, output_path
+                break
+        if not output_checked or not os.path.exists(his_path): 
+            return JSONResponse({"status": "error", "message": "No simulation output found. Please run simulation first."})
+        content = calibration_functions.get_station_from_his_file(his_path)
+        if len(content) == 0: return JSONResponse({"status": "error", "message": "No station data found in the simulation."})
+        return JSONResponse({"status": "ok", "content": content})
+    except Exception as e:
+        print('/get_stations_calibration:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
+
+@router.post("/summarize_calibration")
+async def summarize_calibration(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
+        param_samples_path = os.path.join(calibration_dir, 'parameter_samples.csv')
+        if not os.path.exists(param_samples_path):
+            return JSONResponse({"status": "error", "message": f"Parameter samples file not found. Please run iteration first."})
+        scenario_dir = os.path.join(calibration_dir, 'scenarios')
+        if not os.path.exists(scenario_dir):
+            return JSONResponse({"status": "error", "message": f"Scenario directory not found. Please run iteration first."})
+        list_sorted = sorted([int(x) for x in os.listdir(scenario_dir) if os.path.isdir(os.path.join(scenario_dir, x))])
+        if not list_sorted:
+            return JSONResponse({"status": "error", "message": "No simulation scenarios found. Please run simulation first."})
+        summary_dir = os.path.join(calibration_dir, 'summary')
+        if os.path.exists(summary_dir): shutil.rmtree(summary_dir)
+        os.makedirs(summary_dir, exist_ok=True)
+        sim_start, sim_end = body.get('simStart'), body.get('simEnd')
+        obs_start, obs_end = body.get('obsStart'), body.get('obsEnd')
+        obs_station, depth_selection = body.get('station'), body.get('depthSelection')
+        # Define period
+        time_col, time_zone = 'Time', body.get('timeZone')
+        sim_start = functions.local_to_utc(sim_start, time_zone)
+        sim_end = functions.local_to_utc(sim_end, time_zone)
+        obs_start = functions.local_to_utc(obs_start, time_zone)
+        obs_end = functions.local_to_utc(obs_end, time_zone)
+        t_start, t_end = max(sim_start, obs_start), min (sim_end, obs_end)
+        depths_selected = [x.strip() for x in depth_selection.split(",")]
+        summary_list, target_method, weight_method = [], body.get('targetValue'), body.get('weightValue')
+        df_params = pd.read_csv(param_samples_path, index_col=0)
+        # Process measured data
+        measured_df = pd.DataFrame(data=body.get('obsData'), columns=[time_col, 'temperature', 'depth'])
+        measured_df[time_col] = functions.local_to_utc(measured_df[time_col], time_zone)
+        # Detect measurement periods
+        measured_df = measured_df[(measured_df[time_col] >= t_start) & (measured_df[time_col] <= t_end)]
+        obs_df = calibration_functions.split_temp_from_depth(measured_df, depths_selected, time_col)
+        obs_path = os.path.join(calibration_dir, f'obs_{obs_station}.csv')
+        # Convert to local timezone and save
+        obs_df[time_col] = functions.utc_to_local(obs_df[time_col], time_zone)
+        obs_df.to_csv(obs_path, index=False)
+        for case_id in list_sorted:
+            c_dir = os.path.join(scenario_dir, str(case_id))
+            his_file = os.path.join(c_dir, 'output', 'FlowFM_his.nc')
+            df_sim = calibration_functions.read_and_interpolate_his(his_file, obs_station, depths_selected, time_col)
+            if df_sim.empty: continue
+            summary_path = os.path.join(summary_dir, f"sim_{case_id}.csv")
+            if os.path.exists(summary_path): os.remove(summary_path)
+            df_sim = df_sim.reset_index()
+            df_sim[time_col] = functions.utc_to_local(df_sim[time_col], time_zone)
+            df_sim.to_csv(summary_path, index=False)
+            target = []
+            for d in depths_selected:
+                obs_col, sim_col = f"obs_{d}", f"sim_{d}"
+                obs_series = obs_df[[time_col, obs_col]].dropna().set_index(time_col).sort_index()
+                obs_series = obs_series[~obs_series.index.duplicated(keep='first')]
+                obs_clean = calibration_functions.remove_rolling_outliers(obs_series, obs_col)
+                df_sim_temp = df_sim.copy()
+                df_sim_temp = df_sim_temp.set_index(time_col)
+                obs_clean.index, df_sim_temp.index = pd.to_datetime(obs_clean.index), pd.to_datetime(df_sim_temp.index)
+                comb = df_sim_temp[[sim_col]].reindex(df_sim_temp.index.union(obs_clean.index)).sort_index()
+                comb.index, obs_clean.index = pd.to_datetime(comb.index), pd.to_datetime(obs_clean.index)
+                comb[sim_col] = comb[sim_col].interpolate(method="time")
+                aligned = comb.loc[obs_clean.index, [sim_col]].join(obs_clean).dropna()
+                if len(aligned) > 0:
+                    score = calibration_functions.target_score(target_method, aligned[obs_col], aligned[sim_col])
+                    target.append(score)
+                else: target.append(np.nan)
+            # Compute weighted
+            weighted = calibration_functions.compute_weighted_rmse(depths_selected, target, weight_method)
+            row_params = df_params.loc[case_id].to_dict()
+            row_params[target_method] = weighted
+            summary_list.append(row_params)
+        summary_df = pd.DataFrame(summary_list).dropna(subset=[target_method])
+        summary_csv = os.path.join(calibration_dir, 'calibration_summary.csv')
+        summary_df.to_csv(summary_csv, index=False)
+        return JSONResponse({'status': 'ok', 'message': 'Calibration summary completed.'})
+    except Exception as e:
+        print('/summarize_calibration:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
+
+@router.post("/correlation_calibration")
+async def correlation_calibration(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
+        correlation_path = os.path.join(calibration_dir, 'calibration_summary.csv')
+        if not os.path.exists(correlation_path):
+            return JSONResponse({"status": "error", "message": "Calibration summary not found. Please run summarize first."})
+        summary_df = pd.read_csv(correlation_path)
+        columns = summary_df.columns.tolist()
+        return JSONResponse({'content': summary_df.to_dict(orient='records'), 'key': columns[-1]})
+    except Exception as e:
+        print('/correlation_calibration:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
 
 @router.post("/check_calibration")
 async def check_calibration(request: Request, user=Depends(functions.basic_auth)):
@@ -196,126 +325,6 @@ async def start_sim_calibration(request: Request, background_tasks: BackgroundTa
         return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started"})
     except Exception as e:
         print('/start_sim_calibration:\n==============')
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
-
-@router.post("/get_stations_calibration")
-async def get_stations_calibration(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
-        scenario_dir = os.path.join(calibration_dir, 'scenarios')
-        if not os.path.exists(scenario_dir):
-            return JSONResponse({"status": "error", "message": f"Scenario directory not found. Please run iteration first."})
-        list_sorted = sorted([int(x) for x in os.listdir(scenario_dir) if os.path.isdir(os.path.join(scenario_dir, x))])
-        if not list_sorted:
-            return JSONResponse({"status": "error", "message": "No simulation scenarios found. Please run simulation first."})
-        output_checked, his_path = False, ''
-        for scenario in list_sorted:
-            output_dir = os.path.join(scenario_dir, str(scenario), "output")
-            if not os.path.exists(output_dir): continue
-            output_path = os.path.join(output_dir, "FlowFM_his.nc")
-            if os.path.exists(output_path):
-                output_checked, his_path = True, output_path
-                break
-        if not output_checked or not os.path.exists(his_path): 
-            return JSONResponse({"status": "error", "message": "No simulation output found. Please run simulation first."})
-        content = calibration_functions.get_station_from_his_file(his_path)
-        if len(content) == 0: return JSONResponse({"status": "error", "message": "No station data found in the simulation."})
-        return JSONResponse({"status": "ok", "content": content})
-    except Exception as e:
-        print('/get_stations_calibration:\n==============')
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
-
-@router.post("/summarize_calibration")
-async def summarize_calibration(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body, time_col = await request.json(), 'Time'
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
-        param_samples_path = os.path.join(calibration_dir, 'parameter_samples.csv')
-        if not os.path.exists(param_samples_path):
-            return JSONResponse({"status": "error", "message": f"Parameter samples file not found. Please run iteration first."})
-        scenario_dir = os.path.join(calibration_dir, 'scenarios')
-        if not os.path.exists(scenario_dir):
-            return JSONResponse({"status": "error", "message": f"Scenario directory not found. Please run iteration first."})
-        list_sorted = sorted([int(x) for x in os.listdir(scenario_dir) if os.path.isdir(os.path.join(scenario_dir, x))])
-        if not list_sorted:
-            return JSONResponse({"status": "error", "message": "No simulation scenarios found. Please run simulation first."})
-        summary_dir = os.path.join(calibration_dir, 'summary')
-        if os.path.exists(summary_dir): shutil.rmtree(summary_dir)
-        os.makedirs(summary_dir, exist_ok=True)
-        sim_start, sim_end = body.get('simStart'), body.get('simEnd')
-        obs_start, obs_end = body.get('obsStart'), body.get('obsEnd')
-        obs_station, depth_selection = body.get('station'), body.get('depthSelection')
-        # Define period
-        sim_start = datetime.strptime(sim_start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        sim_end = datetime.strptime(sim_end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        obs_start = datetime.strptime(obs_start, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        obs_end = datetime.strptime(obs_end, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-        t_start, t_end = max(sim_start, obs_start), min (sim_end, obs_end)
-        depths_selected = [x.strip() for x in depth_selection.split(",")]
-        summary_list, target_method, weight_method = [], body.get('targetValue'), body.get('weightValue')
-        df_params = pd.read_csv(param_samples_path, index_col=0)
-        # Process measured data
-        measured_df = pd.DataFrame(data=body.get('obsData'), columns=[time_col, 'temperature', 'depth'])
-        measured_df[time_col] = pd.to_datetime(measured_df[time_col], utc=True)
-        # Detect measurement periods
-        measured_df = measured_df[(measured_df[time_col] >= t_start) & (measured_df[time_col] <= t_end)]
-        obs_df = calibration_functions.split_temp_from_depth(measured_df, depths_selected, time_col)
-        obs_path = os.path.join(calibration_dir, f'obs_{obs_station}.csv')
-        obs_df.to_csv(obs_path, index=False)
-        for case_id in list_sorted:
-            c_dir = os.path.join(scenario_dir, str(case_id))
-            his_file = os.path.join(c_dir, 'output', 'FlowFM_his.nc')
-            df_sim = calibration_functions.read_and_interpolate_his(his_file, obs_station, depths_selected, time_col)
-            if df_sim.empty: continue
-            summary_path = os.path.join(summary_dir, f"sim_{case_id}.csv")
-            if os.path.exists(summary_path): os.remove(summary_path)
-            df_sim.to_csv(summary_path, index=False)
-            target = []
-            for d in depths_selected:
-                obs_col, sim_col = f"obs_{d}", f"sim_{d}"
-                obs_series = obs_df[[time_col, obs_col]].dropna().set_index(time_col).sort_index()
-                obs_series = obs_series[~obs_series.index.duplicated(keep='first')]
-                obs_clean = calibration_functions.remove_rolling_outliers(obs_series, obs_col)
-                comb = df_sim[[sim_col]].reindex(df_sim.index.union(obs_clean.index)).sort_index()
-                comb[sim_col] = comb[sim_col].interpolate(method="time")
-                aligned = comb.loc[obs_clean.index, [sim_col]].join(obs_clean).dropna()
-                if len(aligned) > 0:
-                    score = calibration_functions.target_score(target_method, aligned[obs_col], aligned[sim_col])
-                    target.append(score)
-                else: target.append(np.nan)
-            # Compute weighted
-            weighted = calibration_functions.compute_weighted_rmse(depths_selected, target, weight_method)
-            row_params = df_params.loc[case_id].to_dict()
-            row_params[target_method] = weighted
-            summary_list.append(row_params)
-        summary_df = pd.DataFrame(summary_list).dropna(subset=[target_method])
-        summary_csv = os.path.join(calibration_dir, 'calibration_summary.csv')
-        summary_df.to_csv(summary_csv, index=False)
-        return JSONResponse({'status': 'ok', 'message': 'Calibration summary completed.'})
-    except Exception as e:
-        print('/summarize_calibration:\n==============')
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
-
-@router.post("/correlation_calibration")
-async def correlation_calibration(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        calibration_dir = os.path.join(PROJECT_ROOT, project_name, "calibration")
-        correlation_path = os.path.join(calibration_dir, 'calibration_summary.csv')
-        if not os.path.exists(correlation_path):
-            return JSONResponse({"status": "error", "message": "Calibration summary not found. Please run summarize first."})
-        summary_df = pd.read_csv(correlation_path)
-        columns = summary_df.columns.tolist()
-        return JSONResponse({'content': summary_df.to_dict(orient='records'), 'key': columns[-1]})
-    except Exception as e:
-        print('/correlation_calibration:\n==============')
         traceback.print_exc()
         return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
 
@@ -493,10 +502,11 @@ async def save_scenario_calibration(request: Request, user=Depends(functions.bas
         return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
 
 @router.post("/obs_comparison_upload")
-async def obs_comparison_upload(file: UploadFile = File(...), simStart: str = Form(...), simEnd: str = Form(...)):
+async def obs_comparison_upload(file: UploadFile = File(...), timeZone: str = Form(...), 
+    simStart: str = Form(...), simEnd: str = Form(...)):
     try:
         df = pd.read_csv(file.file, low_memory=False)
-        content = calibration_functions.clip_data(df, 'Time', simStart, simEnd)
+        content = calibration_functions.clip_data(df, 'Time', timeZone, simStart, simEnd)
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/obs_comparison_upload:\n==============')
@@ -523,8 +533,9 @@ async def get_stations_comparison(request: Request, user=Depends(functions.basic
 @router.post("/comparison_plot")
 async def comparison_plot(request: Request, user=Depends(functions.basic_auth)):
     try:
-        body, time_col = await request.json(), 'Time'
+        body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
+        time_col, time_zone = 'Time', body.get('timeZone')
         station, obs_data = body.get('station'), body.get('obsData')
         redis, process_key = request.app.state.redis, f"{project_name}:comparison"
         lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
@@ -534,11 +545,11 @@ async def comparison_plot(request: Request, user=Depends(functions.basic_auth)):
             start_obs, end_obs = body.get('obsStart'), body.get('obsEnd')
             depths_selected = [x.strip() for x in body.get('depthSelection').split(",")]
             measured_df = pd.DataFrame(data=obs_data, columns=[time_col, 'temperature', 'depth'])
-            measured_df[time_col] = pd.to_datetime(measured_df[time_col], utc=True)
-            sim_start = datetime.strptime(start_sim, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-            sim_end = datetime.strptime(end_sim, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-            obs_start = datetime.strptime(start_obs, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-            obs_end = datetime.strptime(end_obs, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+            measured_df[time_col] = functions.local_to_utc(measured_df[time_col], time_zone)
+            sim_start = functions.local_to_utc(start_sim, time_zone)
+            sim_end = functions.local_to_utc(end_sim, time_zone)
+            obs_start = functions.local_to_utc(start_obs, time_zone)
+            obs_end = functions.local_to_utc(end_obs, time_zone)
             t_start, t_end = max(sim_start, obs_start), min (sim_end, obs_end)
             if t_start > t_end:
                 return JSONResponse({
@@ -569,7 +580,7 @@ async def comparison_plot(request: Request, user=Depends(functions.basic_auth)):
                 merge_df = pd.DataFrame({
                     time_col: obs_series.index, obs_col: obs_series[obs_col].values, sim_col: aligned_df.values
                 })
-                merge_df[time_col] = merge_df[time_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                merge_df[time_col] = functions.utc_to_local(merge_df[time_col], time_zone)
                 merge[str(depth)] = merge_df.to_dict(orient="records")
                 rmse = np.sqrt(mean_squared_error(merge_df[obs_col], merge_df[sim_col]))
                 r2 = r2_score(merge_df[obs_col], merge_df[sim_col])
@@ -579,8 +590,8 @@ async def comparison_plot(request: Request, user=Depends(functions.basic_auth)):
                 global_min = min(global_min, local_min)
                 global_max = max(global_max, local_max)
                 rmses.append(rmse)
-            obs_df[time_col] = obs_df[time_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-            sim_df[time_col] = sim_df[time_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            obs_df[time_col] = functions.utc_to_local(obs_df[time_col], time_zone)
+            sim_df[time_col] = functions.utc_to_local(sim_df[time_col], time_zone)
             total_rmse = calibration_functions.compute_weighted_rmse(depths_selected, rmses)
             content = {
                 'sim': sim_df.to_dict(orient="records"), 'depth': depths_selected,

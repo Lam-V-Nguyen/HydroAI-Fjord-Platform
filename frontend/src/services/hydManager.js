@@ -67,7 +67,6 @@ const obj = {
     outputRestart: $('write-restart-file'), rstStart: $('restart-output-start'), rstStop: $('restart-output-end'),
 }
 
-
 setupTabs(document); projectOptions(); hydManager();
 
 async function projectOptions(){
@@ -78,7 +77,7 @@ async function projectOptions(){
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         if (name.includes('/')) { project = name.split('/').pop(); } else { project = name; }
         const data = await jsonLoader('setup_new_project', { projectName: project });
-        obj.controlTab.style.display = "block"; obj.descriptionTab.style.display = "none"; // Show tabs
+        obj.controlTab.style.display = "block"; obj.descriptionTab.style.display = "none";
         alert(data.message); const respond = await getProjectList();
         await projectRender(obj.projectName, obj.projectList, respond);
         await loadScenario(name); 
@@ -91,7 +90,7 @@ async function projectOptions(){
         const newName = prompt('Please enter a name for the new scenario.\nCloning a scenario will take some time. Please be patient.');
         if (!newName || newName === '') { alert('Please define clone scenario name.'); return; }
         if (nameChecker(newName)) { alert('Name of clone scenario is invalid.'); return;}
-        signalSender('showOverlay', `Cloning scenario '${name}' to '${newName}'. Please be patient...`);
+        signalSender('showOverlay', `Cloning scenario '${name}' to '${newName}'. Please wait...`);
         const data = await jsonLoader('copy_project', {oldName: name, newName: newName});
         const respond = await getProjectList(); obj.projectName.value = newName;
         await projectRender(obj.projectName, obj.projectList, respond);
@@ -103,7 +102,7 @@ async function projectOptions(){
         if (!name || name.trim() === '') { alert('Please define scenario.'); return; }
         // Ask for confirmation
         if (!confirm(`Are you sure you want to delete scenario '${name}'?`)) { return; }
-        signalSender('showOverlay', `Deleting scenario '${name}'. Please be patient...`);
+        signalSender('showOverlay', `Deleting scenario '${name}'. Please wait...`);
         const data = await jsonLoader('delete_project', {projectName: name});
         obj.projectName.value = ''; const respond = await getProjectList();
         await projectRender(obj.projectName, obj.projectList, respond);
@@ -258,7 +257,6 @@ async function hydManager(){
     obj.crossSectionRemove.addEventListener('click', () => 
         deleteTable(obj.crossSectionTable, obj.crossSectionName, 'clearCrossSection')
     );
-    
     obj.boundaryEditRemove.addEventListener('click', () => { 
         deleteTable(obj.boundaryEditTable); obj.boundaryAddRow.click(); 
     });
@@ -286,13 +284,13 @@ async function hydManager(){
         if (boundaryData.rows.length === 0) { 
             alert('No data in the table. Please check boundary condition.'); return; 
         }
-        const subBoundaryData = getDataFromTable(obj.boundaryEditTable);
+        const subBoundaryData = getDataFromTable(obj.boundaryEditTable, true);
         if (subBoundaryData.rows.length === 0) { 
             alert('No data in the table. Please check sub-boundary condition.'); return; 
         }
         // Create boundary
         const content = {
-            projectName: nameProject, boundaryName: nameBoundary, 
+            projectName: nameProject, boundaryName: nameBoundary, timeZone: getLastTimeZone(),
             boundaryData: boundaryData.rows, subBoundaryName: subBoundary, 
             boundaryType: boundaryType, subBoundaryData: subBoundaryData.rows
         }
@@ -368,7 +366,7 @@ async function hydManager(){
     obj.meteoPlotBtn.addEventListener('click', () => {
         const data = getDataFromTable(obj.meteoTable, true);
         const title = 'Meteorological Time-Series Graph';
-        const titleChart = obj.meteoName.value.slice(0, -4);
+        const titleChart = obj.meteoUploadText.value.slice(0, -4);
         plotTimeSeries(obj.plotContainer, title, data, titleChart);
     });
     // Working on hydrological option
@@ -401,13 +399,13 @@ async function hydManager(){
     obj.sourceSaveBtn.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
         if (nameProject === ''){ alert('Please check project name.'); return; }
-        const table = getDataFromTable(obj.sourceTable), name = obj.sourceName.value;
+        const table = getDataFromTable(obj.sourceTable, true), name = obj.sourceName.value;
         const lat = obj.sourceLatitude.value, lon = obj.sourceLongitude.value;
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
         if (lat === '' || lon === '' || name === ''){ alert('Please check Name/Latitude/Longitude.'); return; }
         const content = {
             projectName: nameProject, nameSource: name, lat: lat, 
-            lon: lon, data: table.rows, BC: 1
+            lon: lon, data: table.rows, BC: 1, timeZone: getLastTimeZone()
         };
         const data = await jsonLoader('save_source', content);
         updateTable(obj.sourceRemoveTable, obj.sourceSelectorRemove, nameProject);
@@ -417,9 +415,10 @@ async function hydManager(){
     obj.meteoSaveBtn.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
         if (nameProject === ''){ alert('Please check project name.'); return; }        
-        const table = getDataFromTable(obj.meteoTable);
+        const table = getDataFromTable(obj.meteoTable, true);
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
-        const data = await jsonLoader('save_meteo', { projectName: nameProject, data: table.rows });
+        const content = {projectName: nameProject, data: table.rows, timeZone: getLastTimeZone()};
+        const data = await jsonLoader('save_meteo', content);
         alert(data.message);
     });
     // Weather data
@@ -437,10 +436,10 @@ async function hydManager(){
     obj.weatherUpload.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
         if (nameProject === ''){ alert('Please check project name.'); return; }        
-        const table = getDataFromTable(obj.weatherTable);
+        const table = getDataFromTable(obj.weatherTable, true);
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
-        const data = await jsonLoader('save_weather', { projectName: nameProject, data: table.rows });
-        alert(data.message);
+        const content = { projectName: nameProject, data: table.rows, timeZone: getLastTimeZone() };
+        const data = await jsonLoader('save_weather', content); alert(data.message);
     })
     // Save project
     obj.projectSaver.addEventListener('click', async () => { 
@@ -464,7 +463,7 @@ async function hydManager(){
             rtsInterval: rtsInterval, rtsStart: obj.rstStart, rtsStop: obj.rstStop, sttInterval: sttInterval, 
             timingInterval: timingInterval 
         };
-        await saveProject(elements); 
+        await saveProject(elements, getLastTimeZone()); 
     });
 }
 

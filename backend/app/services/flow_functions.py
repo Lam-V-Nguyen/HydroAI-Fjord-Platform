@@ -43,7 +43,14 @@ soil_type_reverse = {
     'bd': 'Bulk density', 'oc': 'Soil organic carbon', 'ph': 'Soil pH'
 }
 soil_depth_reverse = {v: k for k, v in soil_depths.items()}
-
+variables = {
+    'total_precipitation': 'tp', # Precipitation
+    '2m_temperature': 't2m', # Temperature
+    '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
+    'surface_pressure': 'sp',  # Pressure
+    'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
+    'surface_thermal_radiation_downwards': 'strd', # Longwave radiation
+}
 
 class StreamToLogger:
     PROGRESS_PATTERN = re.compile(r'\[\s*[#=]*\s*\]\s*\|\s*\d+%\s*Completed\s*\|')
@@ -51,7 +58,6 @@ class StreamToLogger:
         self.logger = logger
         self.level = level
         self.log_path = log_path
-
     def write(self, buf):
         if not buf: return
         if '\r' in buf or self.PROGRESS_PATTERN.search(buf):
@@ -63,7 +69,6 @@ class StreamToLogger:
         if not buf: return
         for line in buf.splitlines():
             self.logger.log(self.level, line.rstrip())
-
     def _update_progress(self, progress):
         if not self.log_path: return
         # Format exactly like logging.Formatter
@@ -88,7 +93,6 @@ class StreamToLogger:
                 f.writelines(lines)
                 f.truncate()
         except OSError: pass
-
     def flush(self):
         pass
 
@@ -110,7 +114,6 @@ def interpolate_extrapolate(data, mask_nan, get_nearest=False, power=2, max_neig
         distances, indices = tree.query(points_fill, k=k)
         if k == 1: filled_values = valid_values[indices]
         else:
-            # IDW
             distances = np.maximum(distances, 1e-8)
             weights = 1.0 / (distances ** power)
             weights = weights / weights.sum(axis=1, keepdims=True)
@@ -182,14 +185,10 @@ def prepare_interpolator(grid_net, x_coords, y_coords, n_neighbors=2, geo_type="
     gdf_points = grid_net.to_crs(utm).copy()
     if geo_type == "polygon": gdf_points.geometry = gdf_points.geometry.centroid
     tree = cKDTree(
-        np.column_stack(
-            [gdf_known.geometry.x, gdf_known.geometry.y]
-        )
+        np.column_stack([gdf_known.geometry.x, gdf_known.geometry.y])
     )
     dists, idx = tree.query(
-        np.column_stack(
-            [gdf_points.geometry.x, gdf_points.geometry.y]
-        ), k=n_neighbors,
+        np.column_stack([gdf_points.geometry.x, gdf_points.geometry.y]), k=n_neighbors
     )
     weight = 1.0 / (dists + 1e-10) ** 2
     weight /= weight.sum(axis=1, keepdims=True)
@@ -202,9 +201,7 @@ def create_forcing(values, ny, nx, mask_nan, single_value, idx=None, weight=None
     if single_value:
         if values.shape[1] != 1: return None
         values = values[:, 0]
-        data = np.broadcast_to(
-            values[:, None, None], (nt, ny, nx),
-        ).astype(np.float32)
+        data = np.broadcast_to(values[:, None, None], (nt, ny, nx)).astype(np.float32)
     else:
         interp = values[:, idx]
         interp = np.sum(interp * weight[None, :, :], axis=2)
@@ -224,7 +221,7 @@ def setup_logger(name, log_path: str):
     logger.addHandler(file_handler)
     return logger
 
-def weather_downloader(project_name, processes, flow_name, start, end, catchment, buffer=BUFFER):
+def weather_downloader(project_name, processes, flow_name, time_zone, start, end, catchment, buffer=BUFFER):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
     # Remove old log
@@ -243,15 +240,6 @@ def weather_downloader(project_name, processes, flow_name, start, end, catchment
     os.makedirs(forcing_dir, exist_ok=True)
     download_dir = os.path.join(forcing_dir, 'download')
     if not os.path.exists(download_dir): os.makedirs(download_dir)
-    # Setup variables
-    variables = {
-        'total_precipitation': 'tp', # Precipitation
-        '2m_temperature': 't2m', # Temperature
-        '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
-        'surface_pressure': 'sp',  # Pressure
-        'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-        'surface_thermal_radiation_downwards': 'strd', # Longwave radiation
-    }
     forcing_path = os.path.join(forcing_dir, "weather_forcing.nc")
     if os.path.exists(forcing_path): functions.safe_remove(forcing_path)
     forcing = {
@@ -275,8 +263,8 @@ def weather_downloader(project_name, processes, flow_name, start, end, catchment
         ny, nx = dem_array.shape[0], dem_array.shape[1]
         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
+        start_time = functions.local_to_utc(start, time_zone)
+        end_time = functions.local_to_utc(end, time_zone)
         lon_min, lat_min, lon_max, lat_max = catchment.total_bounds
         north, east = max(lat_min, lat_max), max(lon_min, lon_max)
         south, west = min(lat_min, lat_max), min(lon_min, lon_max)
@@ -285,8 +273,6 @@ def weather_downloader(project_name, processes, flow_name, start, end, catchment
         if os.path.exists(forcing_path):
             functions.safe_remove(forcing_path)
             logger.info("Removing old forcing data...")
-        start_time = datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(end, '%Y-%m-%d %H:%M:%S')
         time_index, time_step = 0, 'hours'
         x_coords = transform.c + (np.arange(width) + 0.5) * transform.a
         y_coords = transform.f + (np.arange(height) + 0.5) * transform.e
@@ -357,7 +343,7 @@ def weather_downloader(project_name, processes, flow_name, start, end, catchment
             logger.info("Processing monthly forcing ...")
             ref_file = next(f for f in month_files if f.endswith("_tp.nc"))
             with xr.open_dataset(ref_file) as ref_ds:
-                timestamps = pd.to_datetime(ref_ds['valid_time'][:]).to_numpy()
+                timestamps = pd.to_datetime(ref_ds['valid_time'][:], utc=True).to_numpy()
                 lat, lon = ref_ds['latitude'][:], ref_ds['longitude'][:]
             x_known, y_known, gdf = None, None, None
             single_value = lat.size * lon.size == 1
@@ -676,7 +662,7 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
             h.close()
             logger.removeHandler(h)
 
-def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, step, data_lib, region, resolution, 
+def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, time_zone, step, data_lib, region, resolution, 
     soil_layers, params_input, params_output, lulc_function='corine', lulc_mapping_fn='corine_mapping', lai_fn='lai_corine'):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     flow_dir = os.path.join(project_dir, "flows", flow_name)
@@ -700,10 +686,12 @@ def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, 
         model = WflowSbmModel(
             root=mod_path, config_filename='wflow_sbm.toml', data_libs=data_lib, mode='w'
         )
+        start_time = functions.local_to_utc(start, time_zone)
+        end_time = functions.local_to_utc(end, time_zone)
         # Setup configurations
         configs = {
-            "time.starttime": datetime.strptime(start, "%Y-%m-%d %H:%M:%S").isoformat(), 
-            "time.endtime": datetime.strptime(end, "%Y-%m-%d %H:%M:%S").isoformat(), 
+            "time.starttime": start_time.replace(tzinfo=None).isoformat(), 
+            "time.endtime": end_time.replace(tzinfo=None).isoformat(), 
             "time.timestepsecs": step,
             # Reference: https://deltares.github.io/Wflow.jl/dev/model_docs/model_settings.html
             'model.type': 'sbm', # model type: [sbm, sbm_gwf]

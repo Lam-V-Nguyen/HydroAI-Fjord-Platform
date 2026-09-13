@@ -3,9 +3,9 @@ from config import SOURCE_BACKEND
 from services import functions
 import geopandas as gpd, xarray as xr
 from shapely.geometry import Point
-from datetime import datetime
+from datetime import datetime, timezone
 
-def hydReader(hyd_path: str) -> dict:
+def hydReader(hyd_path: str, time_zone: str) -> dict:
     # Read the hyd file
     data, check, sinks = {'filename': 'FlowFM.hyd'}, False, []
     with open(hyd_path, 'r', encoding=functions.encoding_detect(hyd_path)) as f:
@@ -14,12 +14,12 @@ def hydReader(hyd_path: str) -> dict:
         if "number-hydrodynamic-layers" in line: data['n_layers'] = line.split()[1]
         if "hydrodynamic-start-time" in line:
             temp = line.split()[1].replace("'", "")
-            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=datetime.timezone.utc)
-            data['start_time'] = dt.strftime('%Y-%m-%d %H:%M:%S')
+            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+            data['start_time'] = functions.utc_to_local(dt, time_zone)
         if "hydrodynamic-stop-time" in line:
             temp = line.split()[1].replace("'", "")
-            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=datetime.timezone.utc)
-            data['stop_time'] = dt.strftime('%Y-%m-%d %H:%M:%S')
+            dt = datetime.strptime(temp, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+            data['stop_time'] = functions.utc_to_local(dt, time_zone)
         if "hydrodynamic-timestep" in line:
             data['time_step1'] = int(line.split()[1].replace("'", ""))
         if "conversion-timestep" in line:
@@ -86,9 +86,9 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         params_INC['t0'], params_INC['t0_scu'] = '1970.01.01 00:00:00', 1
         params_INC['B2_numsettings'] = f'{parameters["scheme"]}.70 ; integration option\n; detailed balance options'
         # Prepare for the config file B2_simtimers
-        start = parameters['t_start'].strftime('%Y/%m/%d-%H:%M:%S')
-        stop = parameters['t_stop'].strftime('%Y/%m/%d-%H:%M:%S')
-        params_INC['B2_simtimers'] = [f"{start} ; start time", f"{stop} ; stop time", 
+        start_utc = parameters['t_start'].strftime('%Y/%m/%d-%H:%M:%S')
+        stop_utc = parameters['t_stop'].strftime('%Y/%m/%d-%H:%M:%S')
+        params_INC['B2_simtimers'] = [f"{start_utc} ; start time", f"{stop_utc} ; stop time", 
             f"{parameters['t_step1']} ; timestep constant", f"{parameters['t_step2']} ; timestep"
         ]
         # Prepare for the config file B2_outlocs
@@ -105,9 +105,9 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         else: params_INC['B2_outlocs'] = '0 ; nr of monitor locations'
         # Prepare for the config file B2_outputtimers
         params_INC['B2_outputtimers'] = [';  output control (see DELWAQ-manual)', ';  yyyy/mm/dd-hh:mm:ss  yyyy/mm/dd-hh:mm:ss  dddhhmmss',
-            f'{start} {stop} {parameters["t_step2"]} ;  start, stop and step for balance output',
-            f'{start} {stop} {parameters["t_step2"]} ;  start, stop and step for map output',
-            f'{start} {stop} {parameters["t_step2"]} ;  start, stop and step for his output'
+            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for balance output',
+            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for map output',
+            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for his output'
         ]
         # Prepare for the config file B3_ugrid
         ugrid_path = os.path.normpath(os.path.join(os.path.dirname(parameters['hyd_path']), 'FlowFM_waqgeom.nc'))

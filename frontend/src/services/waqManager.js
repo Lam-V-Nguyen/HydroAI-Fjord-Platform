@@ -1,4 +1,4 @@
-import { waqMapId, origin } from "./constant.js";
+import { waqMapId, origin, getLastTimeZone } from "./constant.js";
 import { setupTabs } from "./tabManager.js";
 import { getProjectList, jsonLoader, fillTable, deleteTable, addRowToTable, signalSender,
     nameChecker, iframeConnector, getDataFromTable, copyPaste, removeRowFromTable
@@ -114,10 +114,10 @@ async function projectOptions(){
     });    
     // Create new WAQ scenario
     obj.projectCreator.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(); let project = '';
+        const name = obj.projectName.value.trim();
         if (!name || name.trim() === '') { alert('Please select a HYD Scenario from the list.'); return; }
         // Find .hyd file
-        const data = await jsonLoader('select_hyd', {projectName: name});
+        const data = await jsonLoader('select_hyd', { projectName: name, timeZone: getLastTimeZone() });
         if (data.status === "error") { alert(data.message); return; }
         // Show tabs
         obj.controlTab.style.display = "block"; obj.descriptionTab.style.display = "none";
@@ -163,7 +163,8 @@ async function projectOptions(){
         obj.timePreview.value = ''; obj.timePreviewContainer.style.display = 'none';
         const waqValue = obj.waqSelector.value;
         if (waqValue !== '') { 
-            const data = await jsonLoader('load_waq', {projectName: name, waqName: waqValue});
+            const content = { projectName: name, waqName: waqValue, timeZone: getLastTimeZone() };
+            const data = await jsonLoader('load_waq', content);
             if (data.status === "error") { alert(data.message); return; }
             if (data.content.obs.length > 0) { fillTable(data.content.obs, obj.obsPointTable, true); }
             fillTable(data.content.loads, obj.loadsPointTable, true);
@@ -237,7 +238,7 @@ async function projectOptions(){
         const name = obj.projectName.value.trim(), waqName = obj.waqSelector.value;
         if (!confirm(`Are you sure you want to delete scenario '${waqName}'?`)) { return; }
         signalSender('showOverlay', `Deleting WAQ scenario '${waqName}'. Please be patient...`);
-        const data = await jsonLoader('delete_file', { projectName: name, name: waqName });
+        const data = await jsonLoader('delete_waq', { projectName: name, name: waqName });
         obj.waqSelector.innerHTML = '';
         waqContent = waqContent.filter(item => item !== waqName);
         const waqTemp = waqContent.map(name => `<option value="${name}">${name}</option>`).join('');
@@ -324,7 +325,7 @@ async function waqManager(){
                 alert("No loads data found in the table.\nPlease check the load table in tab 'Point Settings'."); 
                 obj.timePreviewContainer.style.display = 'none'; return; 
             }
-            const timeData = getDataFromTable(obj.timeTable, false);
+            const timeData = getDataFromTable(obj.timeTable, true);
             if (timeData.rows.length === 0) {
                 alert("No time-series data found in the table.\nPlease check the table 'Time-Series Preparation'."); 
                 obj.timePreviewContainer.style.display = 'none'; return; 
@@ -345,8 +346,10 @@ async function waqManager(){
             obj.timePreview.value = ''; initial_area.value = ''; usefors.value = ''; initial_value.value = '0';
             if (subKey === '') { alert('Please specify type of simulation.'); return; }
             if (folderName === '') { alert('Please specify name of substance.'); return; }
-            const data = await jsonLoader('wq_time_to_waq', { folderName: folderName, 
-                loadsData: loadsData.rows, timeData: timeData.rows });
+            const content = { folderName: folderName, loadsData: loadsData.rows, 
+                timeData: timeData.rows, timeZone: getLastTimeZone()
+            };
+            const data = await jsonLoader('wq_time_to_waq', content);
             if (data.status === "error") {
                 obj.timePreviewContainer.style.display = 'none'; 
                 obj.timePreview.value = ''; alert(data.message); return;
@@ -415,7 +418,7 @@ async function waqManager(){
             if (!hydPath || hydPath === '') { alert('Please define hydrological (*.hyd) file.'); return; }
             const start = obj.startTime.value, stop = obj.stopTime.value;
             if (!start || start === '' || !stop || stop === '') { alert("The fields 'Start time' and 'Stop time' are required"); return; }
-            const data = await jsonLoader('select_hyd', { projectName: name });
+            const data = await jsonLoader('select_hyd', { projectName: name, timeZone: getLastTimeZone() });
             if (data.status === "error") { alert(data.message); return; }
             timeStep1 = data.content.time_step1; timeStep2 = data.content.time_step2;
             attrPath_ = data.content.attr_path; volPath = data.content.vol_path;
@@ -431,7 +434,7 @@ async function waqManager(){
             const obsTable = getDataFromTable(obj.obsPointTable, true);
             const loadTable = getDataFromTable(obj.loadsPointTable, true);
             if (loadTable.rows.length === 0) { alert('No loads data found. Please add at least one load.'); return; }
-            const timeData = obj.timePreview.value.trim();
+            const timeData = obj.timePreview.value.trim(), timeZone = getLastTimeZone();
             if (!timeData || timeData === '') { alert("Post-processing field is required"); return; }
             if (btn.dataset.info === 'chemical') {
                 subKey = obj.chemicalSelector.value; folderName = obj.chemicalName.value.trim();
@@ -462,7 +465,7 @@ async function waqManager(){
             if (tolerance.value === '' || parseFloat(tolerance.value) <= 0) { alert('Please define tolerance.'); return; }
             const params = { mode: btn.dataset.info, projectName: name, key: subKey, folderName: folderName,
                 hydName: hydPath, nLayers: n_layers, timeStep1: timeStep1, timeStep2: timeStep2, nSegments: nSegments,
-                startTime: toUTC(start), stopTime: toUTC(stop), exchangeY: exchange_y, exchangeX: exchange_x,
+                startTime: toUTC(start, timeZone), stopTime: toUTC(stop, timeZone), exchangeY: exchange_y, exchangeX: exchange_x,
                 exchangeZ: exchange_z, attrPath: attrPath_, volPath: volPath, ptrPath: ptrPath, areaPath: areaPath, 
                 flowPath: flowPath, lengthPath: lengthPath, srfPath: srfPath, vdfPath: vdfPath, temPath: temPath,
                 salPath: salPath, useforsFrom: valueFrom, useforsTo: valueTo, usefors: userforValue,

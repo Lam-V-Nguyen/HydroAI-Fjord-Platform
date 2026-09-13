@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css?v=002">
-    <link rel="stylesheet" href="/src_frontend/styles/dataDownload.css?v=003">
+    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
+    <link rel="stylesheet" href="/src_frontend/styles/dataDownload.css">
 </head>
 <body>
     <div class="wrapper">
@@ -176,12 +176,11 @@
                                     <div class="tile" style="grid-column: span 3;"><h3>Location & Period</h3>
                                         <div class="row">
                                             <div class="field-inline">
-                                                <label for="era5-latitude">Avg. Latitude (°):</label>
-                                                <input type="text" id="era5-latitude" placeholder="Latitude">
+                                                <button type="button" id="era5-location-btn">Pick on Map</button>
                                             </div>
                                             <div class="field-inline">
-                                                <label for="era5-longitute">Avg. Longitude (°):</label>
-                                                <input type="text" id="era5-longitude" placeholder="Longitude">
+                                                <input type="text" id="era5-latitude" placeholder="Avg. Latitude (°)">
+                                                <input type="text" id="era5-longitude" placeholder="Avg. Longitude (°)">
                                             </div>
 
                                             <div class="field-inline">
@@ -195,33 +194,33 @@
                                         </div>
                                     </div>
                                     <div class="tile" style="grid-column: span 5;"><h3>Variables</h3>
-                                        <div class="variables-grid">
+                                        <div class="variables-grid" id="era5-variables-grid">
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-2m-temperature-checkbox" value="2m_temperature" checked>Temperature (at 2m)
+                                                <input type="checkbox" value="2m_temperature" data-label="Temperature (degC)" checked>Temperature (at 2m)
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-precipitation-checkbox" value="total_precipitation" checked>Total precipitation
+                                                <input type="checkbox" value="total_precipitation" data-label="Total Precipitation (mm)" checked>Total Precipitation
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-u-wind-checkbox" value="10m_u_component_of_wind" checked>Wind (u-component at 10m)
+                                                <input type="checkbox" id="wind-u-checkbox" value="10m_u_component_of_wind" data-label="Wind (u Component) (m/s)" checked>Wind (u-component at 10m)
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-v-wind-checkbox" value="10m_v_component_of_wind" checked>Wind (v-component at 10m)
+                                                <input type="checkbox" id="wind-v-checkbox" value="10m_v_component_of_wind" data-label="Wind (v Component) (m/s)" checked>Wind (v-component at 10m)
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-short-radiation-checkbox" value="surface_solar_radiation_downwards">Shortwave Radiation
+                                                <input type="checkbox" value="surface_solar_radiation_downwards" data-label="Shortwave Radiation (W/m^2)">Shortwave Radiation
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-long-radiation-checkbox" value="surface_thermal_radiation_downwards">Longwave Radiation
+                                                <input type="checkbox" value="surface_thermal_radiation_downwards" data-label="Longwave Radiation (W/m^2)">Longwave Radiation
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-pressure-checkbox" value="surface_pressure">Surface Pressure
+                                                <input type="checkbox" value="surface_pressure" data-label="Surface Pressure (Pa)">Surface Pressure
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-cloud-checkbox" value="total_cloud_cover">Total Cloud Cover
+                                                <input type="checkbox" value="total_cloud_cover" data-label="Total Cloud Cover (%)">Total Cloud Cover
                                             </label>
-                                            <label class="checkbox-right">
-                                                <input type="checkbox" id="era5-wind-checkbox">Compute Wind Speed & Direction
+                                            <label class="checkbox-right" style="color: yellow; font-weight: bold;" >
+                                                <input type="checkbox" value="wind_speed" id="wind-speed-checkbox" data-label="Total Wind">Compute Wind Speed & Direction
                                             </label>
                                         </div>
                                     </div>
@@ -231,26 +230,20 @@
                                 <div class="grid">
                                     <div class="tile" style="grid-column: span 12;">
                                         <div class="row">
-                                            <h3>Options</h3>
-                                            <button type="button" id="era5-download-btn"
-                                                style="margin-top: -20px; max-width: 150px;">Download</button>
+                                            <div class="field-inline">
+                                                <h3>Attributes Table</h3>
+                                                <button type="button" id="era5-download-btn"
+                                                    style="margin-top: -20px; max-width: 150px;">Download</button>
+                                                <button type="button" id="era5-save-btn"
+                                                    style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
+                                            </div>
+                                            <table class="attributes-table" id="era5-table">
+                                                <thead></thead><tbody></tbody>
+                                            </table>
+                                            <div class="log-container" id="era5-log-container">
+                                                <textarea wrap="off" class="log-text" id="era5-log-text" placeholder="Logs..." readonly></textarea>
+                                            </div>
                                         </div>
-                                        <table class="attributes-table" id="era5-table">
-                                            <thead>
-                                                <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
-                                                    <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
-                                                    <td><input type="text" placeholder="Discharge"></td>
-                                                    <td><input type="text" placeholder="Salinity"></td>
-                                                    <td><input type="text" placeholder="Temperature"></td>
-                                                    <td><input type="text" placeholder="Contaminant"></td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
                                     </div>    
                                 </div>
                             </div>

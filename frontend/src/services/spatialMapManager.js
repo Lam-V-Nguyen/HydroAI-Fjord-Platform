@@ -1,5 +1,7 @@
 import { signalSender, jsonLoader, initOptions } from "./commonFunctions.js";
-import { L, getStateVisualization, setStateVisualization, getMap } from "./constant.js";
+import { L, getStateVisualization, setStateVisualization, 
+    getMap, getLastTimeZone
+} from "./constant.js";
 import { plot2DMapStatic, plot2DMapDynamic, plot2DVectorMap } from "./map2DManager.js";
 
 const $ = (id) => document.getElementById(id);
@@ -58,7 +60,10 @@ export async function spatialMapManager(projectName) {
             }
             const [query, type] = item.dataset.info.split('|');
             signalSender('showOverlay', 'Getting Substance Data for Map.\nPlease wait...');
-            const content = { query: query, key: 'substance_check', projectName: projectName };
+            const content = { 
+                query: query, key: 'substance_check', 
+                projectName: projectName, timeZone: getLastTimeZone()
+            };
             const data = await jsonLoader('process_data', content);
             signalSender('hideOverlay');
             if (data.status === "error") { 

@@ -29,8 +29,6 @@ def _all_timezones() -> list[str]:
     ]
 _ALL_TZ = sorted(_all_timezones())
 
-
-
 variablesNames = constants.variablesNames
 units = constants.units
 
@@ -115,14 +113,25 @@ def time_zone_get(time_zone:str, count:int):
             if n > count: break
     return sorted(result)
 
-def local_to_utc(local_str:str, tz_name: str) -> datetime:
+def local_to_utc(local_time, tz_name: str) -> datetime:
     tz = ZoneInfo(tz_name)
-    local = datetime.fromisoformat(local_str).replace(tzinfo=tz)
+    # Series
+    if isinstance(local_time, pd.Series):
+        s = local_time.copy()
+        if not pd.api.types.is_datetime64_any_dtype(s):
+            s = pd.to_datetime(s, errors="coerce")
+        if s.dt.tz is None: aware = s.dt.tz_localize(tz, ambiguous="NaT", nonexistent="NaT")
+        else: aware = s.dt.tz_convert(tz)
+        return aware.dt.tz_convert("UTC")
+    # Scalar
+    if isinstance(local_time, str): local = datetime.fromisoformat(local_time)
+    else: local = local_time
+    if local.tzinfo is None: local = local.replace(tzinfo=tz)
+    else: local = local.astimezone(tz)
     return local.astimezone(timezone.utc)
 
-def utc_to_local(utc_time:pd.Series, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S") -> str:
-    is_series = isinstance(utc_time, pd.Series)
-    if is_series:
+def utc_to_local(utc_time, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S") -> str:
+    if isinstance(utc_time, pd.Series):
         s = utc_time.copy()
         if s.empty: return s
         if not pd.api.types.is_datetime64_any_dtype(s):
@@ -132,12 +141,19 @@ def utc_to_local(utc_time:pd.Series, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S")
         else: aware = s.dt.tz_convert("UTC")
         local = aware.dt.tz_convert(tz_name)
         return local.dt.strftime(fmt)
+    if isinstance(utc_time, pd.DatetimeIndex):
+        idx = utc_time
+        if idx.empty: return idx
+        if idx.tz is None: aware = idx.tz_localize("UTC")
+        else: aware = idx.tz_convert("UTC")
+        local = aware.tz_convert(tz_name)
+        return local
     if isinstance(utc_time, (int, float)):
         ts = pd.Timestamp(utc_time, unit="s", tz="UTC")
-    else:
-        ts = pd.Timestamp(utc_time)
-        if ts.tzinfo is None: ts = ts.tz_localize("UTC")
-        else: ts = ts.tz_convert("UTC")
+        return ts.tz_convert(tz_name).strftime(fmt)
+    ts = pd.Timestamp(utc_time)
+    if ts.tzinfo is None: ts = ts.tz_localize("UTC")
+    else: ts = ts.tz_convert("UTC")
     return ts.tz_convert(tz_name).strftime(fmt)
 
 def safe_remove(path, retries=10, delay=1):
@@ -270,15 +286,15 @@ def fileWriter(template_path: str, params: dict) -> str:
     result = "\n".join(result)
     return result
 
-def contentWriter(project_name: str, filename: str, data: list, content: str, unit: str='sec') -> tuple:
+def contentWriter(project_name: str, filename: str, 
+    data: list, time_zone: str, content: str) -> tuple:
     try:
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         # Write weather.tim file
         tim_path = os.path.normpath(os.path.join(path, filename))
         with open(tim_path, 'w', encoding=encoding_detect(tim_path)) as f:
             for row in data:
-                if unit == 'sec': row[0] = int(row[0]/1000)
-                elif unit == 'min': row[0] = int(row[0]/(1000*60))
+                row[0] = int(local_to_utc(row[0], time_zone).timestamp()/60.0)
                 temp = '  '.join([str(r) for r in row])
                 f.write(f"{temp}\n")
         # Add weather data to FlowFM.ext file
@@ -313,7 +329,8 @@ def postProcess(directory: str) -> dict:
         if os.path.exists(output_HYD_path): shutil.rmtree(output_HYD_path, onerror=remove_readonly)
         os.makedirs(output_HYD_path, exist_ok=True)
         subdirs = [d for d in os.listdir(directory) if os.path.isdir(os.path.normpath(os.path.join(directory, d)))]
-        if not subdirs: return {'status': 'error', 'message': f'No simulation output folders found: {subdirs}.'}
+        if not subdirs: 
+            return {'status': 'error', 'message': f'No simulation output folders found: {subdirs}.'}
         # Copy folder DFM_DELWAQ to the parent directory
         DFM_DELWAQ_from = os.path.normpath(os.path.join(directory, 'DFM_DELWAQ'))
         DFM_DELWAQ_to = os.path.normpath(os.path.join(parent_path, 'DFM_DELWAQ'))
@@ -327,13 +344,13 @@ def postProcess(directory: str) -> dict:
             return {'status': 'error', 'message': 'No output folder found'}
         select_files = ['FlowFM.dia', 'FlowFM_his.nc', 'FlowFM_map.nc']
         found_files = [f for f in os.listdir(DFM_OUTPUT_folder) if f in select_files]
-        if len(found_files) == 0: return {'status': 'error', 'message': 'No required files found in the output folder'}
+        if len(found_files) == 0: 
+            return {'status': 'error', 'message': 'No required files found in the output folder'}
         # Copy and Remove the outputs
         for f in found_files:
             src = os.path.normpath(os.path.join(DFM_OUTPUT_folder, f))
             # # Using .nc format
             # shutil.copy2(src, output_HYD_path)
-
             # Using .zarr format
             if f.endswith('.nc'):
                 zarr_path = os.path.normpath(os.path.join(output_HYD_path, f.replace('.nc', '.zarr')))
@@ -736,7 +753,7 @@ def getVectorNames() -> list:
     result = [(0,'Velocity')]
     return result
 
-def dialogReader(dialog_file: str) -> dict:
+def dialogReader(dialog_file: str, time_zone:str) -> dict:
     # Check if the dialog file exists
     if not os.path.exists(dialog_file): return {}
     result = {}
@@ -746,10 +763,10 @@ def dialogReader(dialog_file: str) -> dict:
     for line in content:
         if "Computation started" in line:
             temp = pd.to_datetime(line.split(': ')[2], utc=True, format='%H:%M:%S, %d-%m-%Y')
-            result["computation_start"] = temp.strftime('%Y-%m-%d %H:%M:%S')
+            result["computation_start"] = utc_to_local(temp, time_zone)
         if "Computation finished" in line:
             temp = pd.to_datetime(line.split(': ')[2], utc=True, format='%H:%M:%S, %d-%m-%Y')
-            result["computation_finish"] = temp.strftime('%Y-%m-%d %H:%M:%S')
+            result["computation_finish"] = utc_to_local(temp, time_zone)
         if "my model area" in line:
             temp = line.split(': ')[2]
             result["area"] = float(temp.strip())
@@ -758,8 +775,8 @@ def dialogReader(dialog_file: str) -> dict:
             result["volume"] = float(temp.strip())
     return result
 
-def getSummary(dialog_path: str, out_files: list) -> list:
-    dialog, result = dialogReader(dialog_path), []
+def getSummary(dialog_path: str, out_files: list, time_zone: str) -> list:
+    dialog, result = dialogReader(dialog_path, time_zone), []
     # --- Dialog info ---
     if len(dialog) > 0:
         result.append({'parameter': 'Computation started', 'value': dialog['computation_start']})
@@ -773,8 +790,9 @@ def getSummary(dialog_path: str, out_files: list) -> list:
         # --- Hydrodynamic ---
         if 'time' in sizes:
             time_var = data_his['time']
-            start_hyd = pd.to_datetime(time_var.isel(time=0).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
-            end_hyd = pd.to_datetime(time_var.isel(time=-1).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
+            start = pd.to_datetime(time_var.isel(time=0).values, utc=True)
+            end = pd.to_datetime(time_var.isel(time=-1).values, utc=True)
+            start_hyd, end_hyd = utc_to_local(start, time_zone), utc_to_local(end, time_zone)
             result.append({'parameter': 'Start Date (Hydrodynamic Simulation)', 'value': start_hyd})
             result.append({'parameter': 'Stop Date (Hydrodynamic Simulation)', 'value': end_hyd})
             result.append({'parameter': 'Number of Time Steps', 'value': sizes['time']})
@@ -785,15 +803,17 @@ def getSummary(dialog_path: str, out_files: list) -> list:
         # --- Water Quality ---
         if 'nTimesDlwq' in sizes:
             waq_time = data_his['nTimesDlwq']
-            start_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=0).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
-            end_waq = pd.to_datetime(waq_time.isel(nTimesDlwq=-1).values, utc=True).strftime('%Y-%m-%d %H:%M:%S')
+            start = pd.to_datetime(waq_time.isel(nTimesDlwq=0).values, utc=True)
+            end = pd.to_datetime(waq_time.isel(nTimesDlwq=-1).values, utc=True)
+            start_waq, end_waq = utc_to_local(start, time_zone), utc_to_local(end, time_zone)
             result.append({'parameter': f'Start Date (Water Quality Simulation)', 'value': start_waq})
             result.append({'parameter': f'Stop Date (Water Quality Simulation)', 'value': end_waq})
             result.append({'parameter': f'Number of Time Steps (Water Quality Simulation)', 'value': sizes['nTimesDlwq']})
         if ('nStations' in sizes): result.append({'parameter': f'Number of Observation Stations (Water Quality Simulation)', 'value': sizes['nStations']})
     return result
 
-def checkCoordinateReferenceSystem(name: str, geometry: gpd.GeoSeries, data_his: xr.Dataset) -> gpd.GeoDataFrame:
+def checkCoordinateReferenceSystem(name: str, geometry: gpd.GeoSeries, 
+    data_his: xr.Dataset) -> gpd.GeoDataFrame:
     # Check coordinate reference system
     if 'wgs84' in data_his.variables:
         crs_code = data_his['wgs84'].attrs.get('EPSG_code', 'EPSG:4326')
@@ -859,7 +879,7 @@ def crosssectionCreator(data_his: xr.Dataset) -> tuple[gpd.GeoDataFrame, list]:
     listAttributes = [{item: variablesNames[item] if item in variablesNames else item} for item in crsValues]
     return gdf, listAttributes
 
-def timeseriesCreator(data_his: xr.Dataset, key: str, timeColumn: str='time') -> pd.DataFrame:
+def timeseriesCreator(data_his: xr.Dataset, key: str, time_zone: str, timeColumn: str='time') -> pd.DataFrame:
     name = 'source_sink_name' if key.endswith('_source') else 'station_name'
     columns = [i.decode('utf-8').strip() for i in data_his[name].data.compute()]
     temp = variablesNames.get(key, key)
@@ -868,9 +888,14 @@ def timeseriesCreator(data_his: xr.Dataset, key: str, timeColumn: str='time') ->
         columns = ['Cross-section'] # Used for cross-section
         temp = key.replace('_crs', '')
     if name not in data_his.variables.keys(): return pd.DataFrame()
-    index = [pd.to_datetime(i, utc=True).strftime('%Y-%m-%d %H:%M:%S') for i in data_his[timeColumn].data]
-    df = pd.DataFrame(index=index, data=numberFormatter(data_his[temp].data.compute()), columns=columns)
-    return df.reset_index()
+    index = [
+        utc_to_local(pd.to_datetime(i, utc=True), time_zone) 
+        for i in data_his[timeColumn].data
+    ]
+    df = pd.DataFrame(
+        index=index, data=numberFormatter(data_his[temp].data.compute()), columns=columns
+    ).reset_index()
+    return df
 
 def valueToKeyConverter(values: list, dict: dict=units) -> list:
     if not isinstance(values, list): values = [values]
@@ -879,7 +904,8 @@ def valueToKeyConverter(values: list, dict: dict=units) -> list:
         result.append(dict.get(value, value))
     return result
 
-def vectorComputer(data_map: xr.Dataset, value_type: str, row_idx: int, step: int=-1) -> dict:
+def vectorComputer(data_map: xr.Dataset, value_type: str, 
+    row_idx: int, time_zone: str, step: int=-1) -> dict:
     if value_type == 'Average':
         # Average velocity in each layer
         ucx = data_map['mesh2d_ucxa'].isel(time=step).values
@@ -899,17 +925,22 @@ def vectorComputer(data_map: xr.Dataset, value_type: str, row_idx: int, step: in
     ucx_valid = np.round(ucx[col_idx].astype(np.float64), 5)
     ucy_valid = np.round(ucy[col_idx].astype(np.float64), 5)
     ucm_valid = np.round(ucm[col_idx].astype(np.float64), 2)
-    result = {"time": pd.to_datetime(data_map['time'].values[step], utc=True).strftime('%Y-%m-%d %H:%M:%S'),
+    result = {"time": pd.to_datetime(data_map['time'].values[step], utc=True),
         "coordinates": np.column_stack((x_coords, y_coords)).tolist(),
         "values": np.column_stack((ucx_valid, ucy_valid, ucm_valid)).tolist()
     }
+    result['time'] = utc_to_local(result['time'], time_zone)
     return result
 
-def selectInsitu(data_his: xr.Dataset, data_map: xr.Dataset, name: str, stationId: str, type: str) -> pd.DataFrame:
+def selectInsitu(data_his: xr.Dataset, data_map: xr.Dataset, 
+    name: str, stationId: str, type: str, time_zone: str) -> pd.DataFrame:
     names = [x.decode('utf-8').strip() for x in data_his[type].data.compute()]
     if stationId not in names: return pd.DataFrame()
     idx = names.index(stationId)
-    index = [pd.to_datetime(id, utc=True).strftime('%Y-%m-%d %H:%M:%S') for id in data_his['time'].data]
+    index = [
+        utc_to_local(pd.to_datetime(id, utc=True), time_zone) 
+        for id in data_his['time'].data
+    ]
     if type == 'station_name':
         result = pd.DataFrame(index=index)
         z_layer = numberFormatter(data_map['mesh2d_layer_z'].data.compute())
@@ -918,13 +949,19 @@ def selectInsitu(data_his: xr.Dataset, data_map: xr.Dataset, name: str, stationI
             i_rev = -(i+1)
             result[f'Depth: {z_layer[i_rev]} m'] = numberFormatter(arr[:, i_rev])
     else:
-        temp = pd.DataFrame(data_his[variablesNames[name]].values, columns=names, index=index)
+        temp = pd.DataFrame(
+            data_his[variablesNames[name]].values, columns=names, index=index
+        )
         result = temp[[stationId]]
     return result.dropna(axis=1, how='all').reset_index()
 
 def sourceCreator(data_his: xr.Dataset) -> gpd.GeoDataFrame:
-    names = [name.decode('utf-8').strip() for name in data_his['source_sink_name'].data.compute()]
-    x, y = data_his['source_sink_x_coordinate'].data.compute()[0], data_his['source_sink_y_coordinate'].data.compute()[0]
+    names = [
+        name.decode('utf-8').strip() 
+        for name in data_his['source_sink_name'].data.compute()
+    ]
+    x = data_his['source_sink_x_coordinate'].data.compute()[0]
+    y = data_his['source_sink_y_coordinate'].data.compute()[0]
     geometry = gpd.points_from_xy(x, y)
     return checkCoordinateReferenceSystem(names, geometry, data_his)
 
@@ -935,7 +972,10 @@ def meshProcess(is_hyd: bool, arr: np.ndarray, cache: dict) -> np.ndarray:
     df_depth = np.array(df["depth"].values, dtype=float)
     depth_values = np.array(cache_copy["depth_values"], dtype=float)
     depth_rounded, n_rows = abs(np.round(depth_values, 0)), cache_copy["n_rows"]
-    if is_hyd: index_map = {int(v): len(depth_rounded)-i-1 for i, v in enumerate(depth_rounded)}
+    if is_hyd: 
+        index_map = {
+            int(v): len(depth_rounded)-i-1 for i, v in enumerate(depth_rounded)
+        }
     else: index_map = {int(v): i for i, v in enumerate(depth_rounded)}
     # Pre-allocate frame
     frame = np.full((len(df), abs(n_rows)), np.nan, float)

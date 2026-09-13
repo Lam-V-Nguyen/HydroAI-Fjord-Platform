@@ -2,6 +2,7 @@ import { setupTabs } from "./tabManager.js";
 import { getUser, signalSender, getProjectList, jsonLoader, updateLog 
 } from "./commonFunctions.js";
 import { projectRender } from "./projectManager.js";
+import { getLastTimeZone } from "./constant.js";
 
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +31,7 @@ function modelManager() {
     obj.projectCreator.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
         if (name === '') { alert('Please select a scenario from the tab "Settings" first.'); return; }
-        const content = { projectName: currentProject, flowName: name, key: 'open' };
+        const content = { projectName: currentProject, flowName: name, key: 'open', timeZone: getLastTimeZone() };
         signalSender('Reading forcing data to get start and end dates.\nPlease wait...');
         const data = await jsonLoader('flow_project', content); signalSender('hideOverlay');
         if (data.status === 'error') { alert(data.message); return; }
@@ -44,7 +45,10 @@ function modelManager() {
         const upArea = obj.modelArea.value;
         if (upArea === '') { alert('Please specify area of upstream.'); return;}
         obj.modelLog.value = '';
-        const content = { projectName: currentProject, flowName: name, key: 'check', upArea: upArea };
+        const content = { 
+            projectName: currentProject, flowName: name, key: 'check', 
+            upArea: upArea, timeZone: getLastTimeZone() 
+        };
         const request = await jsonLoader('wflow_model', content);
         if (request.status === 'error') { alert(request.message); return; }
         updateLog(currentProject, obj.modelLog, 2, 'wflow_check', async () => {
@@ -88,8 +92,9 @@ function modelManager() {
         obj.modelLog.value = '';
         const content = { 
             projectName: currentProject, flowName: name, key: 'prepare', 
-            start: startTime, end: endTime, step: obj.modelSteps.value,
-            lat: lat, lon: lon, params_input: params_in, params_output: params_out
+            start: startTime, end: endTime, timeZone: getLastTimeZone(), 
+            step: obj.modelSteps.value, lat: lat, lon: lon, 
+            params_input: params_in, params_output: params_out
         };
         const request = await jsonLoader('wflow_model', content);
         if (request.status === 'error') { alert(request.message); return; }
@@ -101,7 +106,7 @@ function modelManager() {
         const name = obj.projectName.value;
         if (name === '') { alert('Please select a scenario from the tab "Settings" first.'); return; }
         obj.modelLog.value = '';
-        const content = { projectName: currentProject, flowName: name, key: 'run' };
+        const content = { projectName: currentProject, flowName: name, key: 'run', timeZone: getLastTimeZone() };
         const request = await jsonLoader('wflow_model', content);
         if (request.status === 'error') { alert(request.message); return; }
         updateLog(currentProject, obj.modelLog, 1, 'wflow_run', async () => {

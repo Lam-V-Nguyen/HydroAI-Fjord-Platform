@@ -51,10 +51,8 @@ async def setup_new_project(request: Request, user=Depends(functions.basic_auth)
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
         os.makedirs(project_dir, exist_ok=True)
-        folders = ['GIS', 'output', 'output/config', 'output/HYD', 'output/WAQ', 'flows']
-        for folder in folders:
-            folder_path = os.path.normpath(os.path.join(project_dir, folder))
-            if not os.path.exists(folder_path): os.makedirs(folder_path, exist_ok=True)
+        input_dir = os.path.normpath(os.path.join(project_dir, "input"))
+        if not os.path.exists(input_dir): os.makedirs(input_dir, exist_ok=True)
         status, message = project_name, f"Scenario '{body.get('projectName')}' created successfully!"
     except Exception as e:
         print('/setup_new_project:\n==============')
@@ -100,7 +98,6 @@ async def delete_project(request: Request, user=Depends(functions.basic_auth)):
         lock = redis.lock(f"{project_name}:delete_project", timeout=600)
         project_folder, extend_task = os.path.normpath(os.path.join(PROJECT_ROOT, project_name)), None
         async with lock:
-            # Optional: auto-extend lock if deletion may take long
             extend_task = asyncio.create_task(functions.auto_extend(lock))
             if not os.path.exists(project_folder): 
                 return JSONResponse({"status": 'error', "message": f"Project '{project_name}' does not exist."})
@@ -121,15 +118,14 @@ async def delete_project(request: Request, user=Depends(functions.basic_auth)):
 async def select_project(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key, folder_check = body.get('key'), body.get('folder_check')
+        key, folder_check, key_checker = body.get('key'), body.get('folder_check'), body.get('keyChecked')
         project_name, _ = functions.project_definer(body.get('filename'), user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-        if body.get('flow_checked'): project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
+        if key_checker == 'flows': project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
         if key == 'getProjects':
             project = [p.name for p in os.scandir(project_dir) if p.is_dir()]
             project = [p for p in project if os.path.exists(os.path.normpath(os.path.join(project_dir, p, folder_check)))]
             data = sorted(project)
-            print(data)
         elif key == 'getWAQs': # List the scenarios for water quality
             scenario_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
             if not os.path.exists(scenario_dir):
@@ -137,6 +133,15 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
             project = [p.name for p in os.scandir(scenario_dir)]
             project = [p.replace('.json', '') for p in project if os.path.exists(os.path.normpath(os.path.join(scenario_dir, p)))]
             data = sorted(project)
+        elif key == 'getLakes':
+            project_dir = os.path.normpath(os.path.join(project_dir, 'lakes'))
+            lake_path = os.path.normpath(os.path.join(project_dir, 'lakes.json'))
+            if not os.path.exists(lake_path): 
+                return JSONResponse({"status": 'error', "message": "Couldn't find any lake.", "content": []})
+            with open(lake_path, 'r') as f: lakes = json.load(f)
+            data = sorted(lakes.keys())
+
+
         # elif key == 'getFiles': # List the files
         #     project_folder = os.path.normpath(os.path.join(PROJECT_STATIC_ROOT, project_name))
         #     hyd_folder = os.path.normpath(os.path.join(project_folder, "output", 'HYD'))

@@ -1,11 +1,34 @@
 import { jsonLoader, getDataFromTable, signalSender } from "./commonFunctions.js";
 
-export function toUTC(dateStr){
+
+function getTimeZoneOffset(utcMs, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    });
+    const map = {};
+    for (const p of dtf.formatToParts(new Date(utcMs))) {
+        map[p.type] = p.value;
+    }
+    const asUTC = Date.UTC(
+        Number(map.year), Number(map.month) - 1,
+        Number(map.day), Number(map.hour) % 24,
+        Number(map.minute), Number(map.second)
+    );
+    return asUTC - utcMs;
+}
+
+export function toUTC(dateStr, timeZone){
     const [datePart, timePart] = dateStr.split(' ');
     const [year, month, day] = datePart.split('-').map(Number);
-    let hours = 0, minutes = 0, seconds = 0;
-    if (timePart) [hours, minutes, seconds] = timePart.split(':').map(Number);
-    return Date.UTC(year, month - 1, day, hours, minutes, seconds);
+    const [hours, minutes, seconds] = timePart.split(':').map(Number);
+    const utcGuess = Date.UTC(year, month - 1, day, hours, minutes, seconds);
+    const offset1 = getTimeZoneOffset(utcGuess, timeZone);
+    const offset2 = getTimeZoneOffset(utcGuess - offset1, timeZone);
+    const offset = offset1 === offset2 ? offset1 : offset2;
+    return utcGuess - offset;
 }
 
 export function timeStepCalculator(daysString, timeString){
@@ -13,8 +36,8 @@ export function timeStepCalculator(daysString, timeString){
     parseInt(timeString.split(':')[1])*60 + parseInt(timeString.split(':')[2]);
 }
 
-export async function saveProject(elements) {
-    signalSender('showOverlay', 'Saving project.\nPlease wait...');
+export async function saveProject(elements, timeZone) {
+    signalSender('showOverlay', 'Saving project. Please wait...');
     const { projectName, latitude, nLayers, gridPathText, startDate, stopDate,
         userTimeSec, nodalTimeSec, obsPointTable, crossSectionName, crossSectionTable, salinity, 
         temperature, initWaterLevel, initSalinity, initTemperature , outputHis, hisInterval, hisStart, 
@@ -45,7 +68,7 @@ export async function saveProject(elements) {
     if (!startDate || start_ === '' || !stopDate || stop_ === '') {
         alert('Please select a start/stop date for the simulation!'); return; }
     // Save start/stop date
-    const startSimulation = toUTC(start_), stopSimulation = toUTC(stop_);
+    const startSimulation = toUTC(start_, timeZone), stopSimulation = toUTC(stop_, timeZone);
     // Check if start/stop is after reference date
     if(startSimulation<0 || stopSimulation<0 || stopSimulation<=startSimulation){
         alert('Start/Stop date must be after reference date!'); return; }
@@ -110,11 +133,11 @@ export async function saveProject(elements) {
         data.set('his_interval', hisInterval);
         const start = hisStart.value, stop = hisStop.value;
         if (start !== '') {
-            const hisStartSec = Math.floor(toUTC(start)/1000);
+            const hisStartSec = Math.floor(toUTC(start, timeZone)/1000);
             data.set('his_start', hisStartSec);
         }
         if (stop !== '') {
-            const hisStopSec = Math.floor(toUTC(stop)/1000);
+            const hisStopSec = Math.floor(toUTC(stop, timeZone)/1000);
             data.set('his_end', hisStopSec);
         }
     }
@@ -123,11 +146,11 @@ export async function saveProject(elements) {
         data.set('map_interval', mapInterval);
         const start = mapStart.value, stop = mapStop.value;
         if (start !== '') {
-            const mapStartSec = Math.floor(toUTC(start)/1000);
+            const mapStartSec = Math.floor(toUTC(start, timeZone)/1000);
             data.set('map_start', mapStartSec);
         }
         if (stop !== '') {
-            const mapStopSec = Math.floor(toUTC(stop)/1000);
+            const mapStopSec = Math.floor(toUTC(stop, timeZone)/1000);
             data.set('map_end', mapStopSec);
         }
     }
@@ -137,11 +160,11 @@ export async function saveProject(elements) {
         data.set('wq_interval', wqInterval); data.set('wq_output_dir', 'DFM_DELWAQ');
         const start = wqStart.value, stop = wqStop.value;
         if (start !== '') {
-            const wqStartSec = Math.floor(toUTC(start)/1000);
+            const wqStartSec = Math.floor(toUTC(start, timeZone)/1000);
             data.set('wq_start', wqStartSec);
         }
         if (stop !== '') {
-            const wqStopSec = Math.floor(toUTC(stop)/1000);
+            const wqStopSec = Math.floor(toUTC(stop, timeZone)/1000);
             data.set('wq_end', wqStopSec);
         }
     }
@@ -151,11 +174,11 @@ export async function saveProject(elements) {
         data.set('rst_interval', rtsInterval);
         const start = rtsStart.value, stop = rtsStop.value;
         if (start !== '') {
-            const rstStartSec = Math.floor(toUTC(start)/1000);
+            const rstStartSec = Math.floor(toUTC(start, timeZone)/1000);
             data.set('rst_start', rstStartSec);
         }
         if (stop !== '') {
-            const rstStopSec = Math.floor(toUTC(stop)/1000);
+            const rstStopSec = Math.floor(toUTC(stop, timeZone)/1000);
             data.set('rst_end', rstStopSec);
         }
     }

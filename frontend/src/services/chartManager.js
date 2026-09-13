@@ -1,7 +1,7 @@
 import { jsonLoader, splitLines, colorbarTicks, formatDateTime, 
     interpolateJet, signalSender, numberFormatter
 } from "./commonFunctions.js";
-import { setStateVisualization, getColors, valueFormatter } from "./constant.js";
+import { setStateVisualization, getColors, valueFormatter, getLastTimeZone } from "./constant.js";
 
 let globalChartData = {
     title: "", data: null, checkBox: null, selectBox:null, 
@@ -247,7 +247,7 @@ export function saveToExcelFromPlot(plotDiv) {
 
 export async function plotChart(projectName, plotContainer, query, key, chartTitle, titleX, titleY) {
     signalSender('showOverlay', 'Preparing Data for Chart.\nPlease wait...');
-    const content = { projectName: projectName, key: key, query: query };
+    const content = { projectName: projectName, key: key, query: query, timeZone: getLastTimeZone() };
     const response = await jsonLoader('process_data', content);
     if (response.status === 'error') { signalSender('hideOverlay'); alert(response.message); return; }
     plotTimeSeries(plotContainer, chartTitle, response.content, chartTitle, titleX, titleY);
@@ -303,7 +303,8 @@ export function plotProfileMultiLayer(projectName, profileContainer, key, query,
     async function updateMultiLayerFrame(index) {
         if (myToken !== animationToken) return;
         const queryContents = { 
-            key: key, query: query, idx: index, projectName: projectName 
+            key: key, query: query, idx: index, 
+            projectName: projectName, timeZone: getLastTimeZone()
         };
         const data = await jsonLoader('select_meshes', queryContents);
         if (data.status === "error") { 
@@ -363,7 +364,10 @@ export function plotProfileMultiLayer(projectName, profileContainer, key, query,
     // === Color control === 
     colorCombobox.addEventListener('change', async() => { 
         animating = false; controlBtn.textContent = '▶ Play';
-        const queryContents = { key: key, query: query, idx: frameIndex, projectName: projectName };
+        const queryContents = { 
+            key: key, query: query, idx: frameIndex, 
+            projectName: projectName, timeZone: getLastTimeZone()
+        };
         const refreshed = await jsonLoader('select_meshes', queryContents);
         if (refreshed.status === "error") { alert(data.message); return; }
         const { values, local_minmax } = refreshed.content;
@@ -419,7 +423,8 @@ export function thermoclinePlotter(projectName, profileContainer, key,
     async function updateSingleLayerFrame(index) {
         if (myToken !== animationToken) return;
         const queryContents = { 
-            idx: index, type: 'thermocline_update', projectName: projectName 
+            idx: index, type: 'thermocline_update', 
+            projectName: projectName, timeZone: getLastTimeZone()
         };
         const updateData = await jsonLoader('select_thermocline', queryContents);
         if (updateData.status === "error") { 

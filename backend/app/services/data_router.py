@@ -1,12 +1,12 @@
-import os, pickle, json, traceback
-from fastapi import APIRouter, Request, Depends
+import os, pickle, json, traceback, asyncio, threading
+from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import JSONResponse
-from services import functions
+from services import functions, data_functions
 from config import PROJECT_ROOT
-import geopandas as gpd
+import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
 
-router = APIRouter()
+router, processes = APIRouter(), {}
 
 
 @router.post("/reset_station")
@@ -70,8 +70,8 @@ async def plot_station(request: Request):
         end_utc = functions.local_to_utc(end, time_zone)
         if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: 'Start time' must be earlier than 'End time'."})
-        df = regnbyge().get_Values(mode, id, interval, start_utc, end_utc)
-        if df.empty: 
+        df = regnbyge().get_Values(mode, id, start_utc, end_utc, interval)
+        if df.empty:
             return JSONResponse({'status': 'error', 'message': f"No data available for station '{name}' between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
         # Convert time back to local time zone
@@ -94,7 +94,7 @@ async def download_station(request: Request):
         end_utc = functions.local_to_utc(end, time_zone)
         if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: Start time is later than end time."})
-        df = regnbyge().get_Values(mode, id, download_interval, start_utc, end_utc)
+        df = regnbyge().get_Values(mode, id, start_utc, end_utc, download_interval)
         if df.empty: 
             return JSONResponse({'status': 'error', 'message': f"No data available between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
@@ -103,5 +103,91 @@ async def download_station(request: Request):
         return JSONResponse({'status': 'ok', 'content': csv_string})
     except Exception as e:
         print('/download_station:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.get("/log_tail_download_era5/{project_name}")
+async def log_tail_download_era5(project_name: str, offset: int = Query(0),
+    log_file: str = Query(""), user=Depends(functions.basic_auth)):
+    project_name, _ = functions.project_definer(project_name, user)
+    log_path, lines = os.path.join(PROJECT_ROOT, project_name, log_file), []
+    log_path = os.path.normpath(log_path)
+    if not os.path.exists(log_path): return {"lines": lines, "offset": 0, "reset": False}
+    file_size = os.path.getsize(log_path)
+    reset = offset > file_size
+    if reset: offset = 0
+    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
+        f.seek(offset)
+        data = f.read()
+        new_offset = f.tell()
+    return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
+
+@router.post("/check_download_status_era5")
+async def check_download_status_era5(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    key = f"{project_name}:era5"
+    info = processes.get(key)
+    if info is None:
+        return JSONResponse({"status": "idle", "message": "No download running."})
+    status, message = info["status"], info.get("message", "")
+    if status in ("finished", "failed", "error"):
+        asyncio.create_task(functions.delete_process(processes, key, 1))
+    return JSONResponse({"status": status, "message": message})
+
+@router.post("/download_era5")
+async def download_era5(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    dir = os.path.join(PROJECT_ROOT, project_name)
+    redis, key_process = request.app.state.redis, f"{project_name}:era5"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if process already running
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        lat, lon, time_zone = float(body.get('lat')), float(body.get('lon')), body.get('timeZone')
+        start, end, variables = body.get('startTime'), body.get('endTime'), body.get('variables')
+        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=data_functions.era5_downloader, 
+            args=(dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+
+@router.post("/upload_era5_csv")
+async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        time_zone = body.get('timeZone')
+        path = os.path.join(PROJECT_ROOT, project_name, "era5_data.csv")
+        if not os.path.exists(path): 
+            return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
+        df = pd.read_csv(path)
+        df['time'] = pd.to_datetime(df['time'], utc=True)
+        df['time'] = functions.utc_to_local(df['time'], time_zone)
+        columns = [data_functions.var_revert[x] for x in df.columns]
+        content = df.values.tolist()
+        df = df.rename(columns={'time': 'Time'})
+        functions.safe_remove(path)
+        return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
+    except Exception as e:
+        print('/upload_era5_csv:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/save_era5")
+async def save_era5(request: Request):
+    try:
+        body = await request.json()
+        data = body.get('data')
+        df = pd.DataFrame(data['rows'], columns=data['columns'])
+        df = df.dropna(subset=['Time'], how='all')
+        df = df.replace([np.inf, -np.inf], np.nan)
+        csv_string = df.to_csv(index=False)
+        return JSONResponse({'status': 'ok', 'message': 'Saved successfully.', 'content': csv_string})
+    except Exception as e:
+        print('/save_era5:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})

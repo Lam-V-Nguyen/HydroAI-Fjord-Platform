@@ -1,6 +1,6 @@
 import { CENTER, ZOOM } from "./constant.js";
 import { getUser, signalSender, jsonLoader, deleteTable,
-    fillTable, addRowToTable, nameChecker
+    fillTable, addRowToTable, nameChecker, getProjectList
 } from "./commonFunctions.js";
 import { gridPlotter, polygonPlotter, toggleMoveMode, orthoPlotter,
     getColorFromValue, updateColorbar, plotUnstructuredGrid
@@ -40,7 +40,7 @@ let currentProject = null, lakeMap = null, mapContainer = null,
     drawSelection = false, drawChecked = false, entireNorway = false,
     depthLayer = null, lakeLayer = null, gridLayer = null, orthoLayer = null,
     refineChecked = false, pointContainer = [], html = null, tempLine = null,
-    moveChecked = false, deleteChecked = false, levelValue = null,
+    moveChecked = false, deleteChecked = false, levelValue = null, lakeList = [],
     activeProject = null, isRunning = false, logInterval = null, pointLayer = null;
 
 const hoverTooltip = L.tooltip({
@@ -193,6 +193,8 @@ async function lakeOptions() {
         lakeLayer = clearMap(lakeLayer, lakeMap);
         lakeLayer = polygonPlotter(dataLake, lakeMap, entireNorway, true);
     });
+    // Get lake list
+    lakeList = await getProjectList(currentProject, '', 'getLakes');
 }
 
 async function dataBaseOptions() {
@@ -217,10 +219,11 @@ async function dataBaseOptions() {
             lakeLayer = polygonPlotter(dataLake, lakeMap, entireNorway, true);
             return;
         }
+        if (Object.keys(lakesData).length === 0) { await loadLakes(currentProject); }
         obj.lakeSelector.innerHTML = lakesData[selectedLake]
             .map(name => `<option value="${name}">${name}</option>`).join(''); 
         obj.lakeSelector.value = lakesData[selectedLake][0]; 
-        obj.lakeSelector.dispatchEvent(new Event('change')); 
+        obj.lakeSelector.dispatchEvent(new Event('change'));
     });
     obj.municipalityName.addEventListener('click', async (e) => { 
         obj.sugesstionLake.style.display = "none"; obj.lakeSearcher.value = "";
@@ -261,18 +264,31 @@ async function dataBaseOptions() {
             }); 
             obj.municipalityList.appendChild(li); 
         });
-        obj.municipalityList.style.display = "block"; 
+        obj.municipalityList.style.display = "block";
     });
-    obj.municipalityName.addEventListener('input', (e) => { 
-        const value = e.target.value.trim(); 
+    obj.municipalityName.addEventListener('input', async (e) => { 
+        const value = e.target.value.trim();
         if (value !== "") { 
-            projectRender(e.target, obj.municipalityList, Object.keys(lakesData));
+            if (lakeList.length === 0) { 
+                lakeList = await getProjectList(currentProject, '', 'getLakes'); 
+            }
+            const lakeFilltered = lakeList.filter(p => p.toLowerCase().startsWith(value.toLowerCase()));
+            obj.municipalityList.innerHTML = "";
+            lakeFilltered.forEach(p => {
+                const li = document.createElement("li");
+                li.textContent = p;
+                li.addEventListener('mousedown', () => { 
+                    e.target.value = p; obj.municipalityList.style.display = "none";
+                });
+                obj.municipalityList.appendChild(li);
+            });
+            obj.municipalityList.style.display = lakeFilltered.length > 0 ? "block": "none";
         } else { 
             obj.lakeSelector.value = ""; e.target.value = ""; 
             obj.lakeLabel.style.display = "none"; 
             obj.lakeSelector.style.display = "none"; 
-            e.target.dispatchEvent(new Event('click')); 
-        } 
+            e.target.dispatchEvent(new Event('click'));
+        }
     });
     obj.municipalityName.addEventListener('blur', (e) => { 
         setTimeout(() => { obj.municipalityList.style.display = "none"; }, 0); 

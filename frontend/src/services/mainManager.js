@@ -3,8 +3,7 @@ import { pdfOpener } from "./projectManager.js";
 import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
 import { startLoading, stopLoading, htmlLoader, jsonLoader } from "./commonFunctions.js";
 import { setPendingRequest, clearPendingRequest, origin, getLastProject, 
-    getLastTimeZone, setLastTimeZone
-} from "./constant.js";
+    getLastTimeZone, setLastTimeZone } from "./constant.js";
 import { renderPreview } from "./mapManager.js";
 
 
@@ -63,8 +62,8 @@ function closeMenuAndSubmenu() {
 }
 
 function widgetMenuManager() {
-    widgetMenu.addEventListener("mouseenter", (e) => {
-        e.target.dispatchEvent(new Event('click'));
+    widgetMenu.addEventListener("mouseenter", (e) => { 
+        e.target.dispatchEvent(new Event('click')); 
     });
     widgetMenu.addEventListener("click", async () => { 
         if (!isLoaded) { 
@@ -78,7 +77,6 @@ function widgetMenuManager() {
         }
     }); 
     // Menu click handler
-    widgetMenu.addEventListener("mouseenter", (e) => { e.target.dispatchEvent(new Event('click')); });
     menuContainer.addEventListener("click", async (e) => { 
         const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
         if (!item) return;

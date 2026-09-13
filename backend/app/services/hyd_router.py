@@ -20,7 +20,9 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
         if os.path.exists(in_dir):
             mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
             if not os.path.exists(mdu_path):
-                return JSONResponse({"status": 'error', "message": f"Scenario '{name}' doesn't have an *.mdu file."})
+                return JSONResponse({
+                    "status": 'error', "message": f"Scenario '{name}' doesn't have an *.mdu file.\nTry to create a new scenario first."
+                })
             with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
                 for raw_line in f:
                     line = raw_line.split("#")[0].strip()
@@ -228,7 +230,7 @@ async def update_boundary(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        subBoundaryName = body.get('subBoundaryName')
+        subBoundaryName, time_zone = body.get('subBoundaryName'), body.get('timeZone')
         boundary_name, data_boundary = body.get('boundaryName'), body.get('boundaryData')
         boundary_type, data_sub = body.get('boundaryType'), body.get('subBoundaryData')
         if boundary_type == 'Contaminant': unit = '-'; quantity = 'tracerbndContaminant'
@@ -237,11 +239,12 @@ async def update_boundary(request: Request, user=Depends(functions.basic_auth)):
         config = {
             'sub_boundary': subBoundaryName, 'boundary_type': quantity, 
             'unit': unit, 'ref_date': '1970-01-01 00:00:00'
-            }
+        }
         temp_file = os.path.normpath(os.path.join(SOURCE_BACKEND, 'templates', 'hyd', 'BC.bc'))
         temp, bc = [], [boundary_name]
         for row in data_sub:
-            row[0] = int(row[0]/1000.0); temp.append(row)
+            time = functions.local_to_utc(row[0], time_zone)
+            row[0] = int(time.timestamp()); temp.append(row)
         lines = [f"{int(x)}  {y}" for x, y in temp]
         config['data'] = '\n'.join(lines)
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
@@ -412,7 +415,7 @@ async def save_source(request: Request, user=Depends(functions.basic_auth)):
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         lat, lon, BCCheck = body.get('lat'), body.get('lon'), body.get('BC')
         data, source_name = body.get('data'), body.get('nameSource')
-        redis = request.app.state.redis
+        redis, time_zone = request.app.state.redis, body.get('timeZone')
         lock = redis.lock(f"{project_name}:save_source:{source_name}", timeout=10)
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))        
         async with lock:
@@ -448,8 +451,8 @@ async def save_source(request: Request, user=Depends(functions.basic_auth)):
             tim_path = os.path.normpath(os.path.join(path, f"{source_name}.tim"))
             with open(tim_path, 'w', encoding=functions.encoding_detect(tim_path)) as f:
                 for row in data:
-                    try: t = float(row[0])/(1000.0*60.0)
-                    except Exception: t = 0
+                    time = functions.local_to_utc(row[0], time_zone)
+                    t = float(time.timestamp())
                     if int(BCCheck)==1: values = [str(t)] + [str(r) for r in row[1:]]
                     else: values = [str(t)] + [str(r) for r in row[1:-1]]
                     f.write('  '.join(values) + '\n')
@@ -493,9 +496,10 @@ async def save_meteo(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     content = 'QUANTITY=humidity_airtemperature_cloudiness_solarradiation\n' + \
-            'FILENAME=FlowFM_meteo.tim\n' + 'FILETYPE=1\n' + 'METHOD=1\n' + 'OPERAND=O'
+        'FILENAME=FlowFM_meteo.tim\n' + 'FILETYPE=1\n' + 'METHOD=1\n' + 'OPERAND=O'
     # Time difference in minutes
-    status, message = functions.contentWriter(project_name, "FlowFM_meteo.tim", body.get('data'), content, 'min')
+    time_zone, data = body.get('timeZone'), body.get('data')
+    status, message = functions.contentWriter(project_name, "FlowFM_meteo.tim", data, time_zone, content)
     return JSONResponse({"status": status, "message": message})
 
 # Save meteo data to project
@@ -505,7 +509,8 @@ async def save_weather(request: Request, user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     content = 'QUANTITY=windxy\n' + 'FILENAME=windxy.tim\n' + 'FILETYPE=2\n' + 'METHOD=1\n' + 'OPERAND=+'
     # Time difference in minutes
-    status, message = functions.contentWriter(project_name, "windxy.tim", body.get('data'), content, 'min')
+    time_zone, data = body.get('timeZone'), body.get('data')
+    status, message = functions.contentWriter(project_name, "windxy.tim", data, time_zone, content)
     return JSONResponse({"status": status, "message": message})
 
 # Create MDU file

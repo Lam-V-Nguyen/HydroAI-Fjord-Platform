@@ -1,11 +1,10 @@
 import { setupTabs } from "./tabManager.js";
-import { flowId } from "./constant.js";
+import { flowId, getLastTimeZone } from "./constant.js";
 import { getUser, signalSender, sendRequest, initRequestListener, 
     nameChecker, csvUploader, getProjectList, jsonLoader, fillTable, 
     deleteTable, addRowToTable, getDataFromTable, formatDate, updateLog
 } from "./commonFunctions.js";
-import { catchmentDelineation, geoJSONExporter, 
-    setElementsEnabled, setElementsDisplayed
+import { catchmentDelineation, geoJSONExporter, setElementsEnabled, setElementsDisplayed
 } from "./flowFunctions.js";
 import { projectRender } from "./projectManager.js";
 
@@ -53,9 +52,8 @@ soilManager(); landManager(); riverManager(); weatherManager();
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
-    const respond = await getProjectList(currentProject, '', true);
-    console.log(respond);
-    // await projectRender(obj.projectName, obj.projectList, respond);
+    const respond = await getProjectList(currentProject, '', 'getProjects', 'flows');
+    await projectRender(obj.projectName, obj.projectList, respond);
 }
 
 function settingManager() {
@@ -64,7 +62,7 @@ function settingManager() {
         const name = obj.projectName.value.trim();
         if (!name || name.trim() === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
-        const content = { projectName: currentProject, flowName: name, key: 'create' };
+        const content = { projectName: currentProject, flowName: name, key: 'create', timeZone: getLastTimeZone() };
         const data = await jsonLoader('flow_project', content);
         if (data.status === 'error' || data.status === 'create') { alert(data.message); return; }
         obj.waterInputText.value = data.content['water']; obj.terrainInputText.value = data.content['dtm'];
@@ -648,13 +646,12 @@ function weatherManager() {
             const data = await sendRequest('flowOptions', { key: 'getLayer', layerKey: 'catchmentLayer_Vector' });
             if (data.data === null) { alert('Please upload a catchment first.'); return; }
             const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value;
-            if (startTime === '') { alert('Please select a start date first.'); return; }
-            if (endTime === '') { alert('Please select an end date first.'); return; }
+            if (startTime === '' || endTime === '') { alert('Please select a time range first.'); return; }
             const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
             if (statusRes.status === "running") { alert("Weather download is already running."); return; }
             obj.weatherLog.value = '';
             const content = { 
-                projectName: currentProject, flowName: name,
+                projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
                 data: data.data, start: startTime, end: endTime
             };
             const start = await jsonLoader('start_download_weather', content);
@@ -673,7 +670,7 @@ function weatherManager() {
         if (data.length === 0) { alert('Please upload weather data first.'); return; }
         signalSender('showOverlay', 'Generating weather data.\nPlease wait...');
         const content = { 
-            projectName: currentProject, flowName: name, data: data
+            projectName: currentProject, flowName: name, data: data, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('save_flow_weather', content);
         signalSender('hideOverlay'); alert(request.message);

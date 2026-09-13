@@ -1,6 +1,6 @@
 import { jsonLoader, signalSender, splitLines, initOptions } from "./commonFunctions.js";
 import { L, ZOOM, getStateVisualization, setStateVisualization, 
-    resetStateVisualization, getMap } from "./constant.js";
+    resetStateVisualization, getMap, getLastTimeZone } from "./constant.js";
 import { plotChart, plotProfileSingleLayer, plotProfileMultiLayer, 
     thermoclinePlotter } from "./chartManager.js";
 import { clearMap } from "./mapManager.js";
@@ -55,7 +55,9 @@ function pathEvents(mapObject) {
 
 function generalEvents(){
     objContent.projectSummaryOption.addEventListener('click', async () => { 
-        const content = { projectName: currentProject, key: 'summary' };
+        const content = { 
+            projectName: currentProject, key: 'summary', timeZone: getLastTimeZone()
+        };
         const data = await jsonLoader('process_data', content);
         if (data.status === 'error') { alert(data.message); return; }
         const currentDisplay = window.getComputedStyle(obj.summaryContainer).display;
@@ -145,7 +147,10 @@ function generalEvents(){
 
 // Create grid for thermocline plot and add click event to each cell
 async function thermoclineGridCreator(currentProject, mapObject, key, query, titleX, titleY, chartTitle) {
-    const content = { key: key, query: query, type: 'thermocline_grid', projectName: currentProject };
+    const content = { 
+        key: key, query: query, type: 'thermocline_grid', 
+        projectName: currentProject, timeZone: getLastTimeZone()
+    };
     const data = await jsonLoader('select_thermocline', content);
     if (data.status === "error") {
         signalSender('hideOverlay'); alert(data.message); return;
@@ -187,7 +192,7 @@ async function thermoclineGridCreator(currentProject, mapObject, key, query, tit
                             if (newName !== '') {
                                 const content = { 
                                     key: key, query: query, type: 'thermocline_init', 
-                                    idx: index, projectName: currentProject,
+                                    idx: index, projectName: currentProject, timeZone: getLastTimeZone()
                                 };
                                 const initData = await jsonLoader('select_thermocline', content);
                                 layer.closePopup(); setStateVisualization({isThemocline: false});
@@ -208,7 +213,7 @@ async function thermoclineGridCreator(currentProject, mapObject, key, query, tit
 // Load hydrodynamic observation points
 async function loadHYDStations() {
     signalSender('showOverlay', 'Reading Hydrodynamic Observation Points from Database.\nPlease wait...');
-    const content = { projectName: currentProject, key: 'hyd_station' };
+    const content = { projectName: currentProject, key: 'hyd_station', timeZone: getLastTimeZone() };
     const data = await jsonLoader('process_data', content); // Load data
     signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
@@ -252,7 +257,7 @@ async function loadHYDStations() {
 // Load sources/sinks observation points
 async function loadSourceStations() {
     signalSender('showOverlay', 'Reading Sources/Sinks from Database.\nPlease wait...');
-    const content = { projectName: currentProject, key: 'sources' };
+    const content = { projectName: currentProject, key: 'sources', timeZone: getLastTimeZone() };
     const data = await jsonLoader('process_data', content);
     signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
@@ -279,7 +284,7 @@ async function loadSourceStations() {
 // Load cross-section observation path
 async function loadCrossSection() {
     signalSender('showOverlay', 'Reading Cross-Sections from Database.\nPlease wait...');
-    const content = { projectName: currentProject, key: 'crosssections' };
+    const content = { projectName: currentProject, key: 'crosssections', timeZone: getLastTimeZone() };
     const data = await jsonLoader('process_data', content);
     signalSender('hideOverlay');
     if (data.status === "error") { alert(data.message); return; }
@@ -313,7 +318,7 @@ async function loadCrossSection() {
 
 async function loadWAQStations() {
     signalSender('showOverlay', 'Loading Water Quality Observation Points from Database.\nPlease wait...');
-    const content = { projectName: currentProject, key: 'wq_obs' };
+    const content = { projectName: currentProject, key: 'wq_obs', timeZone: getLastTimeZone() };
     const data = await jsonLoader('process_data', content);
     signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
@@ -343,7 +348,7 @@ async function loadWAQStations() {
 
 async function loadWAQLoads() {
     signalSender('showOverlay', 'Loading Loads of Water Quality Observation Points from Database.\nPlease wait...');
-    const content = { projectName: currentProject, key: 'wq_loads' };
+    const content = { projectName: currentProject, key: 'wq_loads', timeZone: getLastTimeZone() };
     const data = await jsonLoader('process_data', content);
     signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }

@@ -13,10 +13,10 @@ router = APIRouter()
 async def select_hyd(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    folder = [PROJECT_ROOT, project_name, "DFM_DELWAQ", 'FlowFM.hyd']
+    folder, time_zone = [PROJECT_ROOT, project_name, "DFM_DELWAQ", 'FlowFM.hyd'], body.get('timeZone')
     path = os.path.normpath(os.path.join(*folder))
     if os.path.exists(path):
-        return JSONResponse({"status": 'ok', "content": wq_functions.hydReader(path)})
+        return JSONResponse({"status": 'ok', "content": wq_functions.hydReader(path, time_zone)})
     message = f"Error: Cannot find .hyd file in project '{project_name}'.\nPlease run a hydrodynamic simulation first."
     return JSONResponse({"status": 'error', "message": message})
 
@@ -26,7 +26,7 @@ async def load_waq(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         folder = [PROJECT_ROOT, project_name, "output", 'scenarios', f"{body.get('waqName')}.json"]
-        path, data = os.path.normpath(os.path.join(*folder)), {}
+        path, data, time_zone = os.path.normpath(os.path.join(*folder)), {}, body.get('timeZone')
         if not os.path.exists(path): return JSONResponse({"status": 'error', "message": 'Configuration file not found.'})
         with open(path, 'r', encoding=functions.encoding_detect(path)) as f:
             files = json.load(f)
@@ -40,7 +40,7 @@ async def load_waq(request: Request, user=Depends(functions.basic_auth)):
                     for item in times:
                         temp_item = item.strip().split(' ')
                         temp_time = pd.to_datetime(temp_item[0], utc=True, format='%Y/%m/%d-%H:%M:%S')
-                        temp_time = temp_time.strftime('%Y-%m-%d %H:%M:%S')
+                        temp_time = functions.utc_to_local(temp_time, time_zone)
                         time_data.append([temp_time, location, substance.replace("'", ""), temp_item[idx + 1]])
         result = [item for item in time_data if item[3] != '-999.0']
         data['key'], data['name'], data['mode'] = files['key'], files['folderName'], files['mode']
@@ -83,15 +83,15 @@ async def clone_waq(request: Request, user=Depends(functions.basic_auth)):
             except asyncio.CancelledError: pass
 
 # Delete a file
-@router.post("/delete_file")
-async def delete_file(request: Request, user=Depends(functions.basic_auth)):
+@router.post("/delete_waq")
+async def delete_waq(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, file = request.app.state.redis, body.get('name')
         scenario_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
         waq_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'WAQ'))
-        extend_task, lock = None, redis.lock(f"{project_name}:delete_file", timeout=300)
+        extend_task, lock = None, redis.lock(f"{project_name}:delete_waq", timeout=300)
         async with lock:
             extend_task = asyncio.create_task(functions.auto_extend(lock))
             file_name = os.path.normpath(os.path.join(scenario_folder, f"{file}.json"))
@@ -106,7 +106,7 @@ async def delete_file(request: Request, user=Depends(functions.basic_auth)):
             functions.safe_remove(file_name)
             return JSONResponse({"message": f"Scenario '{file}' was deleted successfully!"})
     except Exception as e:
-        print('/delete_file:\n==============')
+        print('/delete_waq:\n==============')
         traceback.print_exc()
         return JSONResponse({"message": f"Error: {str(e)}"})
     finally:
@@ -159,15 +159,16 @@ async def wq_time_from_waq(request: Request):
 async def wq_time(request: Request):
     try:
         body = await request.json()
-        load_data, time_data, folder = body.get('loadsData'), body.get('timeData'), body.get('folderName')
+        load_data, time_data = body.get('loadsData'), body.get('timeData')
+        folder, time_zone = body.get('folderName'), body.get('timeZone')
         # Check whether the location in time-series is in the load data
         loads, times = [x[0] for x in load_data], [x[1] for x in time_data]
         if not any(x in times for x in loads):
             return JSONResponse({"status": 'error', 
                 "message": 'Error: No Location found in the table.\nThe field "Location" has to be defined in the table "List of Loads".'})        
         # Read file and prepare data
-        time_data = np.array(time_data)
-        idx = [datetime.fromtimestamp(int(x)/1000.0, tz=timezone.utc) for x in time_data[:, 0]]
+        time_data, idx = np.array(time_data), []
+        idx = [functions.local_to_utc(x, time_zone) for x in time_data[:, 0]]
         df = pd.DataFrame(time_data[:, 1:], index=idx, columns=['source', 'substance', 'value'])
         # Sort data
         df = df.sort_index(ascending=True)
@@ -189,7 +190,11 @@ async def wq_time(request: Request):
                 subset.index = pd.to_datetime(subset.index)
                 temp_df[item] = pd.to_numeric(subset.value, errors="coerce")
             temp_df = temp_df.sort_index(ascending=True).fillna(-999)
-            temp_df.index = [x.strftime('%Y/%m/%d-%H:%M:%S') for x in temp_df.index]
+            if isinstance(temp_df.index, pd.DatetimeIndex):
+                if temp_df.index.tz is None:
+                    temp_df.index = temp_df.index.tz_localize('UTC')
+                else: temp_df.index = temp_df.index.tz_convert('UTC')
+            temp_df.index = temp_df.index.strftime('%Y/%m/%d-%H:%M:%S')
             temp_df.reset_index(inplace=True)
             lst = temp_df.astype(str).values.tolist() # Convert to string
             lst = [' '.join(x) for x in lst]

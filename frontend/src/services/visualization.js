@@ -3,7 +3,7 @@ import { generalOptionsManager } from "./generalOptions.js";
 import { plotChart } from "./chartManager.js";
 import { spatialMapManager } from "./spatialMapManager.js";
 import { projectModifier } from "./projectManager.js";
-import { getState } from "./constant.js";
+import { getState, getLastTimeZone } from "./constant.js";
 
 let cachedMenus = {}, html = null, timeOut = null, checked = false, userName = null,
     currentProject = null, waqModel = null, waqName = null, currentParams = null,
@@ -112,7 +112,7 @@ export async function initializeMenu(project, params, name, model){
                 gisUploadFile.click(); return;
             }
             else if (info == 'project-open') { initProject(); return; }
-            if (!checked) { alert('No scenario was loaded. Please select a project to open.'); return; }
+            if (!checked) { alert("No scenario was loaded.\nPlease select 'General Options/Reset Configuration' to reload the scenario."); }
             const [id, htmlFile] = info.split('|');
             signalSender('showOverlay', 'Getting Information.\nPlease wait...');
             await showPopupMenu(project, model, id, htmlFile);
@@ -166,7 +166,8 @@ function timeSeriesManager(projectName) {
         item.onclick = async () => {
             // substanceWindowMap().style.display = 'none';
             const content = { 
-                query: item.dataset.info, key: 'substance_check', projectName: projectName 
+                query: item.dataset.info, key: 'substance_check', 
+                projectName: projectName, timeZone: getLastTimeZone()
             };
             const data = await jsonLoader('process_data', content);
             if (data.status === "error") {

@@ -128,8 +128,11 @@ export function getDataFromTable(table, isZeroIndexString=false){
 }
 
 export function fillTable(data2D, table, clear=true){
-    const tbody = table.querySelector("tbody");
-    if (!tbody) return;
+    let tbody = table.querySelector("tbody");
+    if (!tbody) {
+        tbody = document.createElement('tbody');
+        table.appendChild(tbody);
+    }
     if (!data2D || data2D.length === 0) {
         if (clear) { tbody.innerHTML = ''; }
         return;
@@ -244,6 +247,24 @@ export function splitLines(pointContainer, polygonCentroids, subset_dis) {
     return interpolatedPoints;
 }
 
+// Interpolate value using inverse distance weighting
+export function interpolateValue(location, centroids, power = 5, maxDistance = Infinity) {
+    const weights = [], values = [];
+    for (const c of centroids){
+        const d = turf.distance(
+            turf.point([location.lng, location.lat]),
+            turf.point([c.lng, c.lat]), {unit: 'meters'}
+        );
+        if (d > maxDistance || d === 0) continue;
+        const w = 1 / Math.pow(d, power);
+        weights.push(w); values.push(c.value * w);
+    }
+    if (weights.length === 0) return null;
+    const sumWeights = weights.reduce((a, b) => a + b, 0);
+    const sumValues = values.reduce((a, b) => a + b, 0);
+    return (sumValues / sumWeights);
+}
+
 export async function saveCSV(filename, headers, rows) {
     const csv = [
         headers.join(","), ...rows.map(r =>
@@ -289,7 +310,11 @@ export function updateLog(currentProject, info, seconds, key, onFinish, reloadLo
 }
 
 export function addRowToTable(table, list, fillValue=false){
-    const tbody = table.querySelector("tbody");
+    let tbody = table.querySelector('tbody');
+    if (!tbody) { 
+        tbody = document.createElement('tbody'); 
+        table.appendChild(tbody); 
+    }
     const tr = document.createElement('tr');
     list.forEach(text => {
         const td = document.createElement('td');
@@ -386,14 +411,16 @@ export async function fileUploader(targetFile, targetText, projectName, gridName
     const response = await fetch('/upload_data', { method: 'POST', body: formData });
     const data = await response.json();
     signalSender('hideOverlay'); alert(data.message);
-    if (targetText) { targetText.value = ''; }
+    if (targetFile) { targetFile.value = ''; }
     if (data.status === "error") { return; }
 }
 
-export async function getProjectList(userName='', folderCheck='', flowChecker=false) {
+export async function getProjectList(
+    userName='', folderCheck='', key='getProjects', keyChecker=''
+) {
     const contents = { 
-        filename: userName, key: 'getProjects', folder_check: folderCheck,
-        flow_checked: flowChecker
+        filename: userName, key: key, folder_check: folderCheck,
+        keyChecked: keyChecker
     };
     const data = await jsonLoader('select_project', contents);
     if (data.status === "error") { alert(data.message); return; }

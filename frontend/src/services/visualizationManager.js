@@ -5,8 +5,6 @@ import { getUser, signalSender, jsonLoader, moveWindow, closeWindow,
 import { locationFinder, initializeMenu, projectChecker } from "./visualization.js";
 import { initMap } from "./visualizationMap.js";
 
-
-
 const $ = (id) => document.getElementById(id);
 const obj = {
     baseMap: $("basemap-btn"), locationSearcher: $("search"), 
@@ -19,14 +17,12 @@ const obj = {
     profileHeader: $("profile-header"), closeProfileBtn: $("close-profile-btn")
 }
 
-
 let currentProject = null, currentParams = null, userName = null, 
     waqModel = null, mapObj = null, waqName = null, hideTimeout = null, gisLayers = {};
 
 
 await getProject(); mapObj = await initMap('leaflet-map');
 updateManager(); await restoreGISLayers();
-
 
 export async function getProject() { 
     userName = await getUser(); initState(userName.split('/').shift());
