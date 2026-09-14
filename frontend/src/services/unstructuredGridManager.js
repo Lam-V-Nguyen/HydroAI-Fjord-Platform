@@ -532,15 +532,8 @@ function unGridManager() {
         const iterations = Number(obj.iterationValue.value);
         if (isNaN(iterations)) { alert("Please enter a valid number of iterations."); return; }
         const levelFrom = Number(obj.valueFrom.value), levelTo = Number(obj.valueTo.value);
-        if (isNaN(levelFrom) || isNaN(levelTo) || levelFrom < 0 || levelTo < 0 || levelFrom >= levelTo) {
+        if (isNaN(levelFrom) || isNaN(levelTo) || levelFrom <= 0 || levelTo <= 0 || levelFrom >= levelTo) {
             alert("Please enter a valid value range."); return; 
-        }
-        obj.leafletContainer.style.display = 'none'; obj.plotContainer.style.display = 'flex'; 
-        obj.menuContent.style.display = 'none';
-        obj.optimizeCloseBtn.innerText = 'Stop'; isRunning = true;
-        const statusRes = await jsonLoader('check_grid_optimization', { projectName: currentProject });
-        if (statusRes.status === "running") {
-            updateLog(currentProject, obj.chartDiv, obj.progressbarGrid, obj.progressTextGrid, 1);
         }
         const pointCollection = [];
         pointLayer.eachLayer(layer => {
@@ -549,17 +542,28 @@ function unGridManager() {
         });
         if (pointCollection.length === 0) { alert("No vertexes found."); return; }
         pointCollection.push(pointCollection[0]);
+        // Reset UI
+        activeProject = currentProject; isRunning = true;
+        obj.leafletContainer.style.display = 'none'; 
+        obj.plotContainer.style.display = 'flex'; 
+        obj.menuContent.style.display = 'none';
+        obj.optimizeCloseBtn.innerText = 'Stop';
         const contents = { projectName: currentProject, pointCollection: pointCollection,
             iterations: iterations, levelFrom: levelFrom, levelTo: levelTo
         };
-        const start = await jsonLoader('start_grid_optimization', contents);
-        if (start.status === "error") { isRunning = false; alert(start.message); return; }
-        updateLog(currentProject, obj.chartDiv, obj.progressbarGrid, obj.progressTextGrid, 1);
+        try {
+            const start = await jsonLoader('start_grid_optimization', contents);
+            if (start.status === "error") { isRunning = false; alert(start.message); return; }
+            updateLog(currentProject, obj.chartDiv, obj.progressbarGrid, obj.progressTextGrid, 1);
+        } catch (error) {
+            obj.progressTextGrid.innerText = 'Failed to start optimization.';
+            alert(`Grid optimization failed: ${error.message}`); isRunning = false;
+        }
     });
     obj.optimizeCloseBtn.addEventListener('click', async (e) => {
         const value = e.target.innerText;
         if (value === 'Stop') {
-            const response = await jsonLoader('grid_stop', {projectName: currentProject});
+            const response = await jsonLoader('stop_grid_optimization', {projectName: currentProject});
             if (response.status === "error") { alert(response.message); }
             isRunning = false; e.target.innerText = 'Close and Plot Grid';
         } else if (value === 'Close and Plot Grid') {
@@ -770,7 +774,8 @@ async function resetMap(){
 
 function updateLog(project, chartDiv, progress_bar, progress_text, seconds){
     activeProject = project; isRunning = true;
-    logInterval = setInterval(async () => {
+    if (logInterval !== null) { clearInterval(logInterval); logInterval = null; }
+    const pollStatus = async () => {
         if (activeProject !== project) { clearInterval(logInterval); logInterval = null; return; }
         try {
             const statusRes = await jsonLoader('check_grid_optimization', {projectName: project});
@@ -794,5 +799,6 @@ function updateLog(project, chartDiv, progress_bar, progress_text, seconds){
             alert("Polling error: " + (error.message || error)); isRunning = false;
             clearInterval(logInterval); logInterval = null; 
         }
-    }, seconds * 1000);
+    }
+    logInterval = setInterval(pollStatus, seconds * 1000); pollStatus(); 
 }

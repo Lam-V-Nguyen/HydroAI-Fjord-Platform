@@ -1,5 +1,5 @@
 import traceback, os, json, threading
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from services import functions, grid_functions
 from config import PROJECT_ROOT
@@ -240,11 +240,15 @@ async def grid_ortho(request: Request, user=Depends(functions.basic_auth)):
         mk = project_cache.get('mk', None)
         if mk is None: 
             return JSONResponse({"status": "error", "message": "Unstructured grid is not available in memory."})
+        mk_crs = project_cache.get('mk_crs', "EPSG:4326")
         mesh = mk.mesh2d_get()
-        gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(mesh.edge_x, mesh.edge_y), crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(mesh.edge_x, mesh.edge_y), crs=mk_crs)
         gdf['orth'] = np.round(mk.mesh2d_get_orthogonality().values, 4)
         gdf = gdf[gdf.orth != -999]
+        if mk_crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
         values = gdf['orth'].values
+        if len(values) == 0:
+            return JSONResponse({"status": "error", "message": "No valid orthogonality values found."})
         min, max = np.min(values), np.max(values)
         return JSONResponse({'status': 'ok', 'content': {"min": min, "max": max, "data": json.loads(gdf.to_json())}})
     except Exception as e:
@@ -252,115 +256,104 @@ async def grid_ortho(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/grid_stop")
-async def grid_stop(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        if project_name in processes:
-            info = processes[project_name]
-            if info["status"] == "running":
-                info["stop"], message = True,f"Optimization stopped by user. The grid will be created with the current best parameters."
-                return JSONResponse({"status": "error", "message": message})
-        return JSONResponse({"status": "ok"})
-    except Exception as e:
-        print('/grid_stop:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/check_grid_optimization")
 async def check_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    info = processes.get(project_name)
+    process_key = f"{project_name}:grid_optimization"
+    info = processes.get(process_key)
     if not info: 
         return JSONResponse({"status": "not_started", "progress": 0, "message": 'No optimization running.', "his": []})
     if info["status"] in ("finished", "stopped"):
         response = {"status": "finished", "progress": 100, "message": info["message"], "his": info["history"], "grid": info["grid"]}
-        processes.pop(project_name, None)
+        processes.pop(process_key, None)
         return JSONResponse(response)
     if info["status"] == "failed":
         response = {"status": "failed", "progress": info["progress"], "message": info["message"], "his": []}
-        processes.pop(project_name, None)
+        processes.pop(process_key, None)
         return JSONResponse(response)
     return JSONResponse({"status": info["status"], "progress": info["progress"], "message": info["message"], "his": info["history"]})
 
 # Start a optimization
 @router.post("/start_grid_optimization")
-async def start_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
+async def start_grid_optimization(request: Request, background_tasks: BackgroundTasks, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        project_name, project_id = functions.project_definer(body.get('projectName'), user)
-        project_cache = request.app.state.project_cache.setdefault(project_name)
-        if not project_cache: 
-            return JSONResponse({"status": "error", "message": "Project is not available in memory."})
-        redis = request.app.state.redis
-        lock = redis.lock(f"{project_id}:grid_optimization", timeout=1000, blocking_timeout=10)
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        redis, process_key = request.app.state.redis, f"{project_name}:grid_optimization"
+        cache_root = request.app.state.project_cache
+        if not isinstance(cache_root, dict):
+            cache_root = {}
+            request.app.state.project_cache = cache_root
+        project_cache = cache_root.get(project_name)
+        if not isinstance(project_cache, dict):
+            project_cache = {}
+            cache_root[project_name] = project_cache
+        lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
         async with lock:
+            info = processes.get(process_key)
             # Check if optimization already running
-            if project_name in processes and processes[project_name]["status"] == "running":
-                info = processes[project_name]
-                return JSONResponse({"status": info["status"], "progress": info["progress"], "message": info["message"], "his": info["history"]})
+            if info and info["status"] == "running":
+                return JSONResponse({
+                    "status": info["status"], "progress": info["progress"], 
+                    "message": info["message"], "his": info["history"]
+                })
+            processes[process_key] = {
+                "status": "running", "progress": 0.0, "history": [], "grid": None,
+                "message": 'Preparing data for optimization ...', "stop": False
+            }
+            info = processes[process_key]
             iterations, points = int(body.get('iterations')), np.array(body.get('pointCollection'))
             level_from, level_to = float(body.get('levelFrom')), float(body.get('levelTo'))
             gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(points[:, 1], points[:, 0]), crs="EPSG:4326")
-            x = np.array(gdf.geometry.x.to_numpy(), dtype=np.float64, copy=True)
-            y = np.array(gdf.geometry.y.to_numpy(), dtype=np.float64, copy=True)
+            utm_crs = gdf.estimate_utm_crs()
+            gdf_proj = gdf.to_crs(utm_crs)
+            x = np.array(gdf_proj.geometry.x.to_numpy(), dtype=np.float64, copy=True)
+            y = np.array(gdf_proj.geometry.y.to_numpy(), dtype=np.float64, copy=True)
             polygon = GeometryList(x, y)
             params = {
                 "level": [level_from, level_to], 'mode': ['auto', 'custom'],
                 "outer_iterations": [1, 10], "boundary_iterations": [1, 50],
                 "inner_iterations": [1, 50], "smoothing_factor": [0, 1]
             }
-            processes[project_name] = {
-                "status": "running", "progress": 0.0, "history": [], "grid": None,
-                "message": 'Preparing data for optimization ...', "stop": False
-            }
-            # Run the process
-            def run():
-                try:
-                    def update_progress(iteration, min_value, mean_value, best_type, best_level, current_ortho, best_ortho):
-                        info = processes[project_name]
-                        if not info: return
-                        progress = round(iteration / iterations * 100, 2)
-                        message = f"Completed: {progress:.1f}% ({iteration}/{iterations}) - Current orthogonality: {current_ortho:.4f}"
-                        message += f" [Best orthogonality: {best_ortho:.4f} (mode: '{best_type:^6}' - level: {best_level:.2f})]"
-                        info["progress"], info["message"] = progress, message
-                        info["history"].append({"iteration": iteration, "min": min_value, "mean": mean_value, "max": current_ortho})
-                    def stop_checker():
-                        info = processes.get(project_name)
-                        return info.get("stop", False) if info else True
-                    best_params = grid_functions.Bayesian_Optimization(polygon, params, iterations, 
-                                    progress_callback=update_progress, stop_checker=stop_checker)
-                    info = processes.get(project_name)
-                    if not info: return
-                    notice = info.get("message", "Optimization completed")
-                    if "[" in notice: notice = notice.split("[", 1)[1].split("(", 1)[0]
-                    info["status"], info["message"] = 'finalizing', "Generating final grid..."
-                    mk = grid_functions.mk_from_params(best_params, polygon)
-                    project_cache["mk"] = mk
-                    grid_uds = grid_functions.netCDF_creator(mk)
-                    best_grid = functions.unstructuredGridCreator(grid_uds)
-                    info["grid"] = json.loads(best_grid.to_json())
-                    best_params["level"] = f'{best_params["level"]:.3f}'
-                    best_params["mode"] = f'{best_params["mode"]:^6}'
-                    best_params["outer_iterations"] = f'{best_params["outer_iterations"]:.3f}'
-                    best_params["boundary_iterations"] = f'{best_params["boundary_iterations"]:.3f}'
-                    best_params["inner_iterations"] = f'{best_params["inner_iterations"]:.3f}'
-                    best_params["smoothing_factor"] = f'{best_params["smoothing_factor"]:.3f}'
-                    notice += f" - Best parameters: {best_params})"
-                    if info.get("stop"): info["status"], info["message"] = "stopped", notice
-                    else: info["status"], info["message"] = "finished", notice
-                    project_cache['grid_uds'] = grid_uds
-                except Exception as e:
-                    info = processes.get(project_name)
-                    if info: info["status"], info["message"], info["grid"] = "failed", f"Error: {e}", None
-            threading.Thread(target=run, daemon=True).start()
+            background_tasks.add_task(
+                grid_functions.run_grid_optimization, processes, process_key, iterations, 
+                polygon, params, project_cache, utm_crs
+            )
         return JSONResponse({"status": "ok", "message": f"Grid optimization started."})
     except Exception as e:
         print('/start_grid_optimization:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/stop_grid_optimization")
+async def stop_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    process_key = f"{project_name}:grid_optimization"
+    info = processes.get(process_key)
+    if not info:
+        return JSONResponse({"status": "error", "message": "No optimization running."})
+    info["stop"] = True
+    return JSONResponse({"status": "ok", "message": "Stop signal sent."})
+
+# @router.post("/stop_grid_optimization")
+# async def stop_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
+#     try:
+#         body = await request.json()
+#         project_name, _ = functions.project_definer(body.get('projectName'), user)
+#         if project_name in processes:
+#             info = processes[project_name]
+#             if info["status"] == "running":
+#                 info["stop"], message = True,f"Optimization stopped by user. The grid will be created with the current best parameters."
+#                 return JSONResponse({"status": "error", "message": message})
+#         return JSONResponse({"status": "ok"})
+#     except Exception as e:
+#         print('/stop_grid_optimization:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 
 @router.post("/grid_checker")
 async def grid_checker(request: Request, user=Depends(functions.basic_auth)):

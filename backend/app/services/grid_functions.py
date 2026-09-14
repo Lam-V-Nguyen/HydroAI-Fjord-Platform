@@ -3,14 +3,13 @@ from config import SOURCE_BACKEND
 import geopandas as gpd, numpy as np
 from shapely.geometry import Polygon, MultiPolygon
 from meshkernel import MeshKernel, GeometryList, OrthogonalizationParameters
-from meshkernel.errors import MeshKernelError
 from services import functions
 import xarray as xr, dask.array as da
 from pyproj import CRS
+from optuna.pruners import MedianPruner
+from functools import partial
 warnings.filterwarnings("ignore")
 optuna.logging.set_verbosity(optuna.logging.ERROR)
-
-
 
 def lake_generation(folder, project_cache):
     lake_pkl_path = os.path.normpath(os.path.join(folder, 'lakes.pkl'))
@@ -198,69 +197,135 @@ def netCDF_creator(mk: MeshKernel, depth: gpd.GeoDataFrame=None):
     grid_uds.attrs.update({ "institution": 'Private', "references": 'vanlnNTNU@gmail.com'})
     return grid_uds
 
-def Bayesian_Optimization(polygon:GeometryList, space: dict, iterations: int=500,
-                          progress_callback=None, stop_checker=None):
-    """
-    Bayesian Optimization using Optuna to minimize the maximum orthogonality.
-    """
-    best_value, best_type, best_level = float('inf'), "", float('inf')
-    def objective_function(trial: optuna.trial.Trial):
-        try:
-            type_choice = trial.suggest_categorical("mode", space['mode'])
-            level = trial.suggest_float("level", space['level'][0], space['level'][1])
-            outer_iterations = trial.suggest_int(
-                "outer_iterations", space['outer_iterations'][0], 
-                space['outer_iterations'][1]
-            )
-            boundary_iterations = trial.suggest_int(
-                "boundary_iterations", space['boundary_iterations'][0], 
-                space['boundary_iterations'][1]
-            )
-            inner_iterations = trial.suggest_int(
-                "inner_iterations", space['inner_iterations'][0], 
-                space['inner_iterations'][1]
-            )
-            smoothing_factor = trial.suggest_float(
-                "smoothing_factor", space['smoothing_factor'][0], 
-                space['smoothing_factor'][1]
-            )
-            mk, iteration = MeshKernel(), trial.number + 1
-            if type_choice == 'auto': mk.mesh2d_make_triangular_mesh_from_polygon(polygon)
-            else: mk.mesh2d_make_triangular_mesh_from_polygon(polygon, scale_factor=float(level))        
-            ortho_params = OrthogonalizationParameters(
-                outer_iterations=outer_iterations, boundary_iterations=boundary_iterations,
-                inner_iterations=inner_iterations,
-                orthogonalization_to_smoothing_factor=smoothing_factor
-            )        
-            mk.mesh2d_compute_orthogonalization(
-                project_to_land_boundary_option=False,
-                orthogonalization_parameters=ortho_params, land_boundaries=polygon
-            )        
-            orth = mk.mesh2d_get_orthogonality().values
-            orth_valid = orth[orth != -999]
-            if len(orth_valid) == 0: return 1e6
-            min_value, mean_value, max_value = np.min(orth_valid), np.mean(orth_valid), np.max(orth_valid)
-            nonlocal best_value, best_type, best_level
-            if max_value < best_value:
-                best_type, best_level, best_value = type_choice, level, max_value
-            # Update progress
-            if progress_callback:
-                progress_callback(
-                    iteration=iteration, min_value=min_value, mean_value=mean_value,
-                    best_type=best_type, best_level=best_level,
-                    current_ortho=max_value, best_ortho=best_value
-                )
-            if stop_checker and stop_checker():
-                trial.study.stop()
-                return best_value
-        except MeshKernelError: return 1e6
-        except Exception: return 1e6
-        if max_value <= 0.01 or trial.number >= iterations: trial.study.stop()
+def objective_function(trial: optuna.trial.Trial, polygon, space, stop_checker=None):
+    if stop_checker and stop_checker():
+        trial.study.stop()
+        raise optuna.TrialPruned("Stopped by user before execution.")
+    try:
+        type_choice = trial.suggest_categorical("mode", space['mode'])
+        level = trial.suggest_float("level", space['level'][0], space['level'][1])
+        outer_iterations = trial.suggest_int(
+            "outer_iterations", space['outer_iterations'][0], 
+            space['outer_iterations'][1]
+        )
+        boundary_iterations = trial.suggest_int(
+            "boundary_iterations", space['boundary_iterations'][0], 
+            space['boundary_iterations'][1]
+        )
+        inner_iterations = trial.suggest_int(
+            "inner_iterations", space['inner_iterations'][0], 
+            space['inner_iterations'][1]
+        )
+        smoothing_factor = trial.suggest_float(
+            "smoothing_factor", space['smoothing_factor'][0], 
+            space['smoothing_factor'][1]
+        )
+        # Remove outliers
+        if type_choice == 'custom' and level <= 0:
+            trial.set_user_attr("min", None); trial.set_user_attr("mean", None)
+            return 1e6
+        mk = MeshKernel()
+        if type_choice == 'auto': mk.mesh2d_make_triangular_mesh_from_polygon(polygon)
+        else: mk.mesh2d_make_triangular_mesh_from_polygon(polygon, scale_factor=float(level))        
+        ortho_params = OrthogonalizationParameters(
+            outer_iterations=outer_iterations, boundary_iterations=boundary_iterations,
+            inner_iterations=inner_iterations,
+            orthogonalization_to_smoothing_factor=smoothing_factor
+        )        
+        mk.mesh2d_compute_orthogonalization(
+            project_to_land_boundary_option=False,
+            orthogonalization_parameters=ortho_params, land_boundaries=polygon
+        )        
+        orth = mk.mesh2d_get_orthogonality().values
+        orth_valid = orth[orth != -999]
+        if len(orth_valid) == 0: 
+            trial.set_user_attr("min", None); trial.set_user_attr("mean", None)
+            return 1e6
+        min_value = float(np.min(orth_valid))
+        mean_value = float(np.mean(orth_valid))
+        max_value = float(np.max(orth_valid))
+        trial.set_user_attr("min", min_value)
+        trial.set_user_attr("mean", mean_value)
+        if stop_checker and stop_checker(): trial.study.stop()
+        if max_value <= 0.01: trial.study.stop()
         return max_value
-    sampler = optuna.samplers.TPESampler(seed=42, multivariate=True)
-    study = optuna.create_study(direction="minimize", sampler=sampler)
-    study.optimize(objective_function, n_trials=iterations, show_progress_bar=False)
-    return study.best_params
+    except optuna.TrialPruned: raise
+    except BaseException: 
+        trial.set_user_attr("min", None); trial.set_user_attr("mean", None)
+        return 1e6
+
+def optuna_callback(study: optuna.study.Study, trial: optuna.trial.FrozenTrial, info: dict, n: int):
+    iteration = trial.number + 1
+    progress = round(iteration / n * 100, 2)
+    current_ortho = trial.value if trial.value is not None else float('inf')
+    min_value = trial.user_attrs.get("min")
+    mean_value = trial.user_attrs.get("mean")
+    try:
+        best_trial = study.best_trial
+        best_ortho = best_trial.value
+        best_type = best_trial.params.get("mode", "")
+        best_level = best_trial.params.get("level", 0.0)
+    except ValueError:
+        best_ortho, best_type, best_level = current_ortho, "", 0.0
+    message = f"Completed: {progress:.1f}% ({trial.number}/{n}) - Current orthogonality: {current_ortho:.4f}"
+    message += f" [Best orthogonality: {best_ortho:.4f} (mode: '{best_type:^6}' - level: {best_level:.2f})]"
+    info["progress"], info["message"] = progress, message
+    info["history"].append({"iteration": iteration, "min": min_value, "mean": mean_value, "max": current_ortho})
+    if info.get("stop"): study.stop()
+
+def run_grid_optimization(processes: dict, key: str, iterations: int, 
+    polygon:GeometryList, space: dict, project_cache: dict, utm_crs: str) -> None:
+    info = processes[key]
+    try:
+        def stop_checker():
+            current = processes.get(key)
+            return current.get("stop", False) if current else True
+        optuna_func = partial(
+            objective_function, polygon=polygon, space=space, stop_checker=stop_checker
+        )
+        study = optuna.create_study(
+            sampler=optuna.samplers.TPESampler(seed=42), direction="minimize", 
+            pruner=MedianPruner(n_startup_trials=10, n_warmup_steps=20),
+        )
+        callback = partial(optuna_callback, info=info, n=iterations)
+        study.optimize(optuna_func, n_trials=iterations, callbacks=[callback])
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        if not completed:
+            info["status"] = "stopped" if info.get("stop") else "failed"
+            info["message"] = "Stopped before any valid trial completed. No grid generated."
+            info["grid"] = None
+            return
+        best_params = study.best_params
+        notice = info.get("message", "Optimization completed")
+        if "[" in notice: notice = notice.split("[", 1)[1].split("(", 1)[0]
+        info["status"], info["message"] = 'finalizing', "Generating final grid..."
+        try:
+            mk = mk_from_params(best_params, polygon)
+        except Exception as grid_err:
+            info["status"] = "stopped" if info.get("stop") else "failed"
+            info["message"] = f"Optimization found best params but grid generation failed: {grid_err}"
+            info["grid"], info["best_params"] = None, best_params
+            return
+        project_cache["mk"], project_cache["mk_crs"] = mk, utm_crs
+        grid_uds = netCDF_creator(mk)
+        best_grid = functions.unstructuredGridCreator(grid_uds)
+        best_grid = best_grid.set_crs(utm_crs, allow_override=True).to_crs("EPSG:4326")
+        info["grid"] = json.loads(best_grid.to_json())
+        display_params = dict(best_params)
+        display_params["level"] = f'{best_params["level"]:.3f}'
+        display_params["mode"] = f'{best_params["mode"]:^6}'
+        display_params["outer_iterations"] = f'{best_params["outer_iterations"]:.3f}'
+        display_params["boundary_iterations"] = f'{best_params["boundary_iterations"]:.3f}'
+        display_params["inner_iterations"] = f'{best_params["inner_iterations"]:.3f}'
+        display_params["smoothing_factor"] = f'{best_params["smoothing_factor"]:.3f}'
+        notice += f" - Best parameters: {display_params})"
+        project_cache['grid_uds'] = grid_uds
+        info["best_params"] = study.best_params
+        info["status"] = "finished"
+        info["message"] = f"Completed: {notice}"
+    except Exception as e:
+        if info:
+            info["status"], info["message"] = "failed", f"Internal Error: {e}"
 
 def mk_from_params(params, polygon):
     mk = MeshKernel()

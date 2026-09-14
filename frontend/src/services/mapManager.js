@@ -41,11 +41,7 @@ const layerConfig = {
     }
 }
 
-const mapping = {
-    river: {
-        key: 'river', fields: ['Width','Depth']
-    }
-};
+const mapping = {river: {key: 'river', fields: ['Width','Depth']}};
 
 
 
@@ -393,7 +389,7 @@ export function initMap(mapId='map') {
     });
     mapContainer = currentMap.getContainer();
     currentMap.on('mousemove', async (e) => { 
-        const req = getPendingRequest();
+        const req = getPendingRequest(); 
         if (!req) return;
         if (req.requestId === 'waqUpdate' || req.requestId === 'loadsUpdate') return;
         mapContainer.style.cursor = 'crosshair';
@@ -416,18 +412,13 @@ export function initMap(mapId='map') {
             if (req.content.key === 'pourpoint' && isPourpointActive) html = "Click to set the pourpoint.";
             if (req.content.key === 'pourpointCancel' || isPourpointActive === false) {
                 mapContainer.style.cursor = ''; 
-                currentMap.closeTooltip(hoverTooltip); 
-                clearPendingRequest();
+                currentMap.closeTooltip(hoverTooltip); clearPendingRequest();
             }
-            
-
         } else if (req.requestId === 'updateObsPoint') { 
             mapContainer.style.cursor = 'grab'; return;
         }
         hoverTooltip.setLatLng(e.latlng).setContent(html);
         currentMap.openTooltip(hoverTooltip);
-
-
     });
     currentMap.on('click', (e) => { 
         let result = null;
