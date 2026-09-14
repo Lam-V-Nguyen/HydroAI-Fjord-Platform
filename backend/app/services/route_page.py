@@ -58,22 +58,24 @@ async def load_popupMenu(request: Request, data: str, project_name: str = None, 
         return ''.join(html)
     elif htmlFile == 'waqMenu.html':
         waq_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "output", "WAQ"))
-        waq_models = [f for f in os.listdir(waq_dir) if f.endswith(".json")]
         html = [f'<div class="menu">']
-        if len(waq_models) > 0:
-            for model in waq_models:
-                path = os.path.normpath(os.path.join(waq_dir, model))
-                with open(path, "r", encoding=functions.encoding_detect(path)) as f:
-                    config = json.load(f)
-                value, model_name = config.get("model_type", ""), model.split(".")[0]
-                checked = "checked" if value == waq_name else ""
-                html.append(f'''
-                    <label class="menu-link" data-name="{model_name}">
-                        <input type="radio" class="waq-model-selector" name="waq-model" value="{value}" {checked}>
-                        <span>{model_name}</span>
-                    </label>
-                ''')
-        else: html.append('<div><p>No WAQ models found</p></div>')
+        if os.path.exists(waq_dir):
+            waq_models = [f for f in os.listdir(waq_dir) if f.endswith(".json")]
+            if len(waq_models) > 0:
+                for model in waq_models:
+                    path = os.path.normpath(os.path.join(waq_dir, model))
+                    with open(path, "r", encoding=functions.encoding_detect(path)) as f:
+                        config = json.load(f)
+                    value, model_name = config.get("model_type", ""), model.split(".")[0]
+                    checked = "checked" if value == waq_name else ""
+                    html.append(f'''
+                        <label class="menu-link" data-name="{model_name}">
+                            <input type="radio" class="waq-model-selector" name="waq-model" value="{value}" {checked}>
+                            <span>{model_name}</span>
+                        </label>
+                    ''')
+            else: html.append('<div><p>No WAQ models found</p></div>')
+        else: html.append('<div><p>No WAQ models found</p></div>')    
         html.append('</div>')
         return ''.join(html)
     path = os.path.normpath(os.path.join(SOURCE_FRONTEND, "htmls", htmlFile))
@@ -90,7 +92,7 @@ async def load_popupMenu(request: Request, data: str, project_name: str = None, 
         # Create config the first time
         project_cache = request.app.state.project_cache.setdefault(project_name)
         files = [project_cache.get("hyd_his"), project_cache.get("hyd_map"),
-                project_cache.get("waq_his"), project_cache.get("waq_map")]
+            project_cache.get("waq_his"), project_cache.get("waq_map")]
         waq_model_raw = await redis.hget(project_name, "waq_model")
         waq_model = waq_model_raw.decode() if waq_model_raw else "unknown"
         config_obj = functions.getVariablesNames(files, waq_model)

@@ -407,9 +407,11 @@ export function initMap(mapId='map') {
             - Number of points must be at least 2.<br>
             `;
         } else if (req.requestId === 'pickSource') { html = 'Select a HYD source';
-        } else if (req.requestId === 'waqPoint') { html = 'Select a WAQ observation point';
-        } else if (req.requestId === 'loadsPoint') { html = 'Select a WAQ load point';
-        } else if (req.requestId === 'drawChecked') { html = 'Draw a polygon using the left mouse button';
+        } else if (req.requestId === 'waqPoint') { 
+            html = 'Select a WAQ observation point.<br>Point must be inside the area covered by the grid.';
+        } else if (req.requestId === 'loadsPoint') { 
+            html = 'Select a WAQ load point.<br>Point must be inside the area covered by the grid.';
+        } else if (req.requestId === 'drawChecked') { html = 'Draw a polygon using the left mouse button.';
         } else if (req.type === 'flowOptions') { 
             if (req.content.key === 'pourpoint' && isPourpointActive) html = "Click to set the pourpoint.";
             if (req.content.key === 'pourpointCancel' || isPourpointActive === false) {

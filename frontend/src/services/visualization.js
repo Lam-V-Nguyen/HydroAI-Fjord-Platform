@@ -112,7 +112,9 @@ export async function initializeMenu(project, params, name, model){
                 gisUploadFile.click(); return;
             }
             else if (info == 'project-open') { initProject(); return; }
-            if (!checked) { alert("No scenario was loaded.\nPlease select 'General Options/Reset Configuration' to reload the scenario."); }
+            if (!checked) { 
+                alert("No scenario was loaded.\nPlease select 'General Options/Reset Configuration' to reload the scenario."); 
+            }
             const [id, htmlFile] = info.split('|');
             signalSender('showOverlay', 'Getting Information.\nPlease wait...');
             await showPopupMenu(project, model, id, htmlFile);

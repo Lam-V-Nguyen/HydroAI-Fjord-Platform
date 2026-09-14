@@ -355,7 +355,7 @@ function calibrationManager() {
         const simStart = obj.simStartDate.value; const simEnd = obj.simEndDate.value;
         if (simStart === '' || simEnd === '') { alert('Please add the start/end of the simulation.'); return; }
         const file = e.target.files[0]; if (!file) return;
-        const formData = new FormData(); formData.append('file', file); formData.append('timeZone', getLastTimeZone()); 
+        const formData = new FormData(); formData.append('file', file); 
         formData.append('simStart', simStart); formData.append('simEnd', simEnd);
         signalSender('showOverlay', 'Reading observation data. Please wait...');
         const response = await fetch('/obs_comparison_upload', { method: 'POST', body: formData });

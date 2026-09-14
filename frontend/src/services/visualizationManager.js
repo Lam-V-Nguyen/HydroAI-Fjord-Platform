@@ -30,7 +30,9 @@ export async function getProject() {
     const values = await getVisualizationFiles(project[0], currentProject);
     currentProject = values[0]; currentParams = values[1]; waqName = values[2]; waqModel = values[3];
     signalSender('showNote', `${project[0]}/${currentProject}`);
-    const message = `Initializing project '${currentProject}' and WAQ model '${waqName}'.\nPlease wait...`;
+    let message = `Initializing project "${currentProject}"`;
+    if (waqName != '') message = message + ` and WAQ model "${waqName}"`;
+    message = message + `.\nPlease wait...`
     await projectChecker(currentProject, currentParams, waqName, waqModel, message);
 }
 

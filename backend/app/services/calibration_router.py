@@ -502,11 +502,10 @@ async def save_scenario_calibration(request: Request, user=Depends(functions.bas
         return JSONResponse({"status": "error", "message": f"Error: {str(e)}"})
 
 @router.post("/obs_comparison_upload")
-async def obs_comparison_upload(file: UploadFile = File(...), timeZone: str = Form(...), 
-    simStart: str = Form(...), simEnd: str = Form(...)):
+async def obs_comparison_upload(file: UploadFile = File(...), simStart: str = Form(...), simEnd: str = Form(...)):
     try:
         df = pd.read_csv(file.file, low_memory=False)
-        content = calibration_functions.clip_data(df, 'Time', timeZone, simStart, simEnd)
+        content = calibration_functions.clip_data(df, 'Time', simStart, simEnd)
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/obs_comparison_upload:\n==============')

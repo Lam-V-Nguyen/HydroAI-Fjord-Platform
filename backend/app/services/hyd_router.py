@@ -17,12 +17,9 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
         project_name, _ = functions.project_definer(name, user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
         in_dir, data = os.path.normpath(os.path.join(project_dir, "input")), {}
-        if os.path.exists(in_dir):
-            mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
-            if not os.path.exists(mdu_path):
-                return JSONResponse({
-                    "status": 'error', "message": f"Scenario '{name}' doesn't have an *.mdu file.\nTry to create a new scenario first."
-                })
+        mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
+        if os.path.exists(mdu_path):
+            start_sim, end_sim = None, None
             with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
                 for raw_line in f:
                     line = raw_line.split("#")[0].strip()
@@ -38,13 +35,15 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     elif line.startswith('TStart'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            temp = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
-                            data["startDate"] = functions.utc_to_local(temp, time_zone)
+                            start_sim = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
+                            data["startDate"] = functions.utc_to_local(start_sim, time_zone)
+                        else: return JSONResponse({"status": 'error', "message": "No start time detected. Please check the scenario again."})
                     elif line.startswith('TStop'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            temp = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
-                            data["stopDate"] = functions.utc_to_local(temp, time_zone)
+                            end_sim = datetime.fromtimestamp(int(parts[1].strip()), tz=timezone.utc)
+                            data["stopDate"] = functions.utc_to_local(end_sim, time_zone)
+                        else: return JSONResponse({"status": 'error', "message": "No end time detected. Please check the scenario again."})
                     elif line.startswith('ObsFile'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -90,50 +89,90 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                         if len(parts) == 2:
                             values = functions.seconds_datetime(int(parts[1].strip()))
                             data["nodalTimestepDate"], data["nodalTimestepTime"] = values[0], values[1]
-                    elif line.startswith('HisInterval'):
-                        parts = [p.strip() for p in line.split("=") if p.strip()]
-                        if len(parts) == 2:
-                            temp = parts[1].strip()
-                            seconds = int(temp.split(" ")[0].strip())
-                            values = functions.seconds_datetime(seconds)
-                            data["hisIntervalDate"], data["hisIntervalTime"] = values[0], values[1]
-                            temp_start = int(temp.split(" ")[1].strip())
-                            temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
-                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
-                            data["hisStart"] = functions.utc_to_local(start, time_zone)
-                            data["hisStop"] = functions.utc_to_local(end, time_zone)
-                    elif line.startswith('MapInterval'):
-                        parts = [p.strip() for p in line.split("=") if p.strip()]
-                        if len(parts) == 2:
-                            temp = parts[1].strip()
-                            seconds = int(temp.split(" ")[0].strip())
-                            values = functions.seconds_datetime(seconds)
-                            data["mapIntervalDate"], data["mapIntervalTime"] = values[0], values[1]
-                            temp_start = int(temp.split(" ")[1].strip())
-                            temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
-                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
-                            data["mapStart"] = functions.utc_to_local(start, time_zone)
-                            data["mapStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('WaqInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
                             temp = parts[1].strip()
-                            seconds = int(temp.split(" ")[0].strip())
+                            temp_parts = temp.split(" ")
+                            seconds = int(temp_parts[0].strip())
                             values = functions.seconds_datetime(seconds)
                             data["wqIntervalDate"], data["wqIntervalTime"] = values[0], values[1]
-                            temp_start = int(temp.split(" ")[1].strip())
-                            temp_stop = int(temp.split(" ")[2].strip())
-                            start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
-                            end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
-                            data["wqStart"] = functions.utc_to_local(start, time_zone)
-                            data["wqStop"] = functions.utc_to_local(end, time_zone)
+                            data["wqStart"] = functions.utc_to_local(start_sim, time_zone)
+                            data["wqStop"] = functions.utc_to_local(end_sim, time_zone)
+                            if len(temp_parts) == 2:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["wqStart"] = functions.utc_to_local(start, time_zone)
+                            elif len(temp_parts) == 3:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["wqStart"] = functions.utc_to_local(start, time_zone)
+                                temp_stop = int(temp_parts[2].strip())
+                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                data["wqStop"] = functions.utc_to_local(end, time_zone)
+                    elif line.startswith('HisInterval'):
+                        parts = [p.strip() for p in line.split("=") if p.strip()]
+                        if len(parts) == 2:
+                            temp = parts[1].strip()
+                            temp_parts = temp.split(" ")
+                            seconds = int(temp_parts[0].strip())
+                            values = functions.seconds_datetime(seconds)
+                            data["hisIntervalDate"], data["hisIntervalTime"] = values[0], values[1]
+                            data["hisStart"] = functions.utc_to_local(start_sim, time_zone)
+                            data["hisStop"] = functions.utc_to_local(end_sim, time_zone)
+                            if len(temp_parts) == 2:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["hisStart"] = functions.utc_to_local(start, time_zone)
+                            elif len(temp_parts) == 3:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["hisStart"] = functions.utc_to_local(start, time_zone)
+                                temp_stop = int(temp_parts[2].strip())
+                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                data["hisStop"] = functions.utc_to_local(end, time_zone)
+                    elif line.startswith('MapInterval'):
+                        parts = [p.strip() for p in line.split("=") if p.strip()]
+                        if len(parts) == 2:
+                            temp = parts[1].strip()
+                            temp_parts = temp.split(" ")
+                            seconds = int(temp_parts[0].strip())
+                            values = functions.seconds_datetime(seconds)
+                            data["mapIntervalDate"], data["mapIntervalTime"] = values[0], values[1]
+                            data["mapStart"] = functions.utc_to_local(start_sim, time_zone)
+                            data["mapStop"] = functions.utc_to_local(end_sim, time_zone)
+                            if len(temp_parts) == 2:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["mapStart"] = functions.utc_to_local(start, time_zone)
+                            elif len(temp_parts) == 3:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["mapStart"] = functions.utc_to_local(start, time_zone)
+                                temp_stop = int(temp_parts[2].strip())
+                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                data["mapStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('StatsInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            values = functions.seconds_datetime(int(parts[1].strip()))
+                            temp = parts[1].strip()
+                            temp_parts = temp.split(" ")
+                            seconds = int(temp_parts[0].strip())
+                            values = functions.seconds_datetime(seconds)
                             data["statisticDate"], data["statisticTime"] = values[0], values[1]
+                            data["statisticStart"] = functions.utc_to_local(start_sim, time_zone)
+                            data["statisticStop"] = functions.utc_to_local(end_sim, time_zone)
+                            if len(temp_parts) == 2:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["statisticStart"] = functions.utc_to_local(start, time_zone)
+                            elif len(temp_parts) == 3:
+                                temp_start = int(temp_parts[1].strip())
+                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                data["statisticStart"] = functions.utc_to_local(start, time_zone)
+                                temp_stop = int(temp_parts[2].strip())
+                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                data["statisticStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('TimingsInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
@@ -170,7 +209,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if not line.strip(): continue
                     temp = line.strip().split()
-                    val = datetime.fromtimestamp(int(temp[0].strip())*60, tz=timezone.utc)
+                    val = datetime.fromtimestamp(int(temp[0].strip())*60.0, tz=timezone.utc)
                     temp[0] = functions.utc_to_local(val, time_zone)
                     weathers.append(temp)
                 if len(temp) == 3: data["weatherType"] = "wind-magnitude-direction"
@@ -452,7 +491,7 @@ async def save_source(request: Request, user=Depends(functions.basic_auth)):
             with open(tim_path, 'w', encoding=functions.encoding_detect(tim_path)) as f:
                 for row in data:
                     time = functions.local_to_utc(row[0], time_zone)
-                    t = float(time.timestamp())
+                    t = float(time.timestamp()/60.0)
                     if int(BCCheck)==1: values = [str(t)] + [str(r) for r in row[1:]]
                     else: values = [str(t)] + [str(r) for r in row[1:-1]]
                     f.write('  '.join(values) + '\n')

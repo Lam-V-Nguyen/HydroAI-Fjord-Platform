@@ -2,7 +2,7 @@ import traceback, asyncio, os, shutil, json, msgpack
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT
-from services import functions
+from services import functions, grid_functions
 import numpy as np
 
 
@@ -53,7 +53,7 @@ async def setup_new_project(request: Request, user=Depends(functions.basic_auth)
         os.makedirs(project_dir, exist_ok=True)
         input_dir = os.path.normpath(os.path.join(project_dir, "input"))
         if not os.path.exists(input_dir): os.makedirs(input_dir, exist_ok=True)
-        status, message = project_name, f"Scenario '{body.get('projectName')}' created successfully!"
+        status, message = project_name, f"Scenario '{body.get('projectName')}' loaded!"
     except Exception as e:
         print('/setup_new_project:\n==============')
         traceback.print_exc()
@@ -136,8 +136,11 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
         elif key == 'getLakes':
             project_dir = os.path.normpath(os.path.join(project_dir, 'lakes'))
             lake_path = os.path.normpath(os.path.join(project_dir, 'lakes.json'))
-            if not os.path.exists(lake_path): 
-                return JSONResponse({"status": 'error', "message": "Couldn't find any lake.", "content": []})
+            if not os.path.exists(lake_path):
+                lakes_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "lakes"))
+                os.makedirs(lakes_dir, exist_ok=True)
+                project_cache = request.app.state.project_cache.setdefault(project_name, {})
+                grid_functions.lake_generation(lakes_dir, project_cache)
             with open(lake_path, 'r') as f: lakes = json.load(f)
             data = sorted(lakes.keys())
 
@@ -173,8 +176,8 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, params = request.app.state.redis, body.get('params')
         model_type, gisChecked = body.get('waqModel'), body.get('gisChanged')
-        model_name = body.get('waqName')
-        extend_task, lock = None, redis.lock(f"{project_name}:setup_database", timeout=600)
+        extend_task, model_name = None, body.get('waqName')
+        lock = redis.lock(f"{project_name}:setup_database", timeout=600)
         async with lock:
             extend_task = asyncio.create_task(functions.auto_extend(lock, interval=10))
             project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
@@ -190,10 +193,14 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
             config_dir = os.path.normpath(os.path.join(output_dir, "config"))
             if not os.path.exists(config_dir): os.makedirs(config_dir, exist_ok=True)
             hyd_dir = os.path.normpath(os.path.join(output_dir, 'HYD'))
-            waq_dir = os.path.normpath(os.path.join(output_dir, 'WAQ'))
-            if not hasattr(request.app.state, "project_cache"):
-                request.app.state.project_cache = {}
-            project_cache = request.app.state.project_cache.setdefault(project_name, {})
+            cache_root = request.app.state.project_cache
+            if not isinstance(cache_root, dict):
+                cache_root = {}
+                request.app.state.project_cache = cache_root
+            project_cache = cache_root.get(project_name)
+            if not isinstance(project_cache, dict):
+                project_cache = {}
+                cache_root[project_name] = project_cache
             dm, waq_his, waq_map = request.app.state.dataset_manager, None, None
             # Assign datasets
             if 'hyd_his' not in project_cache:
@@ -201,36 +208,51 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
             if 'hyd_map' not in project_cache:
                 project_cache['hyd_map'] = dm.get(os.path.normpath(os.path.join(hyd_dir, params[1])))
             hyd_his, hyd_map = project_cache['hyd_his'], project_cache['hyd_map']
-            if params[2] != '':
-                waq_his = dm.get(os.path.normpath(os.path.join(waq_dir, params[2])))
-                project_cache['waq_his'] = waq_his
-            if params[3] != '':
-                waq_map = dm.get(os.path.normpath(os.path.join(waq_dir, params[3])))
-                project_cache['waq_map'] = waq_map
+            waq_dir = os.path.normpath(os.path.join(output_dir, 'WAQ'))
+            if os.path.exists(waq_dir):
+                if params[2] != '':
+                    waq_his = dm.get(os.path.normpath(os.path.join(waq_dir, params[2])))
+                    project_cache['waq_his'] = waq_his
+                if params[3] != '':
+                    waq_map = dm.get(os.path.normpath(os.path.join(waq_dir, params[3])))
+                    project_cache['waq_map'] = waq_map
             if hyd_map is None:
                 return {"status": "error", "message": "Cannot find hydrodynamic data (map file).\nConsider running the model again."}
             if hyd_map is not None and 'grid' not in project_cache:
                 print('Creating grid for hydrodynamic simulation...')
                 project_cache['grid'] = functions.unstructuredGridCreator(hyd_map)
-            model_path = os.path.normpath(os.path.join(waq_dir, f'{model_name}.json'))
             # Load or init config
             config_path, obs, waq_model = os.path.normpath(os.path.join(config_dir, 'config.json')), {}, ''
+            config = {
+                "hyd": {}, "waq": {}, "meta": {"hyd_scanned": False, "waq_scanned": False},
+                "model_type": '', "model_name": '', 'gis_layers': []
+            }
             if os.path.exists(config_path) and os.path.getsize(config_path) > 0:
                 print('Config already exists. Loading...')
                 config = json.loads(open(config_path, "r", encoding=functions.encoding_detect(config_path)).read())
                 waq_model = config.get('model_type')
             print(f"Current WAQ model: {waq_model}, New WAQ model: {model_type}")
+            # Lazy scan HYD variables only once
+            if (hyd_map or hyd_his) and not config['meta']['hyd_scanned']:
+                print('Scanning HYD variables...')
+                hyd_vars = functions.getVariablesNames([hyd_his, hyd_map])
+                config["hyd"], config["meta"]["hyd_scanned"] = hyd_vars, True
+            model_path = os.path.normpath(os.path.join(waq_dir, f'{model_name}.json'))
+
+            if model_type != '': 
+                waq_vars = functions.getVariablesNames([waq_his, waq_map], model_type, model_name)
+                config["waq"], config["meta"]["waq_scanned"] = waq_vars, True
+                config['model_type'], config['model_name'] = model_type, params[2].replace('_his.zarr', '')
+                # Get WAQ model
+                if os.path.exists(model_path):
+                    print('Loading WAQ model...')
+                    with open(model_path, "r", encoding=functions.encoding_detect(model_path)) as f:
+                        temp_data = json.load(f)
+                    waq_model = temp_data['model_type']
+                    config['wq_obs'] = True if 'wq_obs' in temp_data else False
+                    config['wq_loads'] = True if 'wq_loads' in temp_data else False
             if model_type != waq_model:
                 print('Model changed. Updating config...')
-                config = {
-                    "hyd": {}, "waq": {}, "meta": {"hyd_scanned": False, "waq_scanned": False},
-                    "model_type": '', "model_name": '', 'gis_layers': []
-                }
-                # Lazy scan HYD variables only once
-                if (hyd_map or hyd_his) and not config['meta']['hyd_scanned']:
-                    print('Scanning HYD variables...')
-                    hyd_vars = functions.getVariablesNames([hyd_his, hyd_map])
-                    config["hyd"], config["meta"]["hyd_scanned"] = hyd_vars, True
                 # Get WAQ model
                 if os.path.exists(model_path):
                     print('Loading WAQ model...')
@@ -253,10 +275,8 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
                     config['waq'], config['meta']['waq_scanned'] = {}, False
                     for k in ("wq_obs", "wq_loads"):
                         config.pop(k, None)
-                # Load GIS layers
-                config['gis_layers'] = [f.replace('.geojson', '') for f in os.listdir(gis_dir) if f.endswith(".geojson")]
-                # Save config
-                open(config_path, "w", encoding=functions.encoding_detect(config_path)).write(json.dumps(config))
+            # Save config
+            open(config_path, "w", encoding=functions.encoding_detect(config_path)).write(json.dumps(config))
             # Get number of HYD layers
             layer_path = os.path.normpath(os.path.join(config_dir, 'layers_hyd.json'))
             if not os.path.exists(layer_path):
@@ -337,7 +357,7 @@ async def get_config_files(request: Request):
         )
         try: result = functions.project_reader(user_name, project)
         except Exception:
-            print('/setup_database:\n==============')
+            print('/get_config_files:\n==============')
             traceback.print_exc()
             return JSONResponse({"status": 'error', 
                 "message": f"Could not load project '{original_project}' "
