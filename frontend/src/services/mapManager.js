@@ -1,5 +1,5 @@
 import { CENTER, ZOOM, L, getPendingRequest, clearPendingRequest, origin } from "./constant.js";
-import { signalSender } from "./commonFunctions.js";
+import { signalSender, jsonLoader } from "./commonFunctions.js";
 import { updateColorbar } from "./unstructuredGrid.js";
 import { mapPlotter, buildTooltip, isInvalidNumber } from "./flowFunctions.js";
 
@@ -44,15 +44,12 @@ const layerConfig = {
 const mapping = {river: {key: 'river', fields: ['Width','Depth']}};
 
 
-
-
-
 export let currentMap;
 let currentTileLayer = null, timeCounter = null, html='', markersObs = [], 
     markerCrossSection = [], currentPoints = [], markerBoundary = [], 
     pathCrossSection = null, pathBoundary = null, currentPointsCross = [], 
     currentPointsBoundary = [], waqObs = [], waqLoads = [], mapContainer = null,
-    markerLayer = null, terrainLayer = null, streamLayer = null,
+    markerLayer = null, terrainLayer = null, streamLayer = null, gridLayer = null,
     isPourpointActive = false, lastLayer = null, layer = null;
 const configCrossSectionPoint = { color: 'blue', fillColor: 'yellow', radius: 4, fill: true, fillOpacity: 1 }, 
     configBoundaryPoint = { color: 'red', fillColor: 'green', radius: 4, fill: true, fillOpacity: 1 }, 
@@ -139,6 +136,18 @@ export async function renderPreview(request=null) {
             waqLoads.forEach(marker => marker.remove()); waqLoads.length = 0; 
             iconAdd(iconUrl, waqLoads, currentMap, request.content.rows);
         }
+    } else if (requestId === 'gridPlot') {
+        // Plot unstructure grid on map
+        const currentProject = request.content.projectName;
+        const gridName = request.content.gridName;
+        signalSender('showOverlay', `Preparing Unstructure Grid. Please wait...`);
+        const content = { projectName: currentProject, gridName: gridName };
+        const data = await jsonLoader('unstructure_grid_plot', content);
+        if (data.status === "error") { alert(data.message); return; }
+        gridLayer = clearMap(gridLayer, currentMap);
+        gridLayer = L.geoJSON(data.content, {
+            style: { color: 'black', weight: 1, fillColor: 'transparent', fillOpacity: 0 },
+        }).addTo(currentMap); signalSender('hideOverlay');
     } else if (type === 'flowOptions') {
         const key = request.content.key;
         const content = { requestId: request.content.requestId }
@@ -331,18 +340,6 @@ export async function renderPreview(request=null) {
             if (checked) { alert(`Segment "${id}" was deleted from the river layer.`); }
             config.setLayer(existing);
             signalSender('updateUIState', content); return;
-        } else if (key === 'weather') {
-        //     let iCon = '';
-        //     const layerKey = request.content.layerKey, id = request.content.id;
-        //     if (id === 'rosim') iCon = `/src_frontend/images/rain.png?v=${Date.now()}`;
-        //     const config = layerConfig[layerKey];
-        //     if (!config) {
-        //         content.message = 'Layer not found';
-        //         signalSender('updateUIState', content); return;
-        //     }
-
-        
-        
         }
 
 

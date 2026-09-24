@@ -322,9 +322,9 @@ function calibrationManager() {
         if (params.length === 0) { alert('No optimal parameters found.'); return;}
         // Ask for a new name
         const newName = prompt(
-            'Please enter a name for the new scenario.' +
-            '\nOptimal parameters will be stored for this scenario.' +
-            '\nCreating a scenario will take time. Please be patient.'
+            'Please specify a name for the new scenario.' +
+            '\nOptimal parameters will be asigned for this scenario.' +
+            '\nIt is recommened to run this scenario.'
         );
         // User clicked Cancel
         if (newName === null) { return; }

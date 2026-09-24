@@ -13,7 +13,7 @@ if env_mode == "development":
     PROJECT_ROOT = os.path.normpath(os.path.join(PROJECT_DES, "backend/projects"))
     SOURCE_BACKEND = os.path.normpath(os.path.join(PROJECT_DES, "backend/src"))
     SOURCE_FRONTEND = os.path.normpath(os.path.join(PROJECT_DES, "frontend/src"))
-    DELFT_PATH = os.path.normpath(os.path.join(PROJECT_DES, "backend/softs/x64"))
+    DELFT_PATH = os.path.normpath(os.path.join(PROJECT_DES, "backend/softs"))
     WFLOW_PATH = os.path.normpath(os.path.join(PROJECT_DES, "backend/softs/wflow 1.0.2"))
     WHITEBOX_DIR = os.path.normpath(os.path.join(PROJECT_DES, "backend/softs/whitebox"))
     REDIS_URL = "redis://localhost:6379/0"

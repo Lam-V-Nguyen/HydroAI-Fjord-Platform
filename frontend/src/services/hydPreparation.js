@@ -58,11 +58,6 @@ function sourceManagement() {
     });
 }
 
-
-
-
-
-
 function meteoManagement() {
     // Update location
     iframeConnector(obj.meteoLocation, [obj.meteoLat, obj.meteoLon], 'pickLatLon');
@@ -71,16 +66,18 @@ function meteoManagement() {
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
         const start = obj.meteoStart.value, end = obj.meteoEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-        const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
+        const keyChecker = 'meteo_log'; 
+        const contentChecker = {projectName: currentProject, key: keyChecker};
+        const statusRes = await jsonLoader('check_download_status', contentChecker);
         if (statusRes.status === "running") { alert("Meteo download is already running."); return; }
         obj.meteoLog.value = '';
         const content = { 
-            projectName: currentProject, lat: lat, lon: lon, 
+            projectName: currentProject, lat: lat, lon: lon,
             start: start, end: end, key: key, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('start_meteo', content);
         if (request.status === 'error') { alert(request.message); return; }
-        updateLog(currentProject, obj.meteoLog, 2, 'meteo_log', async () => {
+        updateLog(currentProject, obj.meteoLog, 2, keyChecker, async () => {
             const res =  { projectName: currentProject, fileName: `${key}.csv` };
             const weather = await jsonLoader('get_result', res);
             if (weather.status === 'error') { alert(weather.message); return; }
@@ -110,16 +107,18 @@ function weatherManagement() {
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
         const start = obj.weatherStart.value, end = obj.weatherEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-        const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
+        const keyChecker = 'wind_log'; 
+        const contentChecker = {projectName: currentProject, key: keyChecker};
+        const statusRes = await jsonLoader('check_download_status', contentChecker);
         if (statusRes.status === "running") { alert("Wind download is already running."); return; }
         obj.weatherLog.value = '';
         const content = { 
-            projectName: currentProject, lat: lat, lon: lon, 
+            projectName: currentProject, lat: lat, lon: lon, keyChecker: keyChecker,
             start: start, end: end, key: key, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('start_meteo', content);
         if (request.status === 'error') { alert(request.message); return; }
-        updateLog(currentProject, obj.weatherLog, 2, 'wind_log', async () => {
+        updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
             const res = { projectName: currentProject, fileName: `${key}.csv` };
             const wind = await jsonLoader('get_result', res);
             if (wind.status === 'error') { alert(wind.message); return; }

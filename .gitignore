@@ -19,4 +19,5 @@ venv.bak/
 backend/src/lakes_database
 backend/src/allowed_users.json
 /test
+/test1
 /Calibration

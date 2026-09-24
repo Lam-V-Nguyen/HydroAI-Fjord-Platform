@@ -36,7 +36,7 @@ const obj = {
     weatherCSVContainer: $('weather-csv-container'), weatherStationContainer: $('weather-station-container'),
     weatherBtn: $('weather-btn'), weatherInputFile: $('weather-input-file'), weatherInputText: $('weather-input-text'), 
     weatherTable: $('weather-table'), weatherStationSelector: $('weather-station'), saveWeatherBtn: $('weather-save-btn'), 
-    weatherSourceContainer: $('weather-source-container'), downloadWeatherBtn: $('weather-download-btn'),
+    weatherSourceContainer: $('weather-source-container'), downloadWeatherBtn: $('weather-download-btn'), interval: $('weather-interval'),
     weatherStationStartContainer: $('weather-station-start'), weatherStationEndContainer: $('weather-station-end'), 
     weatherStart: $('weather-start-date'), weatherEnd: $('weather-end-date'), weatherLog: $('weather-download-text'),
     weatherCatchmentContainer: $('weather-catchment-container'), weatherCatchmentBtn: $('weather-catchment-btn'),
@@ -106,7 +106,7 @@ function topographyManager() {
             const data = await response.json(); signalSender('hideOverlay');
             if (data.status === 'error') { alert(data.message); return; }
             const content = { 
-                key: 'drawLayer', layerKey: 'catchmentLayer_Vector', data: data.content, reset: false
+                key: 'drawLayer', layerKey: 'catchmentLayer_Vector', data: data.content, reset: true
             };
             await sendRequest('flowOptions', content );
         } catch (error) { alert(`Uploading catchment failed: ${error.message}`); }
@@ -647,16 +647,18 @@ function weatherManager() {
             if (data.data === null) { alert('Please upload a catchment first.'); return; }
             const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value;
             if (startTime === '' || endTime === '') { alert('Please select a time range first.'); return; }
-            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
+            const keyChecker = 'weather';
+            const contentChecker = {projectName: currentProject, key: keyChecker};
+            const statusRes = await jsonLoader('check_download_status', contentChecker);
             if (statusRes.status === "running") { alert("Weather download is already running."); return; }
             obj.weatherLog.value = '';
             const content = { 
                 projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
-                data: data.data, start: startTime, end: endTime
+                data: data.data, start: startTime, end: endTime, keyChecker: keyChecker
             };
             const start = await jsonLoader('start_download_weather', content);
             if (start.status === "error") { alert(start.message); return; }
-            updateLog(currentProject, obj.weatherLog, 2, 'weather', async () => {
+            updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
                 alert('Downloading weather completed.');
             });
         }
@@ -668,9 +670,10 @@ function weatherManager() {
         }
         const data = getDataFromTable(obj.weatherTable, true);
         if (data.length === 0) { alert('Please upload weather data first.'); return; }
-        signalSender('showOverlay', 'Generating weather data.\nPlease wait...');
+        signalSender('showOverlay', 'Creating weather data. Please wait...');
         const content = { 
-            projectName: currentProject, flowName: name, data: data, timeZone: getLastTimeZone()
+            projectName: currentProject, flowName: name, 
+            data: data, timeZone: getLastTimeZone(), interval: interval.value
         };
         const request = await jsonLoader('save_flow_weather', content);
         signalSender('hideOverlay'); alert(request.message);

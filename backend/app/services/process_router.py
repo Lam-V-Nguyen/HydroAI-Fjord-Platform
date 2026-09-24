@@ -3,7 +3,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, Request
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT
 from services import functions
-import geopandas as gpd, numpy as np, pandas as pd
+import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from shapely.geometry import mapping
 
 router = APIRouter()
@@ -270,7 +270,7 @@ async def load_vector_dynamic(request: Request, user=Depends(functions.basic_aut
         if raw_cache: vector_cache = msgpack.unpackb(raw_cache, raw=False)
         else: vector_cache = {"layers": {}}
         if not value_type in vector_cache['layers']:
-            layer_dict = functions.vectorComputer(data_ds, value_type, row_idx, time_zone)
+            layer_dict = functions.vectorComputer(data_ds, value_type, row_idx, time_zone, -1)
             lock = redis.lock(f"{project_name}:vector:{value_type}", timeout=10)
             async with lock:
                 vector_cache['layers'][value_type] = layer_dict
@@ -290,7 +290,7 @@ async def load_vector_dynamic(request: Request, user=Depends(functions.basic_aut
                 functions.utc_to_local(pd.to_datetime(t, utc=True), time_zone) for t in data_ds['time'].data
             ]
             data['min_max'] = [vmin, vmax]
-        else: data = functions.vectorComputer(data_ds, value_type, row_idx, int(query))
+        else: data = functions.vectorComputer(data_ds, value_type, row_idx, time_zone, int(query))
         return JSONResponse({'content': data, 'status': 'ok'})
     except Exception as e:
         print('/load_vector_dynamic:\n==============')
@@ -469,5 +469,22 @@ async def select_thermocline(request: Request, user=Depends(functions.basic_auth
             return JSONResponse({"status": 'ok', "content": data})
     except Exception as e:
         print('/select_thermocline:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {e}"})
+
+@router.post("/unstructure_grid_plot")
+async def unstructure_grid_plot(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        redis, grid_name = request.app.state.redis, body.get('gridName')
+        grid_path = os.path.join(PROJECT_ROOT, project_name, 'input', grid_name)
+        lock = redis.lock(f"{project_name}:unstructure-grid", timeout=30, blocking_timeout=25)
+        async with lock:
+            with xr.open_dataset(grid_path) as ds:
+                grid = functions.unstructuredGridCreator(ds)
+            return JSONResponse({"status": 'ok', "content": json.loads(grid.to_json())})
+    except Exception as e:
+        print('/unstructure_grid_plot:\n==============')
         traceback.print_exc()
         return JSONResponse({"status": 'error', "message": f"Error: {e}"})

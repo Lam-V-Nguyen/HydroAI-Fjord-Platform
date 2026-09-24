@@ -1,12 +1,13 @@
-import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re
-import logging, cdsapi, calendar, gc, shutil, traceback, subprocess
+import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
+import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, Point
 from scipy.spatial import cKDTree
 from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
 from rasterio.features import rasterize
+from rasterio.transform import xy as rasterio_xy
 from services import functions, flow_functions
 from pathlib import Path
 from datetime import datetime
@@ -14,6 +15,7 @@ from dateutil.relativedelta import relativedelta
 from hydromt_wflow import WflowSbmModel
 from pyflwdir import dem
 from config import PROJECT_ROOT, WFLOW_PATH
+from dask.distributed import get_client
 
 if "bool" not in np.__dict__: np.bool = np.bool_
 
@@ -58,6 +60,8 @@ class StreamToLogger:
         self.logger = logger
         self.level = level
         self.log_path = log_path
+    def update_logger(self, new_logger):
+        self.logger = new_logger
     def write(self, buf):
         if not buf: return
         if '\r' in buf or self.PROGRESS_PATTERN.search(buf):
@@ -213,6 +217,7 @@ def setup_logger(name, log_path: str):
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    if logger.handlers: return logger
     file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -221,7 +226,7 @@ def setup_logger(name, log_path: str):
     logger.addHandler(file_handler)
     return logger
 
-def weather_downloader(project_name, processes, flow_name, time_zone, start, end, catchment, buffer=BUFFER):
+def weather_downloader(project_name, processes, process_key, flow_name, start, end, time_zone, catchment, buffer=BUFFER):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
     # Remove old log
@@ -241,17 +246,16 @@ def weather_downloader(project_name, processes, flow_name, time_zone, start, end
     download_dir = os.path.join(forcing_dir, 'download')
     if not os.path.exists(download_dir): os.makedirs(download_dir)
     forcing_path = os.path.join(forcing_dir, "weather_forcing.nc")
-    if os.path.exists(forcing_path): functions.safe_remove(forcing_path)
     forcing = {
         'precip': ['tp', 'mm'], 'temp': ['t2m', 'degC'],
         'kin': ['ssrd', 'W/m^2'], 'kout': ['strd', 'W/m^2'],
         'wind': ['', 'm/s'], 'press_msl': ['sp', 'Pa']
     }
-    dataset = 'reanalysis-era5-single-levels'
+    dataset, nc = 'reanalysis-era5-single-levels', None
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
     try:
-        logger.info("Weather downloader started")
+        logger.info("Weather downloader started.")
         logger.info("Preparing output NetCDF...")
         raw_path = os.path.join(flow_dir, "raw", "dtm_raw.tif")      
         with rasterio.open(raw_path) as src:
@@ -263,8 +267,8 @@ def weather_downloader(project_name, processes, flow_name, time_zone, start, end
         ny, nx = dem_array.shape[0], dem_array.shape[1]
         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = functions.local_to_utc(start, time_zone)
-        end_time = functions.local_to_utc(end, time_zone)
+        start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+        end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
         lon_min, lat_min, lon_max, lat_max = catchment.total_bounds
         north, east = max(lat_min, lat_max), max(lon_min, lon_max)
         south, west = min(lat_min, lat_max), min(lon_min, lon_max)
@@ -284,7 +288,7 @@ def weather_downloader(project_name, processes, flow_name, time_zone, start, end
         time_var.units = f"{time_step} since 1900-01-01 00:00:00"
         time_var.calendar = "proleptic_gregorian"
         y_var = nc.createVariable("y", "f4", ("y",))
-        x_var = nc.createVariable("x", "f4", ("x",))        
+        x_var = nc.createVariable("x", "f4", ("x",))
         y_var[:], x_var[:], nc_vars = y_coords, x_coords, {}
         crs_var = nc.createVariable("crs", "i4")
         if crs.is_geographic: crs_var.grid_mapping_name = "latitude_longitude"
@@ -360,46 +364,54 @@ def weather_downloader(project_name, processes, flow_name, time_zone, start, end
             n_time, chunk_size, overlap = len(timestamps), 24, 2        
             for var, (col, unit) in forcing.items():
                 logger.info(f"Processing {var}")
-                if var == 'wind':
-                    u_file = os.path.join(download_dir,f"{year}_{month:02d}_u10.nc")
-                    v_file = os.path.join(download_dir,f"{year}_{month:02d}_v10.nc")
-                    ds_u, ds_v = Dataset(u_file), Dataset(v_file)
-                else: ds = Dataset(os.path.join(download_dir, f"{year}_{month:02d}_{col}.nc"))
-                for start in range(0, n_time, chunk_size):
-                    start_eff = max(0, start - overlap)
-                    end_eff = min(n_time, start + chunk_size + overlap)
-                    if var == "wind":
-                        u = ds_u["u10"][start_eff:end_eff].astype(np.float32)
-                        v = ds_v["v10"][start_eff:end_eff].astype(np.float32)
-                        data = np.hypot(u, v)
-                    else: data = ds[col][start_eff:end_eff].astype(np.float32)
-                    if var == "precip": data *= 1000
-                    elif var == "temp": data -= 273.15
-                    elif var in ("kin", "kout"): data /= 3600
-                    if np.isnan(data).any():
-                        da = xr.DataArray(data, dims=("valid_time", "latitude", "longitude"))
-                        da = da.interpolate_na(dim="valid_time", method="linear")
-                        da = da.ffill("valid_time").bfill("valid_time")
-                        da = da.fillna(0.0)
-                        data = da.values.astype(np.float32)
-                    # Interpolate
-                    data_3d = create_forcing(data, ny, nx, mask_nan, single_value, idx, weight)
-                    if data_3d is None:
-                        logger.info("FAILED: No valid data found for interpolation")
-                        processes[project_name] = {"status": "failed", "message": "No valid data found for interpolation."}
-                    t0, t1 = start, min(start + chunk_size, n_time)
-                    chunk_start = t0 - start_eff
-                    chunk_end = chunk_start + (t1 - t0)
-                    chunk = data_3d[chunk_start:chunk_end]
-                    chunk = np.nan_to_num(chunk, nan=0.0)
-                    chunk = np.where(mask_nan[None, :, :], 0.0, chunk)
-                    nc_vars[var][t0:t1, :, :] = chunk
-                    del data, data_3d, chunk
-                    if var == "wind": del u, v
-                if var == "wind":
-                    ds_u.close()
-                    ds_v.close()
-                else: ds.close()
+                ds = ds_u = ds_v = None
+                try:
+                    if var == 'wind':
+                        u_file = os.path.join(download_dir,f"{year}_{month:02d}_u10.nc")
+                        v_file = os.path.join(download_dir,f"{year}_{month:02d}_v10.nc")
+                        ds_u, ds_v = Dataset(u_file), Dataset(v_file)
+                    else: ds = Dataset(os.path.join(download_dir, f"{year}_{month:02d}_{col}.nc"))
+                    for start in range(0, n_time, chunk_size):
+                        start_eff = max(0, start - overlap)
+                        end_eff = min(n_time, start + chunk_size + overlap)
+                        if var == "wind":
+                            u = ds_u["u10"][start_eff:end_eff].astype(np.float32)
+                            v = ds_v["v10"][start_eff:end_eff].astype(np.float32)
+                            data = np.hypot(u, v)
+                        else: data = ds[col][start_eff:end_eff].astype(np.float32)
+                        if var == "precip": data *= 1000
+                        elif var == "temp": data -= 273.15
+                        elif var in ("kin", "kout"): data /= 3600
+                        if np.isnan(data).any():
+                            da = xr.DataArray(data, dims=("valid_time", "latitude", "longitude"))
+                            da = da.interpolate_na(dim="valid_time", method="linear")
+                            da = da.ffill("valid_time").bfill("valid_time")
+                            da = da.fillna(0.0)
+                            data = da.values.astype(np.float32)
+                        # Interpolate
+                        data_3d = create_forcing(data, ny, nx, mask_nan, single_value, idx, weight)
+                        if data_3d is None:
+                            logger.info("FAILED: No valid data found for interpolation")
+                            processes[process_key] = {"status": "failed", "message": "No valid data found for interpolation."}
+                        t0, t1 = start, min(start + chunk_size, n_time)
+                        chunk_start = t0 - start_eff
+                        chunk_end = chunk_start + (t1 - t0)
+                        chunk = data_3d[chunk_start:chunk_end]
+                        chunk = np.nan_to_num(chunk, nan=0.0)
+                        chunk = np.where(mask_nan[None, :, :], 0.0, chunk)
+                        nc_vars[var][t0:t1, :, :] = chunk
+                        del data, data_3d, chunk
+                        if var == "wind": del u, v
+                finally:
+                    if ds is not None:
+                        try: ds.close()
+                        except Exception: pass
+                    if ds_u is not None:
+                        try: ds_u.close()
+                        except Exception: pass
+                    if ds_v is not None:
+                        try: ds_v.close()
+                        except Exception: pass
             logger.info("\n")
             for i, t in enumerate(timestamps):
                 time_var[time_index + i] = date2num(pd.Timestamp(t).to_pydatetime(), time_var.units, time_var.calendar)
@@ -410,24 +422,37 @@ def weather_downloader(project_name, processes, flow_name, time_zone, start, end
             # Next month
             current += relativedelta(months=1)
         nc.close()
+        nc = None
+        gc.collect()
         logger.info(f"Saved forcing file successfully: {forcing_path}")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
         logger.info("Temporary monthly files removed")
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "Weather download completed successfully.\n\n\n"}
+        processes[process_key] = {"status": "finished", "message": "Weather download completed successfully.\n\n\n"}
     except Exception as e:
         print('/weather_downloader:\n==============')
         traceback.print_exc()
         logger.exception("Weather download failed")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
+        if nc is not None:
+            try:
+                nc.close()
+                logger.info("NetCDF file closed.")
+            except Exception as e:
+                logger.warning(f"Error closing NetCDF: {e}")
+                processes[process_key] = {"status": "failed", "message": f"Error closing NetCDF: {e}"}
+        gc.collect()
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
-            h.close()
+            try:
+                h.flush()
+                h.close()
+            except Exception: pass
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def soil_downloader(project_name, processes, flow_name, catchment, water, dtm_path, buffer=BUFFER):
+def soil_downloader(project_name, processes, process_key, flow_name, catchment, water, dtm_path, buffer=BUFFER):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     flow_dir = os.path.join(project_dir, "flows", flow_name)
     # Work with log
@@ -509,48 +534,48 @@ def soil_downloader(project_name, processes, flow_name, catchment, water, dtm_pa
                 flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil)
                 logger.info(f"Saved downloaded data to: {path}")
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nSoil data downloaded successfully.\n\n"}
+        processes[process_key] = {"status": "finished", "message": "\nSoil data downloaded successfully.\n\n"}
     except Exception as e:
         print('/soil_downloader:\n==============')
         traceback.print_exc()
         logger.exception("Data download failed")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def wflow_check(project_name, processes, flow_name, uparea_km=10):
-    project_dir = os.path.join(PROJECT_ROOT, project_name)
-    flow_dir = os.path.join(project_dir, "flows", flow_name)
+def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     # Work with log
-    log_path = os.path.join(project_dir, "log.txt")
+    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)    
     try:
         logger = setup_logger("wflow", log_path)
         logger.info("Checking wflow inputs...")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Checking weather forcing data...")
-        forcing_path = os.path.join(flow_dir, 'forcing', 'weather_forcing.nc')
+        forcing_path = os.path.normpath(os.path.join(model_dir, 'forcing', 'weather_forcing.nc'))
         if not os.path.exists(forcing_path):
             logger.info("Weather forcing data not found.")
-            processes[project_name] = {"status": "failed", "message": "Weather forcing data not found."}
+            processes[process_key] = {"status": "failed", "message": "Weather forcing data not found."}
         logger.info(f"Found weather forcing data at: {forcing_path}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Checking terrain data...")
-        terrain_path = os.path.join(flow_dir, 'raw', 'dtm_raw.tif')
+        terrain_path = os.path.normpath(os.path.join(model_dir, 'raw', 'dtm_raw.tif'))
         if not os.path.exists(terrain_path):
             logger.info("Terrain data not found.")
-            processes[project_name] = {"status": "failed", "message": "Terrain data not found."}
+            processes[process_key] = {"status": "failed", "message": "Terrain data not found."}
         logger.info(f"Found terrain data at: {terrain_path}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         with rasterio.open(terrain_path) as src:
             dem_array, crs, nodata = src.read(1), src.crs, src.nodata
             transform, profile = src.transform, src.profile
             height, width = src.height, src.width
         logger.info("Checking water area data...")
-        water_path = os.path.join(flow_dir, 'water_area', 'water_area.geojson')
+        water_path = os.path.normpath(os.path.join(model_dir, 'water_area', 'water_area.geojson'))
         if not os.path.exists(water_path):
             mask_lake = None
             logger.info("Water area data not found.")
@@ -563,18 +588,18 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
             )
             mask_lake = (lake_array != nodata)
         logger.info(f"Found water area data at: {water_path}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Checking river data...")
-        river_dir = os.path.join(flow_dir, 'river')
+        river_dir = os.path.normpath(os.path.join(model_dir, 'river'))
         river_files = [f for f in os.listdir(river_dir)]
         if len(river_files) != 2:
             logger.info("Number of river files is not equal to 2.")
-            processes[project_name] = {"status": "failed", "message": "Please upload river data."}
+            processes[process_key] = {"status": "failed", "message": "Please upload river data."}
         logger.info(f"Found river data at: {river_dir}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Creating template hydro data...")
         # Prepare template raster dataset
-        hydro_dir = os.path.join(flow_dir, 'hydro')
+        hydro_dir = os.path.normpath(os.path.join(model_dir, 'hydro'))
         if not os.path.exists(hydro_dir): os.makedirs(hydro_dir)
         # Fill depressions
         filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
@@ -602,7 +627,7 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
         # Create upstream grid
         upstream_array = flw.upstream_area(unit='cell')
         # Create river width
-        river_path = os.path.join(river_dir, 'river.gpkg')
+        river_path = os.path.normpath(os.path.join(river_dir, 'river.gpkg'))
         river = gpd.read_file(river_path).to_crs(crs)
         shape = ((geom, value) for geom, value in zip(river.geometry, river["rivwth"]))
         rivwth_array = rasterize(
@@ -628,17 +653,17 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
                 flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
             else: logger.info(f"File already exists: {file_path}")
         logger.info("Write hydro data completed.")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Checking landcover data...")
-        landcover_dir = os.path.join(flow_dir, 'landcover')
+        landcover_dir = os.path.normpath(os.path.join(model_dir, 'landcover'))
         landcover_files = [f for f in os.listdir(landcover_dir)]
         if len(landcover_files) != 3:
             logger.info("Number of landcover files is not equal to 3.")
-            processes[project_name] = {"status": "failed", "message": "Please download landcover data."}
+            processes[process_key] = {"status": "failed", "message": "Please download landcover data."}
         logger.info(f"Found landcover data at: {landcover_dir}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.info("Checking soil data...")
-        soil_dir = os.path.join(flow_dir, 'soil')
+        soil_dir = os.path.normpath(os.path.join(model_dir, 'soil'))
         soil_files = [f for f in os.listdir(soil_dir) if f.endswith('.tif')]
         if len(soil_files) != 43:
             message = """
@@ -647,167 +672,302 @@ def wflow_check(project_name, processes, flow_name, uparea_km=10):
                 *******************************************************************************
             """
             logger.info(f"\n\n\n{message}\n")
-            processes[project_name] = {"status": "failed", "message": "Please download soil data."}
+            processes[process_key] = {"status": "failed", "message": "Please download soil data."}
         logger.info(f"Found soil data at: {soil_dir}")
-        logger.info("===============================")
+        logger.info("=" * 60)
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nChecking Wflow inputs completed.\n\n"}
+        processes[process_key] = {"status": "finished", "message": "\nChecking Wflow inputs completed.\n\n"}
     except Exception as e:
         print('/wflow_check:\n==============')
         traceback.print_exc()
         logger.exception("Check of wflow failed.")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
 
-def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, time_zone, step, data_lib, region, resolution, 
-    soil_layers, params_input, params_output, lulc_function='corine', lulc_mapping_fn='corine_mapping', lai_fn='lai_corine'):
-    project_dir = os.path.join(PROJECT_ROOT, project_name)
-    flow_dir = os.path.join(project_dir, "flows", flow_name)
-    mod_path = os.path.join(flow_dir, model_name)
-    # Clean up existing model directory
-    if os.path.exists(mod_path): shutil.rmtree(mod_path)
-    os.makedirs(mod_path, exist_ok=True)
-    # Set up logger
-    log_path = os.path.join(project_dir, "log.txt")
-    if os.path.exists(log_path): os.remove(log_path)
-    logger = setup_logger("hydromt", log_path)
+def get_candidates_from_strord(strord_path, center_xy):
+    with rasterio.open(strord_path) as src:
+        strord, nodata = src.read(1), src.nodata
+        transform, src_crs = src.transform, src.crs
+    if nodata is not None: mask = (strord > 0) & (strord != nodata)
+    else: mask = strord > 0
+    rows, cols = np.where(mask)
+    if len(rows) == 0: return []
+    xs, ys = rasterio_xy(transform, rows, cols)
+    xs, ys = np.array(xs), np.array(ys)
+    strord_vals = strord[rows, cols]
+    cx, cy = center_xy
+    dist = (xs - cx)**2 + (ys - cy)**2
+    order = np.argsort(dist)
+    xs, ys = xs[order], ys[order]
+    strord_vals = strord_vals[order]
+    dist = dist[order]
+    gdf = gpd.GeoDataFrame(
+        {'id': np.arange(start=1, stop=len(xs)+1), 'distance_m': np.round(dist, 2)},
+        geometry=[Point(x, y) for x, y in zip(xs, ys)], crs=src_crs,
+    )
+    return gdf
+
+def _safe_rmtree(path, max_retries=5, delay=1.0, logger=None):
+    if not os.path.exists(path): return True
+    def _log(msg):
+        if logger:
+            try: logger.info(msg)
+            except: pass
+    for attempt in range(max_retries):
+        try:
+            gc.collect()
+            try:
+                from dask.distributed import get_client
+                get_client().close()
+            except Exception: pass
+            gc.collect()
+            def _on_error(func, path, exc_info):
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except Exception: pass
+            shutil.rmtree(path, onerror=_on_error)
+            _log(f"Deleted {path}")
+            return True
+        except PermissionError as e:
+            _log(f"Attempt {attempt+1}/{max_retries}: {e}")
+            if attempt < max_retries - 1: time.sleep(delay * (attempt + 1))
+            else: return False
+        except FileNotFoundError:
+            return True
+        except Exception as e:
+            _log(f"Attempt {attempt+1}/{max_retries}: {e}")
+            if attempt < max_retries - 1: time.sleep(delay)
+            else: return False
+    return False
+
+def _cleanup_model(model, logger=None):
+    if model is None: return
+    def _log(msg):
+        if logger:
+            try: logger.info(msg)
+            except: pass
+    try:
+        for attr in ("staticmaps", "forcing", "states", "geoms", "tables", "config"):
+            obj = getattr(model, attr, None)
+            if obj is None: continue
+            if hasattr(obj, "close"):
+                try: 
+                    obj.close()
+                    _log(f"Closed {attr}")
+                except Exception as e: _log(f"Error closing {attr}: {e}")
+            data = getattr(obj, "data", None)
+            if data is not None and hasattr(data, "close"):
+                try: 
+                    data.close()
+                    _log(f"Closed {attr}.data")
+                except Exception as e:
+                    _log(f"Error closing {attr}.data: {e}")
+        try:
+            dc = getattr(model, '_data_catalog', None)
+            if dc is not None and hasattr(dc, "close"):
+                dc.close()
+        except Exception: pass
+        if hasattr(model, "_datasets"):
+            try:
+                for ds in model._datasets.values():
+                    if hasattr(ds, "close"):
+                        ds.close()
+            except Exception: pass
+    except Exception as e:
+        _log(f"Cleanup model error: {e}")
+    finally:
+        try:
+            del model
+        except Exception: pass
+        gc.collect()
+        try:
+            from dask.distributed import get_client
+            client = get_client()
+            client.close()
+        except Exception: pass
+        gc.collect()
+
+def _cleanup_after_failure(model_dir, model_folder, logger=None):
+    def _log(msg):
+        if logger:
+            try: logger.info(msg)
+            except: pass
+    mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
+    try:
+        from dask.distributed import get_client
+        client = get_client()
+        client.close()
+    except Exception: pass
+    for _ in range(3):
+        gc.collect()
+    try:
+        target = os.path.normpath(mod_path).lower()
+        open_files = []
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                for f in proc.open_files():
+                    if target in os.path.normpath(f.path).lower():
+                        open_files.append((proc.info['pid'], proc.info['name'], f.path))
+            except (psutil.NoSuchProcess, psutil.AccessDenied): pass
+        if open_files:
+            _log(f"{len(open_files)} file handles still open:")
+            for pid, name, path in open_files[:10]:
+                _log(f"  PID {pid} ({name}): {path}")
+    except ImportError: pass
+    except Exception: pass
+
+def prepare_hydromt(project_name, processes, process_key, flow_name, model_folder, 
+    start, end, step, time_zone, data_lib, upstream_area, region, resolution, soil_layers, 
+    params_input, params_output, log_path, lulc_function, lulc_mapping_fn, lai_fn, logger=None):
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+    mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
+    if logger is None: logger = setup_logger("hydromt", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
     stream_logger = StreamToLogger(logger, log_path=log_path)
     sys.stdout, sys.stderr = stream_logger, stream_logger
+    # Clean up existing model directory
+    if os.path.exists(mod_path): _safe_rmtree(mod_path, logger=logger)
+    os.makedirs(mod_path, exist_ok=True)
+    error, model, configs = None, None, {}
     try:
         logger.info("Starting hydromt for preparation...")
         # Prepare model
-        if os.path.exists(mod_path): shutil.rmtree(mod_path)
-        os.makedirs(mod_path, exist_ok=True)
         logger.info("Creating model instance...")
         model = WflowSbmModel(
             root=mod_path, config_filename='wflow_sbm.toml', data_libs=data_lib, mode='w'
         )
-        start_time = functions.local_to_utc(start, time_zone)
-        end_time = functions.local_to_utc(end, time_zone)
+        start_utc = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+        end_utc = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
         # Setup configurations
-        configs = {
-            "time.starttime": start_time.replace(tzinfo=None).isoformat(), 
-            "time.endtime": end_time.replace(tzinfo=None).isoformat(), 
-            "time.timestepsecs": step,
-            # Reference: https://deltares.github.io/Wflow.jl/dev/model_docs/model_settings.html
-            'model.type': 'sbm', # model type: [sbm, sbm_gwf]
-            'model.cold_start__flag': True,  # Initialize model with cold (cold_start__flag = true) or warm state
-            # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
-            'model.cell_length_in_meter__flag': False, 'model.reservoir__flag': False, #Include reservoir modelling
-            'model.water_mass_balance__flag': False, # Include water mass balance error computations
-            'model.snow_gravitational_transport__flag': True, # Include gravitational lateral snow transport
-            'model.glacier__flag': False, # Include glacier modelling
-            'model.soil_infiltration_reduction__flag': False, # Enable reduction factor applied to the soil infiltration capacity
-            'model.snow__flag': True, # Include snow modelling
-            # Saturated hydraulic conductivity depth profile for SBM soil model
-            # optional, one of ("exponential", "exponential_constant", "layered", "layered_exponential"), default is "exponential"
-            'model.saturated_hydraulic_conductivity_profile': 'exponential',
-            'model.land_routing': 'kinematic_wave', # Routing approach for overland flow: ["kinematic_wave", "local_inertial"]
-            'model.river_routing': 'kinematic_wave', # Routing approach for river flow: ["kinematic_wave", "local_inertial"]
-            'model.river_kinematic_wave__time_step': 900, 'model.land_kinematic_wave__time_step': 3600,
-            'model.kinematic_wave__adaptive_time_step_flag': False, # Enable kinematic wave adaptive (internal) time stepping
-            'output.netcdf_grid.path': 'output.nc', 'output.netcdf_grid.compressionlevel': 2,
-        }
+        configs = {}
+        # Setup time
+        time_temp = configs.setdefault('time', {})
+        time_temp['starttime'], time_temp['endtime'], time_temp['timestepsecs'] = start_utc, end_utc, step
+        # Reference: https://deltares.github.io/Wflow.jl/dev/model_docs/model_settings.html
+        model_temp = configs.setdefault('model', {})
+        model_temp['type'] = 'sbm' # model type: [sbm, sbm_gwf]
+        model_temp['cold_start__flag'] = True  # Initialize model with cold (cold_start__flag = true) or warm state
+        # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
+        model_temp['cell_length_in_meter__flag'] = False
+        model_temp['reservoir__flag'] = False #Include reservoir modelling
+        model_temp['water_mass_balance__flag'] = False # Include water mass balance error computations
+        model_temp['snow_gravitational_transport__flag'] = True # Include gravitational lateral snow transport
+        model_temp['glacier__flag'] = False # Include glacier modelling
+        model_temp['soil_infiltration_reduction__flag'] = False # Enable reduction factor applied to the soil infiltration capacity
+        model_temp['snow__flag'] = True # Include snow modelling
+        # Saturated hydraulic conductivity depth profile for SBM soil model
+        # optional, one of ("exponential", "exponential_constant", "layered", "layered_exponential"), default is "exponential"
+        model_temp['saturated_hydraulic_conductivity_profile'] = 'exponential'
+        model_temp['land_routing'] = 'kinematic_wave' # Routing approach for overland flow: ["kinematic_wave", "local_inertial"]
+        model_temp['river_routing'] = 'kinematic_wave' # Routing approach for river flow: ["kinematic_wave", "local_inertial"]
+        model_temp['river_kinematic_wave__time_step'] = 900
+        model_temp['land_kinematic_wave__time_step'] = 3600
+        model_temp['kinematic_wave__adaptive_time_step_flag'] = False # Enable kinematic wave adaptive (internal) time stepping
         # ========== Output variables ==========
+        output_temp = model_temp.setdefault('netcdf_grid', {})
+        output_temp['path'] = 'output.nc'
+        output_temp['compressionlevel'] = 2
         # Source: https://deltares.github.io/Wflow.jl/previews/PR586/model_docs/parameters_routing.html
+        var_temp = output_temp.setdefault('variables', {})
         # Overland flow variables
         if params_output['overland_flow']:
-            configs['output.netcdf_grid.variables.land_surface_water__volume_flow_rate'] = 'overland_flow'  # Overland discharge (average over timestep)	m³ s⁻¹
+            var_temp['land_surface_water__volume_flow_rate'] = 'overland_flow'  # Overland discharge (average over timestep)	m³ s⁻¹
         if params_output['overland_depth']:
-            configs['output.netcdf_grid.variables.land_surface_water__depth'] = 'overland_depth'  # Overland depth (average over timestep)	m
+            var_temp['land_surface_water__depth'] = 'overland_depth'  # Overland depth (average over timestep)	m
         if params_output['overland_volume']:
-            configs['output.netcdf_grid.variables.land_surface_water__volume'] = 'overland_volume', # Overland volume (average over timestep)	m³
+            var_temp['land_surface_water__volume'] = 'overland_volume' # Overland volume (average over timestep)	m³
         # Soil variables
         if params_output['soil_evapotranspiration']:
-            configs['output.netcdf_grid.variables.land_surface__evapotranspiration_volume_flux'] = 'soil_evapotranspiration',  # Total actual evapotranspiration	mm
+            var_temp['land_surface__evapotranspiration_volume_flux'] = 'soil_evapotranspiration'  # Total actual evapotranspiration	mm
         if params_output['soil_storage_total']:
-            configs['output.netcdf_grid.variables.land_water~storage~total__depth'] = 'soil_storage_total',  # Total water storage (excluding floodplains, lakes and reservoirs)	mm
+            var_temp['land_water~storage~total__depth'] = 'soil_storage_total'  # Total water storage (excluding floodplains, lakes and reservoirs)	mm
         if params_output['soil_infiltration_volume']:
-            configs['output.netcdf_grid.variables.soil_water__infiltration_volume_flux'] = 'soil_infiltration_volume',  # Actual infiltration into the unsaturated zone	mm Δt⁻¹
+            var_temp['soil_water__infiltration_volume_flux'] = 'soil_infiltration_volume'  # Actual infiltration into the unsaturated zone	mm Δt⁻¹
         if params_output['soil_transpiration_volume']:
-            configs['output.netcdf_grid.variables.soil_water__transpiration_volume_flux'] = 'soil_transpiration_volume',  # Transpiration from vegetation	mm Δt⁻¹
+            var_temp['soil_water__transpiration_volume_flux'] = 'soil_transpiration_volume'  # Transpiration from vegetation	mm Δt⁻¹
         if params_output['soil_runoff']:
-            configs['output.netcdf_grid.variables.soil_surface_water__runoff_volume_flux'] = 'soil_runoff',  # Total surface runoff from infiltration and saturation excess	mm Δt⁻¹
+            var_temp['soil_surface_water__runoff_volume_flux'] = 'soil_runoff'  # Total surface runoff from infiltration and saturation excess	mm Δt⁻¹
         if params_output['soil_net_runoff']:
-            configs['output.netcdf_grid.variables.soil_surface_water__net_runoff_volume_flux'] = 'soil_net_runoff',  # Net surface runoff (after open water evaporation)	mm Δt⁻¹
+            var_temp['soil_surface_water__net_runoff_volume_flux'] = 'soil_net_runoff'  # Net surface runoff (after open water evaporation)	mm Δt⁻¹
         if params_output['soil_water_volume_fraction']:
-            configs['output.netcdf_grid.variables.soil_layer_water__volume_fraction'] = 'soil_water_volume_fraction',  # Volumetric water content per soil layer (including residual water content and saturated zone)
+            var_temp['soil_layer_water__volume_fraction'] = 'soil_water_volume_fraction'  # Volumetric water content per soil layer (including residual water content and saturated zone)
         if params_output['soil_water_volume_percentage']:
-            configs['output.netcdf_grid.variables.soil_layer_water__volume_percentage'] = 'soil_water_volume_percentage',  # Volumetric water content per soil layer (including residual water content and saturated zone)	%
+            var_temp['soil_layer_water__volume_percentage'] = 'soil_water_volume_percentage'  # Volumetric water content per soil layer (including residual water content and saturated zone)	%
         if params_output['soil_water_rootzone_volume_fraction']:
-            configs['output.netcdf_grid.variables.soil_water_root-zone__volume_fraction'] = 'soil_water_rootzone_volume_fraction',  # Volumetric water content in root zone (including residual water content and saturated zone)
+            var_temp['soil_water_root-zone__volume_fraction'] = 'soil_water_rootzone_volume_fraction'  # Volumetric water content in root zone (including residual water content and saturated zone)
         if params_output['soil_water_rootzone_volume_percentage']:
-            configs['output.netcdf_grid.variables.soil_water_root-zone__volume_percentage'] = 'soil_water_rootzone_volume_percentage',  # Volumetric water content in root zone (including residual water content and saturated zone)	%
+            var_temp['soil_water_root-zone__volume_percentage'] = 'soil_water_rootzone_volume_percentage'  # Volumetric water content in root zone (including residual water content and saturated zone)	%
         if params_output['soil_water_rootzone_depth']:
-            configs['output.netcdf_grid.variables.soil_water_root-zone__depth'] = 'soil_water_rootzone_depth',  # Root water storage in unsaturated and saturated zone (excluding residual water content)	mm
+            var_temp['soil_water_root-zone__depth'] = 'soil_water_rootzone_depth'  # Root water storage in unsaturated and saturated zone (excluding residual water content)	mm
         if params_output['soil_water_unsatzone_depth']:
-            configs['output.netcdf_grid.variables.soil_water_unsat-zone__depth'] = 'soil_water_unsatzone_depth',  # Amount of water in the unsaturated store	mm
+            var_temp['soil_water_unsat-zone__depth'] = 'soil_water_unsatzone_depth'  # Amount of water in the unsaturated store	mm
         if params_output['soil_water_satzone_capillary_volume_flux']:
-            configs['output.netcdf_grid.variables.soil_water_sat-zone_top__capillary_volume_flux'] = 'soil_water_satzone_capillary_volume_flux',  # Actual capillary rise	mm Δt⁻¹
+            var_temp['soil_water_sat-zone_top__capillary_volume_flux'] = 'soil_water_satzone_capillary_volume_flux'  # Actual capillary rise	mm Δt⁻¹
         if params_output['soil_water_satzone_recharge_volume_flux']:
-            configs['output.netcdf_grid.variables.soil_water_sat-zone_top__recharge_volume_flux'] = 'soil_water_satzone_recharge_volume_flux',  # Downward flux from unsaturated to saturated zone	mm Δt⁻¹
+            var_temp['soil_water_sat-zone_top__recharge_volume_flux'] = 'soil_water_satzone_recharge_volume_flux'  # Downward flux from unsaturated to saturated zone	mm Δt⁻¹
         if params_output['soil_water_satzone_net_recharge_volume_flux']:
-            configs['output.netcdf_grid.variables.soil_water_sat-zone_top__net_recharge_volume_flux'] = 'soil_water_satzone_net_recharge_volume_flux',  # Net recharge to saturated zone	mm Δt⁻¹
+            var_temp['soil_water_sat-zone_top__net_recharge_volume_flux'] = 'soil_water_satzone_net_recharge_volume_flux'  # Net recharge to saturated zone	mm Δt⁻¹
         if params_output['soil_water_satzone_leakage_volume_flux']:
-            configs['output.netcdf_grid.variables.soil_water_sat-zone_bottom__leakage_volume_flux'] = 'soil_water_satzone_leakage_volume_flux',  # Actual leakage from saturated store	mm Δt⁻¹
+            var_temp['soil_water_sat-zone_bottom__leakage_volume_flux'] = 'soil_water_satzone_leakage_volume_flux'  # Actual leakage from saturated store	mm Δt⁻¹
         if params_output['soil_water_satzone_depth']:
-            configs['output.netcdf_grid.variables.soil_water_sat-zone_top__depth'] = 'soil_water_satzone_depth',  # Pseudo-water table depth (top of the saturated zone)	mm
+            var_temp['soil_water_sat-zone_top__depth'] = 'soil_water_satzone_depth'  # Pseudo-water table depth (top of the saturated zone)	mm
         # Lake variables
         if params_output['lake_volume']:
-            configs['output.netcdf_grid.variables.lake_water__volume'] = 'lake_volume', # Lake volume (average over timestep), m³
+            var_temp['lake_water__volume'] = 'lake_volume' # Lake volume (average over timestep), m³
         if params_output['lake_level']:
-            configs['output.netcdf_grid.variables.lake_water_surface__elevation'] = 'lake_level', # Lake water level (average over timestep), m
+            var_temp['lake_water_surface__elevation'] = 'lake_level' # Lake water level (average over timestep), m
         if params_output['lake_outflow']:
-            configs['output.netcdf_grid.variables.lake_water~outgoing__volume_flow_rate'] = 'lake_outflow', # Outflow of the lake (average over timestep)	m³ s⁻¹
+            var_temp['lake_water~outgoing__volume_flow_rate'] = 'lake_outflow' # Outflow of the lake (average over timestep)	m³ s⁻¹
         if params_output['lake_inflow']:
-            configs['output.netcdf_grid.variables.lake_water~incoming__volume_flow_rate'] = 'lake_inflow', # Inflow into the lake (average over timestep)	m³ s⁻¹
+            var_temp['lake_water~incoming__volume_flow_rate'] = 'lake_inflow' # Inflow into the lake (average over timestep)	m³ s⁻¹
         if params_output['lake_evaporation']:
-            configs['output.netcdf_grid.variables.lake_water__evaporation_volume_flux'] = 'lake_evaporation', # Average actual evaporation over the lake area	mm Δt⁻¹
+            var_temp['lake_water__evaporation_volume_flux'] = 'lake_evaporation' # Average actual evaporation over the lake area	mm Δt⁻¹
         if params_output['lake_precipitation']:
-            configs['output.netcdf_grid.variables.lake_water__precipitation_volume_flux'] = 'lake_precipitation', # Average precipitation over the lake area	mm Δt⁻¹
+            var_temp['lake_water__precipitation_volume_flux'] = 'lake_precipitation' # Average precipitation over the lake area	mm Δt⁻¹
         if params_output['lake_potential_evaporation']:
-            configs['output.netcdf_grid.variables.lake_water__potential_evaporation_volume_flux'] = 'lake_potential_evaporation', # Average potential evaporation over the lake area	mm Δt⁻¹
+            var_temp['lake_water__potential_evaporation_volume_flux'] = 'lake_potential_evaporation' # Average potential evaporation over the lake area	mm Δt⁻¹
         # Reservoir variables
         if params_output['reservoir_volume']:
-            configs['output.netcdf_grid.variables.reservoir_water__volume'] = 'reservoir_volume', # Reservoir volume (average over the timestep)	m³
+            var_temp['reservoir_water__volume'] = 'reservoir_volume' # Reservoir volume (average over the timestep)	m³
         if params_output['reservoir_outflow']:
-            configs['output.netcdf_grid.variables.reservoir_water~outgoing__volume_flow_rate'] = 'reservoir_outflow', # Outflow of the reservoir (average over the timestep)	m³ s⁻¹
+            var_temp['reservoir_water~outgoing__volume_flow_rate'] = 'reservoir_outflow' # Outflow of the reservoir (average over the timestep)	m³ s⁻¹
         if params_output['reservoir_inflow']:
-            configs['output.netcdf_grid.variables.reservoir_water~incoming__volume_flow_rate'] = 'reservoir_inflow', # Inflow into the reservoir (average over the timestep)	m³ s⁻¹
+            var_temp['reservoir_water~incoming__volume_flow_rate'] = 'reservoir_inflow' # Inflow into the reservoir (average over the timestep)	m³ s⁻¹
         if params_output['reservoir_evaporation']:
-            configs['output.netcdf_grid.variables.reservoir_water__evaporation_volume_flux'] = 'reservoir_evaporation', # Average actual evaporation over the reservoir area	mm Δt⁻¹
+            var_temp['reservoir_water__evaporation_volume_flux'] = 'reservoir_evaporation' # Average actual evaporation over the reservoir area	mm Δt⁻¹
         if params_output['reservoir_precipitation']:
-            configs['output.netcdf_grid.variables.reservoir_water__precipitation_volume_flux'] = 'reservoir_precipitation', # Average precipitation over the reservoir area	mm Δt⁻¹
+            var_temp['reservoir_water__precipitation_volume_flux'] = 'reservoir_precipitation' # Average precipitation over the reservoir area	mm Δt⁻¹
         if params_output['reservoir_potential_evaporation']:
-            configs['output.netcdf_grid.variables.reservoir_water__potential_evaporation_volume_flux'] = 'reservoir_potential_evaporation', # Average potential evaporation over the reservoir area	mm Δt⁻¹
+            var_temp['reservoir_water__potential_evaporation_volume_flux'] = 'reservoir_potential_evaporation' # Average potential evaporation over the reservoir area	mm Δt⁻¹
         # River variables (Kinematic wave)
         if params_output['river_discharge']:
-            configs['output.netcdf_grid.variables.river_water__volume_flow_rate'] = 'river_discharge', # River discharge (average over timestep)	m³ s⁻¹
+            var_temp['river_water__volume_flow_rate'] = 'river_discharge' # River discharge (average over timestep)	m³ s⁻¹
         if params_output['river_depth']:
-            configs['output.netcdf_grid.variables.river_water__depth'] = 'river_depth', # River depth (average over timestep)	m
+            var_temp['river_water__depth'] = 'river_depth' # River depth (average over timestep)	m
         if params_output['river_volume']:
-            configs['output.netcdf_grid.variables.river_water__volume'] = 'river_volume', # River volume (average over timestep)	m³
+            var_temp['river_water__volume'] = 'river_volume' # River volume (average over timestep)	m³
         if params_output['river_lateral_inflow']:
-            configs['output.netcdf_grid.variables.river_water_inflow~lateral__volume_flow_rate'] = 'river_lateral_inflow', # Lateral inflow into the river (average over timestep)	m³ s⁻¹
+            var_temp['river_water_inflow~lateral__volume_flow_rate'] = 'river_lateral_inflow' # Lateral inflow into the river (average over timestep)	m³ s⁻¹
         # Snow variables
         if params_output['snow_water']:
-            configs['output.netcdf_grid.variables.snowpack__leq-depth'] = 'snow_water',  # Liquid-water equivalent of snow pack (SWE)	mm
+            var_temp['snowpack__leq-depth'] = 'snow_water'  # Liquid-water equivalent of snow pack (SWE)	mm
         if params_output['snow_melt']:
-            configs['output.netcdf_grid.variables.snowpack_meltwater__volume_flux'] = 'snow_melt',  # Amount of snow melt	mm Δt⁻¹
+            var_temp['snowpack_meltwater__volume_flux'] = 'snow_melt'  # Amount of snow melt	mm Δt⁻¹
         if params_output['snow_runoff']:
-            configs['output.netcdf_grid.variables.snowpack_water__runoff_volume_flux'] = 'snow_runoff',  # Runoff from snowpack	mm Δt⁻¹
+            var_temp['snowpack_water__runoff_volume_flux'] = 'snow_runoff'  # Runoff from snowpack	mm Δt⁻¹
         # Glacier variables
         if params_output['glacier_melt']:
-            configs['output.netcdf_grid.variables.glacier_ice__melt_volume_flux'] = 'glacier_melt',  # Melt from the glacier	mm Δt⁻¹
+            var_temp['glacier_ice__melt_volume_flux'] = 'glacier_melt'  # Melt from the glacier	mm Δt⁻¹
         # Vegetation variables
         if params_output['vegetation_stemflow']:
-            configs['output.netcdf_grid.variables.vegetation_canopy_water__stemflow_volume_flux'] = 'vegetation_stemflow',  # Stemflow	mm Δt⁻¹
+            var_temp['vegetation_canopy_water__stemflow_volume_flux'] = 'vegetation_stemflow'  # Stemflow	mm Δt⁻¹
         if params_output['vegetation_throughfall']:
-            configs['output.netcdf_grid.variables.vegetation_canopy_water__throughfall_volume_flux'] = 'vegetation_throughfall',  # Throughfall	mm Δt⁻¹
+            var_temp['vegetation_canopy_water__throughfall_volume_flux'] = 'vegetation_throughfall'  # Throughfall	mm Δt⁻¹
         model.setup_config(configs)
         # Setup basemaps: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_basemaps.html
         model.setup_basemaps(
@@ -822,7 +982,7 @@ def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, 
         }
         model.setup_rivers(
             hydrography_fn='my_hydro', river_geom_fn='river_network', 
-            river_upa=10, # Minimum upstream area threshold for the river map [km2]
+            river_upa=upstream_area, # Minimum upstream area threshold for the river map [km2]
             rivdph_method='powlaw', # 'gvf', 'manning', 'powlaw'
             slope_len=2, #  Length over which the river slope is calculated [km]
             min_rivlen_ratio=0, min_rivdph=1.0, # Minimum river depth [m]
@@ -893,53 +1053,208 @@ def prepare_hydromt(project_name, processes, flow_name, model_name, start, end, 
             grid_filename='static_grid.nc', geoms_folder='staticgeoms', 
             forcing_filename='weather_forcing.nc', states_filename='output_state.nc'
         )
-        logger.info(f"Prepare HydroMT completed.\n")
+        logger.info(f"Prepare HydroMT completed.")
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nPrepare HydroMT completed."}
     except Exception as e:
         print('/prepare_hydromt:\n==============')
         traceback.print_exc()
-        logger.exception("Prepare HydroMT failed.")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        logger.exception(f"Prepare HydroMT failed: {str(e)}")
+        processes[process_key] = {"status": "failed", "message": str(e)}
+        error = e
     finally:
+        _cleanup_model(model, logger)
+        model = None
+        for h in logger.handlers:
+            try: h.flush()
+            except Exception: pass
         sys.stdout, sys.stderr = old_stdout, old_stderr
-        for h in logger.handlers[:]:
-            h.close()
-            logger.removeHandler(h)
+    if error is not None: raise error
 
-def run_hydromt(project_name, processes, flow_name, model_name):
+def run_hydromt(project_name, processes, process_key, flow_name, model_folder, log_path, logger=None):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
-    model_dir = os.path.join(project_dir, "flows", flow_name, model_name)
-    # Set up logger
-    log_path = os.path.join(project_dir, "log.txt")
-    if os.path.exists(log_path): os.remove(log_path)
-    logger = setup_logger("hydromt", log_path)
+    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name, model_folder))
+    if logger is None: logger = setup_logger("hydromt", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
     stream_logger = StreamToLogger(logger, log_path=log_path)
     sys.stdout, sys.stderr = stream_logger, stream_logger
+    error = None
     try:
         logger.info("Running HydroMT...")
-        logger.info("===============================")
+        logger.info("=" * 36)
         wflow_path = os.path.normpath(os.path.join(WFLOW_PATH, "wflow_cli", "bin", "wflow_cli.exe"))
         toml_path = os.path.normpath(os.path.join(model_dir, "wflow_sbm.toml"))
+        if not os.path.isfile(wflow_path):
+            message = f"Wflow executable not found: {wflow_path}"
+            logger.info("=" * 36)
+            logger.info(message)
+            logger.info("=" * 36)
+            raise FileNotFoundError(message)
+        if not os.path.isfile(toml_path):
+            message = f"TOML config not found: {toml_path}"
+            logger.info("=" * 36)
+            logger.info(message)
+            logger.info("=" * 36)
+            raise FileNotFoundError(message)
+        if not os.path.isdir(model_dir):
+            message = f"Model dir not found: {model_dir}"
+            logger.info("=" * 36)
+            logger.info(message)
+            logger.info("=" * 36)
+            raise FileNotFoundError(message)
         cmd = [wflow_path, toml_path]
         process = subprocess.Popen(
             cmd, cwd=model_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
-        for line in process.stdout: logger.info(line.strip())
+        for line in process.stdout: 
+            logger.info(line.strip())
+            logger.handlers[0].flush()
         process.wait()
-        logger.info(f"Run HydroMT completed with return code: {process.returncode}")
-        logger.info(f"Run HydroMT completed.\n")
+        logger.info("=" * 36)
+        if process.returncode == 0:
+            logger.info(f"Run HydroMT completed successfully.")
+        else: 
+            logger.info(f"Run HydroMT failed.")
+            error = RuntimeError(f"wflow_cli exited with code: {process.returncode}")
+        logger.info("=" * 36)
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nRun HydroMT completed."}
+        if error is None: logger.info("Run HydroMT completed.")
     except Exception as e:
         print('/run_hydromt:\n==============')
         traceback.print_exc()
-        logger.exception("Run HydroMT failed")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        logger.exception(f"Run HydroMT failed: {str(e)}")
+        processes[process_key] = {"status": "failed", "message": str(e)}
+        error = e
     finally:
+        for h in logger.handlers[:]:
+            try: h.flush()
+            except Exception: pass
+            h.close()
+            logger.removeHandler(h)
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+    if error is not None: raise error
+
+def wflow_run(project_name, processes, process_key, flow_name, model_folder, df, crs,
+    start, end, step, time_zone, data_lib, up_area, resolution, soil_layers,
+    params_input, params_output, lulc_function, lulc_mapping_fn, lai_fn):
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+    mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
+    # Set up logger
+    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    if os.path.exists(log_path): os.remove(log_path)
+    logger = setup_logger("hydromt", log_path)
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    stream_logger = StreamToLogger(logger, log_path=log_path)
+    sys.stdout, sys.stderr = stream_logger, stream_logger    
+    # Clean up existing model directory
+    if os.path.exists(mod_path): _safe_rmtree(mod_path, logger=logger)
+    os.makedirs(mod_path, exist_ok=True)
+    candidate_results, success_point = [], None
+    def _reset_log_file():
+        try:
+            for h in logger.handlers[:]:
+                try:
+                    h.flush()
+                    h.close()
+                except Exception: pass
+                logger.removeHandler(h)
+            if os.path.exists(log_path): os.remove(log_path)
+            new_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+            new_handler.setLevel(logging.INFO)
+            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            new_handler.setFormatter(formatter)
+            logger.addHandler(new_handler)
+            stream_logger.update_logger(logger)
+            logger.handlers[0].flush()
+        except Exception: pass
+    try:
+        for idx, row in df.iterrows():
+            temp_name, temp_lat, temp_lon = row['id'], row['lat'], row['lon']
+            if idx > 0: _reset_log_file()
+            logger.info("=" * 70)
+            logger.info(f"Checking candidate: {temp_name} [{temp_lat}, {temp_lon}]")
+            logger.info("=" * 70)
+            try:
+                client = get_client()
+                client.close()
+                del client
+            except Exception: pass
+            gc.collect()
+            dask.config.set(scheduler='threads')
+            prepare_ok = False
+            try:
+                gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([temp_lon], [temp_lat]), crs='EPSG:4326')
+                if gdf.crs != crs: gdf = gdf.to_crs(crs)
+                x, y = round(gdf.geometry.x[0], 2), round(gdf.geometry.y[0], 2)
+                region = {'subbasin': [x, y]}
+                # Prepare model
+                prepare_hydromt(project_name, processes, process_key, flow_name, model_folder, 
+                    start, end, step, time_zone, data_lib, up_area, region, 
+                    resolution, soil_layers, params_input, params_output, log_path,
+                    lulc_function, lulc_mapping_fn, lai_fn, logger
+                )
+                prepare_ok = True
+                # Check parameters
+                path = os.path.normpath(os.path.join(model_dir, model_folder, "static_grid.nc"))
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"Static grid not found: {path}")
+                nan_vars = []
+                with xr.open_dataset(path) as ds:
+                    for item in ds.data_vars:
+                        vals = np.unique(ds[item].values)
+                        if vals.size == 1 and np.isnan(vals[0]):
+                            nan_vars.append(item)                
+                if nan_vars:
+                    raise ValueError(f"NaN values in: {nan_vars}")
+                # Run model
+                logger.info("=" * 70)
+                run_hydromt(project_name, processes, process_key, flow_name, model_folder, log_path)
+                logger.info(f"Candidate '{temp_name}' SUCCESS.")
+                candidate_results.append({
+                    "point": temp_name, "lat": temp_lat, "lon": temp_lon, "status": "success",
+                })
+                success_point = temp_name
+                logger.info("=" * 70)
+                logger.info(f"Model run SUCCEEDED with candidate: {temp_name} [{temp_lat}, {temp_lon}]")
+                logger.info("Process completed. Stopping candidate iteration.")
+                logger.info("=" * 70)
+                break
+            except Exception as e:
+                logger.error(f"Run HydroMT failed for candidate '{temp_name}'.")
+                candidate_results.append({
+                    "point": temp_name, "lat": temp_lat, "lon": temp_lon,
+                    "status": "failed", "error": str(e),
+                })
+                if not prepare_ok:
+                    logger.error(f"Prepare data for hydromt failed - Skipping run_hydromt for candidate '{temp_name}'.")
+                    logger.info("=" * 70)
+                    logger.info("")
+                _cleanup_after_failure(model_dir, model_folder, logger)
+                gc.collect()
+                continue
+        if success_point is not None:
+            processes[process_key] = {
+                "status": "finished",
+                "message": f"\n\nProcess completed successfully with candidate '{success_point}'.\n"
+                    f"Total candidates tried: {len(candidate_results)}.",
+                "success_point": success_point, "results": candidate_results,
+            }
+        else:
+            n_failed = len(candidate_results)
+            processes[process_key] = {
+                "status": "finished",
+                "message": f"\n\nAll {n_failed} candidates failed. No valid model could be run.",
+                "results": candidate_results,
+            }
+    except Exception as e:
+        processes[process_key] = {"status": "failed", "message": str(e)}
+    finally:
+        try:
+            client = get_client()
+            client.close()
+        except Exception: pass
+        gc.collect()
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
-            h.flush()
             h.close()
             logger.removeHandler(h)

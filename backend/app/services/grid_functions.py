@@ -1,10 +1,10 @@
 import os, pickle, warnings, optuna, json
 from config import SOURCE_BACKEND
 import geopandas as gpd, numpy as np
+import xarray as xr, dask.array as da
 from shapely.geometry import Polygon, MultiPolygon
 from meshkernel import MeshKernel, GeometryList, OrthogonalizationParameters
 from services import functions
-import xarray as xr, dask.array as da
 from pyproj import CRS
 from optuna.pruners import MedianPruner
 from functools import partial
@@ -132,8 +132,7 @@ def meshkernel_to_Ugrid(mk: MeshKernel, crs: str):
     else: grid_mapping_name = 'transverse_mercator'
     ds["crs"] = xr.DataArray(0,
         attrs={
-            "grid_mapping_name": grid_mapping_name,
-            "crs_wkt": crs_obj.to_wkt(),
+            "grid_mapping_name": grid_mapping_name, "crs_wkt": crs_obj.to_wkt(),
         }
     )
     ds["mesh2d_edge_x"] = (("mesh2d_nEdges",), da.from_array(edge_x))

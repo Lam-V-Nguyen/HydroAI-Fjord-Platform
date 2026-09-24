@@ -159,18 +159,32 @@ def utc_to_local(utc_time, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S") -> str:
     else: ts = ts.tz_convert("UTC")
     return ts.tz_convert(tz_name).strftime(fmt)
 
+def _on_rm_error(func, path, exc_info):
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception: pass
+
 def safe_remove(path, retries=10, delay=1):
+    if not os.path.exists(path): return
+    last_err = None
     for _ in range(retries):
         try:
-            os.remove(path)
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, onerror=_on_rm_error)
+            else:
+                os.chmod(path, stat.S_IWRITE)  # clear read-only
+                os.remove(path)
             return
-        except PermissionError:
+        except FileNotFoundError: return
+        except (PermissionError, OSError) as e:
+            last_err = e
             time.sleep(delay)
-    raise Exception(f"Cannot delete file: {path}")
+    raise Exception(f"Cannot delete path: {path}. Last error: {last_err}")
 
-async def delete_process(processes, project_name, delay):
+async def delete_process(processes, process_key, delay):
     await asyncio.sleep(delay)
-    processes.pop(project_name, None)
+    processes.pop(process_key, None)
 
 def numberFormatter(arr: np.array, decimals: int=2) -> list:
     try:
@@ -192,16 +206,19 @@ def numberFormatter(arr: np.array, decimals: int=2) -> list:
         nan_mask = ~finite_mask
         result[nan_mask] = None
         return np.reshape(result, arr.shape)
-    except: return list(arr)
+    except: return arr
 
-def seconds_datetime(seconds: int) -> tuple:
-    days = seconds // 86400
-    seconds %= 86400
-    hours = seconds // 3600
-    seconds %= 3600
-    minutes = seconds // 60
-    seconds = seconds % 60
+def seconds_datetime(total_seconds: int) -> tuple:
+    total_seconds = int(round(float(total_seconds)))
+    days = total_seconds // 86400
+    remainder = total_seconds % 86400
+    hours = remainder // 3600
+    minutes = (remainder % 3600) // 60
+    seconds = remainder % 60
     return days, f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+def parse_float(s: str) -> float:
+    return float(s.strip().lower().replace('d', 'e'))
 
 async def auto_extend(lock: Lock, interval: int = 10):
     try:
@@ -278,14 +295,32 @@ def fileWriter(template_path: str, params: dict) -> str:
     # Adjust the structure
     lines, result = [], []
     for line in file_content.split('\n'):
-        if '#' in line and not line.strip().startswith('#'):
-            left, right = line.split('#', 1)
-            left, middle = left.split("=", 1)
-            lines.append((left + " = ", middle.strip(), '#' + right.strip()))
-        else: lines.append((line.strip(), "", ""))
-    max_len = max(len(middle) for _, middle, _ in lines) + 1
+        line_new = line.strip()
+        if '#' in line_new or line_new.startswith('#'):
+            if line.startswith('#'):
+                lines.append((line, "", ""))
+                continue
+            elif line_new.startswith('#') and not line.startswith('#'):
+                lines.append(("", "", line_new))
+                continue
+            temp, right = line_new.split('#', 1)
+            temp = temp.split('=')
+            if len(temp) == 0: left = middle = ''
+            elif len(temp) == 1: left = temp[0].strip(); middle = ''
+            else: left, middle = temp[0].strip(), temp[1].strip()
+            lines.append((left.strip(), "= " + middle.strip(), '  # ' + right.strip()))
+        else:
+            temp = line_new.split('=')
+            if len(temp) <= 1: left = line_new; middle = right = ''
+            else: left = temp[0].strip(); middle = '= ' + temp[1].strip(); right = ''
+            lines.append((left.strip(), middle.strip(), right))
+    max_left = max(len(left) for left, _, _ in lines if not left.startswith('#'))
+    max_middle = max(len(middle) for _, middle, _ in lines)
     for left, middle, right in lines:
-        result.append(left + middle.ljust(max_len) + right)
+        if left != '' and middle == right == '':
+            result.append(left.ljust(max_left))
+        else:
+            result.append(left.ljust(max_left) + middle.ljust(max_middle) + right)
     result = "\n".join(result)
     return result
 
@@ -908,7 +943,7 @@ def valueToKeyConverter(values: list, dict: dict=units) -> list:
     return result
 
 def vectorComputer(data_map: xr.Dataset, value_type: str, 
-    row_idx: int, time_zone: str, step: int=-1) -> dict:
+    row_idx: int, time_zone: str, step: int) -> dict:
     if value_type == 'Average':
         # Average velocity in each layer
         ucx = data_map['mesh2d_ucxa'].isel(time=step).values

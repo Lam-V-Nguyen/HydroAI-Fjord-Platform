@@ -1,5 +1,5 @@
 import os, pickle, json, traceback, asyncio, threading
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Request, Depends, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from services import functions, data_functions
 from config import PROJECT_ROOT
@@ -8,13 +8,48 @@ from services.data_functions import Regnbyge as regnbyge
 
 router, processes = APIRouter(), {}
 
+@router.post("/save_client")
+async def save_client(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        client_name, client_secret = body.get('clientName', ''), body.get('clientSecret', '')
+        client_username, client_password = body.get('clientUsername', ''), body.get('clientPassword', '')
+        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
+        if not os.path.exists(source_dir): os.makedirs(source_dir)
+        path = os.path.join(source_dir, 'regnbyge.json')
+        print(client_name, client_secret, client_username, client_password)
+        content = {'client_id': client_name, 'client_secret': client_secret,
+            'client_username': client_username, 'client_password': client_password
+        }
+        with open(path, 'w', encoding='utf-8', errors='ignore') as f:
+            json.dump(content, f)
+        return JSONResponse({'message': 'Registration information is saved successfully.'})
+    except Exception as e:
+        print('/save_client:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/load_client")
+async def load_client(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
+    path = os.path.join(source_dir, 'regnbyge.json')
+    content = {'client_id': '', 'client_secret': '',
+        'client_username': '', 'client_password': ''
+    }
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            content = json.load(f)
+    return JSONResponse({'content': content})
+    
 @router.post("/reset_station")
 async def reset_station(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        source_dir = os.path.join(PROJECT_ROOT, project_name, "sources")
+        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
         flow_checked, level_checked, rain_checked = body.get('flow'), body.get('level'), body.get('rain')
         if flow_checked: functions.safe_remove(os.path.join(source_dir, 'flow.pkl'))
         if level_checked: functions.safe_remove(os.path.join(source_dir, 'level.pkl'))
@@ -29,16 +64,19 @@ async def reset_station(request: Request, user=Depends(functions.basic_auth)):
 async def init_station(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key = body.get('key')
+        key, client_name = body.get('key'), body.get('clientID', '')
+        client_secret, client_username = body.get('clientSecret', ''), body.get('clientUserName', '')
+        client_password = body.get('clientPassword', '')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        source_dir = os.path.join(PROJECT_ROOT, project_name, "sources")
+        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
         if not os.path.exists(source_dir): os.makedirs(source_dir)
         path = os.path.normpath(os.path.join(source_dir, f'{key}.pkl'))
         if not os.path.exists(path):
+            obj = regnbyge(client_name, client_secret, client_username, client_password)
             print("Loading data from Regnbyge.no ...")
-            token = regnbyge().get_Token()
+            token = obj.get_Token()
             if token is None: return JSONResponse({'status': 'error', 'message': f"Error: Could not get token."})
-            df = regnbyge().get_Station(key)
+            df = obj.get_Station(key)
             if not df.empty:
                 geometry = gpd.points_from_xy(df['x'], df['y'])
                 station = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:32633')
@@ -63,14 +101,16 @@ async def init_station(request: Request, user=Depends(functions.basic_auth)):
 async def plot_station(request: Request):
     try:
         body = await request.json()
-        id, mode = body.get('id'), body.get('mode')
-        name, time_zone = body.get('name'), body.get('timeZone')
+        id, mode, client_name = body.get('id'), body.get('mode'), body.get('clientID', '')
+        name, time_zone, client_password = body.get('name'), body.get('timeZone'), body.get('clientPassword', '')
+        client_secret, client_username = body.get('clientSecret', ''), body.get('clientUserName', '')
         start, end, interval = body.get('startTime'), body.get('endTime'), body.get('interval')
         start_utc = functions.local_to_utc(start, time_zone)
         end_utc = functions.local_to_utc(end, time_zone)
         if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: 'Start time' must be earlier than 'End time'."})
-        df = regnbyge().get_Values(mode, id, start_utc, end_utc, interval)
+        obj = regnbyge(client_name, client_secret, client_username, client_password)
+        df = obj.get_Values(mode, id, start_utc, end_utc, interval)
         if df.empty:
             return JSONResponse({'status': 'error', 'message': f"No data available for station '{name}' between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
@@ -90,11 +130,14 @@ async def download_station(request: Request):
         mode, download_interval = body.get('mode'), body.get('downloadInterval')
         start, end = body.get('startTime'), body.get('endTime')
         id, time_zone = body.get('id'), body.get('timeZone')
+        client_name, client_secret = body.get('clientID', ''), body.get('clientSecret', '')
+        client_username, client_password = body.get('clientUserName', ''), body.get('clientPassword', '')
         start_utc = functions.local_to_utc(start, time_zone)
         end_utc = functions.local_to_utc(end, time_zone)
         if start_utc >= end_utc:
             return JSONResponse({'status': 'error', 'message': "Error: Start time is later than end time."})
-        df = regnbyge().get_Values(mode, id, start_utc, end_utc, download_interval)
+        obj = regnbyge(client_name, client_secret, client_username, client_password)
+        df = obj.get_Values(mode, id, start_utc, end_utc, download_interval)
         if df.empty: 
             return JSONResponse({'status': 'error', 'message': f"No data available between '{start}' and '{end}'."})
         if 'id' in df.columns: df = df.drop(columns=['id'])
@@ -121,6 +164,22 @@ async def log_tail_download_era5(project_name: str, offset: int = Query(0),
         data = f.read()
         new_offset = f.tell()
     return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
+
+@router.post("/data_upload_gis")
+async def data_upload_gis(file: UploadFile = File(...)):
+    try:
+        gdf = gpd.read_file(file.file)
+        if gdf.crs is None or gdf.crs != "EPSG:4326":
+            gdf = gdf.to_crs("EPSG:4326")
+        return JSONResponse({"status": "ok", "content": json.loads(gdf.to_json())})
+    except Exception as e:
+        print('/data_upload_gis:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": str(e)})
+    finally: 
+        await file.close()
+
+
 
 @router.post("/check_download_status_era5")
 async def check_download_status_era5(request: Request, user=Depends(functions.basic_auth)):

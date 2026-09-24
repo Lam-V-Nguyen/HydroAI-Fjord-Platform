@@ -171,8 +171,10 @@ async function hydManager(){
         await fileUploader(
             obj.gridPathFile, obj.gridPathText, obj.projectName.value,
             'FlowFM_net.nc', 'Uploading the unstructured grid to project...', 'grid'
-        );
-        event.target.value = '';
+        ); event.target.value = '';
+        // Plot grid on map
+        const content = { projectName: obj.projectName.value, gridName: obj.gridPathText.value }
+        iframeConnector(null, null, 'gridPlot', content);
     });
     // Event when user uploads CSV file
     obj.obsPointUploadText.addEventListener('click', () => { obj.obsPointUploadFile.click(); });
@@ -475,7 +477,12 @@ async function loadScenario(scenarioName){
     if (data.status === 'error') { alert(data.message); return; }
     obj.latitude.value = data.content.avgLat;
     obj.nLayers.value = data.content.nLayers;
-    obj.gridPathText.value = data.content.gridPath;
+    const gridName = data.content.gridPath;
+    if (gridName != '') {
+        const contentGrid = { projectName: scenarioName, gridName: gridName }
+        iframeConnector(null, null, 'gridPlot', contentGrid);
+    }
+    obj.gridPathText.value = gridName;
     obj.startDate.value = data.content.startDate;
     obj.stopDate.value = data.content.stopDate;
     obj.userTimestepDate.value = data.content.userTimestepDate;

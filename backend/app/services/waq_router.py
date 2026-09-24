@@ -4,7 +4,6 @@ from fastapi.responses import JSONResponse
 from services import functions, wq_functions
 from config import PROJECT_ROOT
 import numpy as np, pandas as pd
-from datetime import datetime, timezone
 
 router = APIRouter()
 

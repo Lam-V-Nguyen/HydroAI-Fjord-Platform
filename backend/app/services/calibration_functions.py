@@ -19,9 +19,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 def get_values_from_mdu(mdu_content: list, key: str) -> list:
-    _, line = next((i, line) for i, line in enumerate(mdu_content) if line.strip().startswith(key))
-    if line is None: return None
-    value = line.split('=')[1].strip().split('#')[0].strip()
+    key_lower = key.lower()
+    _, line = next(
+        ((i, line) for i, line in enumerate(mdu_content) 
+        if line.strip().lower().startswith(key_lower)), (None, None)
+    )
+    if line is None: return []
+    value = line.split('=', 1)[1].strip().split('#')[0].strip()
     return value
 
 # Setup functions
@@ -34,12 +38,21 @@ def generate_lhs_samples(parameters_range, n_samples, seed=42) -> pd.DataFrame:
     sample_scaled = qmc.scale(sample_lhs, lower_bounds, upper_bounds)
     return pd.DataFrame(sample_scaled, columns=param_names, index=np.arange(1, n_samples + 1))
 
-def modify_mdu_key(mdu_lines: list, key: str, value: str = '') -> list:
-    mdu = mdu_lines.copy()
-    index, line = next((i, line) for i, line in enumerate(mdu) if line.strip().startswith(key))
-    new = line.split('=')
-    new1 = new[1].split('#')
-    mdu[index] = f'{new[0]}= {value.ljust(len(new1[0])-2)} #{new1[1]}'
+def modify_mdu_key(mdu_lines: list, key: str, value: str = '', max_length=None) -> list:
+    mdu, key_lower = mdu_lines.copy(), key.lower()
+    index, line = next(
+        (i, line) for i, line in enumerate(mdu) 
+        if line.strip().split('=', 1)[0].strip().lower() == key_lower
+    )
+    new = line.split('=', 1)
+    new1 = new[1].split('#', 1)
+    comment = new1[1] if len(new1) > 1 else ''
+    if max_length is not None:
+        mdu[index] = (
+            f'{new[0]}= {value.ljust(max_length-2)}'
+            f'{" #" + comment if comment else ""}'
+        )
+    else: mdu[index] = f'{new[0]}= {value.ljust(len(new1[0])-2)} #{new1[1]}'
     return mdu
 
 def clip_data(df: pd.DataFrame, time_column:str, start:str=None, end:str=None) -> dict:
@@ -167,7 +180,7 @@ def run_iteration(directory: str, processes: dict, body: dict, key: str) -> None
 
 def run_calibration(processes: dict, key: str, scenario_dir: str, scenarios: list, log_path: str) -> None:
     try:
-        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "dflowfm/scripts/run_dflowfm.bat"))
+        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "x64/dflowfm/scripts/run_dflowfm.bat"))
         if not os.path.exists(bat_path):
             processes[key]["status"] = "error"
             processes[key]["message"] = "Executable file not found"

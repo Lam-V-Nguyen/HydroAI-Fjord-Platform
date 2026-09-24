@@ -4,7 +4,7 @@ import pandas as pd, xarray as xr, numpy as np
 from services import functions, flow_functions
 from pathlib import Path
 from services.flow_functions import StreamToLogger
-from datetime import datetime
+from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 
 variables = {
@@ -27,14 +27,17 @@ var_revert = {
 }
 
 class Regnbyge():
-    def __init__(self) -> None:
+    def __init__(self, name, secret, username, password) -> None:
         dotenv.load_dotenv()
         self.url = os.getenv('FLOW_URL')
-        self.client = os.getenv('FLOW_CLIENT_ID')
-        self.client_secret = os.getenv('FLOW_CLIENT_SECRET')
-        self.username = os.getenv('FLOW_USERNAME')
-        self.password = os.getenv('FLOW_PASSWORD')
+        self.token_url = os.getenv('FLOW_URL_TOKEN')
+        self.client, self.client_secret = name, secret
+        self.username, self.password = username, password
         self.token = self.get_Token()
+        if self.token is None:
+            raise RuntimeError(
+                f"Cannot get access token. Check credentials for client '{name}'."
+            )
 
     def get_Token(self):
         # Encode client_id:client_secret to Base64
@@ -42,27 +45,31 @@ class Regnbyge():
         auth_bytes = auth_string.encode('utf-8')
         auth_base64 = base64.b64encode(auth_bytes).decode('utf-8')
         # Define the headers
-        headers = {'Authorization': f'Basic {auth_base64}',
-                   'Accept': 'application/json',
-                   'Content-Type': 'application/x-www-form-urlencoded'}
+        headers = {
+            'Authorization': f'Basic {auth_base64}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
         # Define the body parameters (in x-www-form-urlencoded format)
         body = {'username': self.username, 'password': self.password,
                 'scope': 'openid regnbyge', 'grant_type': 'password'}
-        token_url = os.getenv('FLOW_URL_TOKEN')
-        response = requests.request("POST", token_url, headers=headers, data=body)
+        response = requests.request("POST", self.token_url, headers=headers, data=body, timeout=30)
         if response.status_code == 200: return response.json().get('access_token')
         else: return None
 
     def get_Station(self, variable):
         headers = {'Accept': 'application/json', 'Authorization': f'Bearer {self.token}'}
         url_objects = f'{self.url}/{variable}'
-        response = requests.request("GET", url_objects, headers=headers)
+        response = requests.request("GET", url_objects, headers=headers, timeout=30)
         ids, rows = response.json(), []
         if not ids: return pd.DataFrame()
         for station_id in ids:
             url = f'{url_objects}/{station_id}'
-            res = requests.get(url, headers=headers)
-            if res.status_code == 200: rows.append(res.json())
+            try:
+                res = requests.get(url, headers=headers, timeout=30)
+                if res.status_code == 200: rows.append(res.json())
+                else: print(f"Station {station_id}: HTTP {res.status_code}")
+            except requests.RequestException as e: print(f"Station {station_id}: {e}")
         if not rows: return pd.DataFrame()
         df = pd.DataFrame(rows)
         # Delete columns with all NaN values
@@ -70,7 +77,7 @@ class Regnbyge():
         # Delete rows with all NaN values
         df.dropna(axis=0, how='all', inplace=True)
         df.reset_index(inplace=True, drop=True)
-        df = df.where(pd.notnull(df), None)
+        df = df.astype(object).where(pd.notnull(df), None)
         return df
     
     def get_Values(self, variable:str, ids:list, from_date, end_date, agg:str='Raw'):
@@ -78,27 +85,38 @@ class Regnbyge():
         agg: Raw, Minute, FiveMinute, Hour, Day
         fromDate, toDate: 'YYYY-mm-dd HH:MM:SS' in UTC
         '''
-        start, end = from_date.isoformat(), end_date.isoformat()
+        if not self.token: raise RuntimeError("No access token available. Call get_Token() first.")
+        if not ids: return pd.DataFrame()
+        if from_date.tz is None:
+            start = from_date.replace(tzinfo=timezone.utc).isoformat()
+        else: start = from_date.isoformat()
+        if end_date.tz is None:
+            start = end_date.replace(tzinfo=timezone.utc).isoformat()
+        else: end = end_date.isoformat()
         headers = {'accept': 'application/json', 'Authorization': f'Bearer {self.token}'}
         payload = {"ids": ids, "from": start, "to": end, "aggregation": agg}
         url = f'{self.url}/{variable}/values'
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
         except requests.RequestException: return pd.DataFrame()
         data, data_value = pd.DataFrame(), response.json()
         for item in data_value:
-            if 'measurements' not in item or not item['measurements']: continue
-            df_value = pd.DataFrame(item['measurements'])
+            measurements = item.get('measurements', [])
+            if not isinstance(measurements, list):
+                print(f"Unexpected measurements type: {type(measurements)}")
+                continue
+            df_value = pd.DataFrame(measurements)
+            timestamp = pd.to_datetime(df_value['t'].values, utc=True)
             if variable=='flow': # Using Flow
-                df = pd.DataFrame(data={'timestamp':pd.to_datetime(df_value['t'].values),
+                df = pd.DataFrame(data={'timestamp': timestamp,
                     'level (m)':df_value['l'].values, 'velocity (m/s)':df_value['v'].values,
                     'discharge (m³/s)':df_value['q'].values})
             elif variable=='level': # Using Level
-                df = pd.DataFrame(data={'timestamp':pd.to_datetime(df_value['t'].values),
+                df = pd.DataFrame(data={'timestamp': timestamp,
                     'level (m)':df_value['l'].values})
             elif variable=='rain': # Using Rainfall
-                df = pd.DataFrame(data={'timestamp':pd.to_datetime(df_value['t'].values),
+                df = pd.DataFrame(data={'timestamp': timestamp,
                     'rainfall (m)':df_value['r'].values})
             # elif variable=='overflow': # Using Overflow
             #     pass
@@ -109,6 +127,7 @@ class Regnbyge():
             #     pass
             # elif variable=='weir': # Using Weir
             #     pass
+            else: continue
             df['id'] = item['id']
             if df.drop(columns=['timestamp']).isna().all().all(): continue
             data = pd.concat([data, df], ignore_index=True)

@@ -24,7 +24,7 @@
                             <div class="row">
                                 <div class="field-inline">
                                     <label>Scenario:</label>
-                                    <div id="project-name-wrapper">
+                                    <div class="project-name-wrapper">
                                         <input type="text" class="project-name" id="project-name" placeholder="Click to select a scenario">
                                         <ul class="project-list" id="project-list"></ul>
                                     </div>
@@ -42,7 +42,7 @@
                                 <input type="text" class="datetime" id="model-end" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                             </div>
                             <div class="row">
-                                <label for="model-step">Steps:</label>
+                                <label for="model-step">Interval:</label>
                                 <select id="model-step" style="width: 100%;">
                                     <option value="3600" selected>Hourly</option>
                                     <option value="86400">Daily</option>
@@ -114,19 +114,7 @@
                 <!-- Tab 2: Model Preparation and Execution -->
                 <div class="tabpanel main-panel" data-panel="model-tab">
                     <div class="grid">
-                        <div class="tile" style="grid-column: span 2;"><h3>Model Inputs</h3>
-                            <div class="row"><button type="button" id="model-check-btn">1. Check Model</button></div>
-                            <div class="row">
-                                <label>Pour point</label>
-                                <input type="file" id="model-pourpoint-file" accept=".geojson,.shp" hidden>
-                            </div>
-                            <div class="row"><input type="text" id="model-lat" placeholder="Latitude (°)" style="width: auto;"></div>
-                            <div class="row"><input type="text" id="model-lon" placeholder="Longitude (°)" style="width: auto;"></div>
-                            <div class="row"><button type="button" id="model-pourpoint-btn">Add pour point (*.GeoJSON)</button></div>
-                            <div class="row"><label>Upstream Area (km²)</label></div>
-                            <div class="row"><input type="text" id="model-area" value="10" style="width: auto;"></div>
-                        </div>
-                        <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
+                        <div class="tile output-parameters" style="grid-column: span 5;"><h3>Model Outputs</h3>
                             <div class="tab-header">
                                 <div class="tabs-list">
                                     <button class="tab-btn" data-tab="wflow-setting-1">Overland Flow Outputs</button>
@@ -353,9 +341,49 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 1;"><h3>Model Checker</h3>
                             <div class="row">
-                                <button type="button" id="model-prepare-btn">2. Prepare Wflow Model</button>
-                                <button type="button" id="model-run-btn">3. Run Wflow Model</button>
+                                <div class="field-inline">
+                                    <label>Upstream Area (km²)</label>
+                                    <input type="text" id="model-area" value="10" style="width: auto;">
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="model-check-btn">Check Model</button>
+                                </div>
+                                <div class="field-inline"><label>Pour point</label></div>
+                                <input type="file" id="model-pourpoint-file" accept=".geojson,.shp" hidden>
+                                <div class="field-inline" style="margin-top: -10px;">
+                                    <input type="text" id="model-lat" placeholder="Latitude (°)" style="width: auto;">
+                                    <input type="text" id="model-lon" placeholder="Longitude (°)" style="width: auto;">
+                                    <button type="button" id="model-pourpoint-btn" title="Use this button to add your pourpoint-defined point">
+                                        Add customized pour point (*.GeoJSON)</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 2;"><h3>Model Setups</h3>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <button type="button" id="stream-points-btn">Stream Points</button>
+                                    <input type="text" id="stream-points" style="width: auto;" placeholder="Candidate Points from Stream Order">
+                                </div>
+                            </div>
+                            <table class="attributes-table" id="stream-points-table"
+                                style="flex: 1; height: inherit; min-height: 0; display: flex; flex-direction: column;">
+                                <thead style="flex-shrink: 0; display: table; width: 100%; table-layout: fixed;">
+                                    <tr><th>Id</th><th>Lat (°)</th><th>Lon (°)</th><th>Dist (m)</th></tr>
+                                </thead>
+                                <tbody style="flex: 1; display: block; overflow-y: auto; width: 100%; max-height: 120px;"></tbody>
+                            </table>
+                            <div class="row">
+                                <div class="field-inline">
+                                    <label>Select top</label>
+                                    <input type="text" id="stream-points-selected" style="max-width: 70px;">
+                                    <label>nearnest candidates to the pourpoint</label>
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="model-run-btn">Test Candidates & Run Wflow Model</button>
+                                </div>
                             </div>
                         </div>
                         <div class="tile model-container" style="grid-column: span 8;"><h3>View Logs</h3>

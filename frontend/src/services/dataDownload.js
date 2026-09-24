@@ -1,7 +1,7 @@
 import { setupTabs } from "./tabManager.js";
 import { initMap } from "./visualizationMap.js";
 import { getDataFromTable, signalSender, jsonLoader, fillTable,
-    formatDate, moveWindow, closeWindow, deleteTable, getUser, addRowToTable
+    formatDate, moveWindow, closeWindow, deleteTable, getUser
 } from "./commonFunctions.js";
 import { plotTimeSeries } from "./chartManager.js";
 import { L, getLastTimeZone } from "./constant.js";
@@ -10,6 +10,7 @@ const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
     sticky: true, offset: [0, 10], className: 'custom-tooltip'
 });
+window._uploadedGISFiles = {}; window._gisFileIdCounter = 0;
 
 const $ = (id) => document.getElementById(id);
 const obj = { 
@@ -22,6 +23,10 @@ const obj = {
     typeSelector: $("type-download"), plotContainer: $("plot-container"), 
     stationTable: $("station-table"), waterFlowCheckbox: $("water-flow-checkbox"),
     waterLevelCheckbox: $("water-level-checkbox"), rainfallCheckbox: $("rainfall-checkbox"),
+    dataGISBtn: $("upload-gis-btn"), dataGISFile: $("data-gis-file"), dataGISContainer: $("data-gis-container"),
+    clientId: $("regnbyge-client-id"), clientSecret: $("regnbyge-client-secret"), 
+    clientRemember: $("regnbyge-remember-btn"), 
+    clientUserName: $("regnbyge-client-username"), clientPassword: $("regnbyge-client-password"),
     // overFlowCheckbox: $("overflow-checkbox"), temperatureCheckbox: $("temperature-checkbox"),
     // evaporationCheckbox: $("evaporation-checkbox"), weirCheckbox: $("weir-checkbox"),
     stationSelectedLabel: $("station-selected-label"), resertStationBtn: $("reset-station-btn"),
@@ -37,17 +42,57 @@ const obj = {
 
 let activeProject = null, plotChecked = true, waterFlowLayer = null, 
     waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
-    weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false;
+    weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false,
+    name = null, secret = null, userName = null, password = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
-updateManager(); 
+savePassword(); await loadClient(); updateManager();
 
 
 async function getProject() { 
     const userName = await getUser();
     currentProject = userName.split('/').pop();
 }
+
+function savePassword() {
+    document.querySelectorAll('.toggle-password').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const input = this.parentElement.querySelector('input');
+            if (!input) { return; }
+            if (input.type === 'password') {
+                input.type = 'text'; this.textContent = '🙈';
+            } else {
+                input.type = 'password'; this.textContent = '👁️';
+            }
+        });
+    });
+    obj.clientRemember.addEventListener('click', async() => {
+        name = obj.clientId.value; secret = obj.clientSecret.value; 
+        userName = obj.clientUserName.value; password = obj.clientPassword.value;
+        if (name === '' || secret === '' || userName === '' || password=== '') {
+            alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
+        }
+        const content = { projectName: currentProject, clientName: name,
+            clientSecret: secret, clientUsername: userName, clientPassword: password
+        };
+        const response = await jsonLoader('save_client', content);
+        alert(response.message); if (response.status === "error") { return; }
+    });
+
+}
+
+async function loadClient () {
+    const response = await jsonLoader('load_client', { projectName: currentProject });
+    name = response.content.client_id;
+    secret = response.content.client_secret;
+    userName = response.content.client_username;
+    password = response.content.client_password;
+    obj.clientId.value = name; obj.clientSecret.value = secret;
+    obj.clientUserName.value = userName; obj.clientPassword.value = password;
+}
+
 
 function updateManager() {
     const startOfDay = new Date(), now = new Date();
@@ -66,10 +111,10 @@ function updateManager() {
     document.querySelectorAll('[data-tab]').forEach(tab => {
         tab.addEventListener('click', () => {
             const tabName = tab.getAttribute('data-tab');
-            if (tabName === 'rosim-tab-1') { 
+            if (tabName === 'regnbyge-tab-2') { 
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
             }
-            else if (tabName === 'rosim-tab-2') { plotChecked = false; }
+            else if (tabName === 'regnbyge-tab-3') { plotChecked = false; }
             else if (tabName === 'era5-tab') {
                 // Clear map
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
@@ -79,16 +124,6 @@ function updateManager() {
                 obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
                 obj.rainfallCheckbox.checked = false;
                 obj.rainfallCheckbox.dispatchEvent(new Event('change'));
-            } else if (tabName === 'era5-tab-2') {
-                // Get values of options
-                const selectedValues = [...document.querySelectorAll(
-                    '#era5-variables-grid input[type="checkbox"]:checked'
-                )].map(checkbox => ({
-                    value: checkbox.value, label: checkbox.getAttribute('data-label'),
-                    des: checkbox.parentElement.textContent.trim()
-                }));
-                selectedValues.unshift({ label: 'Time', des: 'YYYY-MM-DD HH:MM:SS' });
-                fillWeatherAttributeTable(obj.era5Table, selectedValues, true);
             }
             setTimeout(() => { mapObj.invalidateSize(); }, 10);
             obj.stationSelectedLabel.style.display = 'none';
@@ -98,7 +133,7 @@ function updateManager() {
             updateLayerTooltips(weirLayer);
         });
     });
-    // Work on ROSIM option
+    // Work on Regnbyge option
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
         const filter = ['flow'];
         if (e.target.checked === true) {
@@ -209,6 +244,20 @@ function updateManager() {
         obj.rainfallCheckbox.checked = false; preLayer = clearMap(preLayer);           
         alert(response.message); signalSender('hideOverlay');
     });
+    // Regnbyge upload GIS data
+    obj.dataGISBtn.addEventListener('click', () => { obj.dataGISFile.click(); });
+    obj.dataGISFile.addEventListener('change', async (event) => {
+        const value = event.target.value;
+        const file = event.target.files[0]; if (!file) return;
+        const filename = file?.name || "";
+        signalSender('showOverlay', `Uploading GIS data '${filename}'. Please wait...`);
+        const formData = new FormData(); formData.append('file', file);
+        const response = await fetch('/data_upload_gis', { method: 'POST', body: formData });
+        const data = await response.json(); signalSender('hideOverlay');
+        if (data.status === "error") { return; }
+        event.target.value = '';
+        await addGISFileToList(obj.dataGISContainer, filename, data.content);
+    });
     // Work on ERA5
     obj.era5LocationBtn.addEventListener('click', () => { era5Checked = true; });
     obj.era5WindSpeed.addEventListener('change', (e) => {
@@ -271,6 +320,83 @@ function updateManager() {
         alert(response.message);
     });
     mapOptions(mapObj);
+}
+
+async function addGISFileToList(container, filename, geojson){
+    const id = `gis_${window._gisFileIdCounter++}`;
+    window._uploadedGISFiles[id] = {
+        name: filename, geojson: geojson,
+        layer: null, checked: false,
+    };
+    const emptyMsg = container.querySelector('.gis-empty');
+    if (emptyMsg) emptyMsg.remove();
+    const item = document.createElement('div');
+    item.className = 'gis-file-item';
+    item.dataset.gisId = id;
+    item.innerHTML = `
+        <input type="checkbox" id="chk_${id}" data-gis-id="${id}">
+        <label class="gis-file-name" for="chk_${id}" title="${filename}">
+            ${filename}
+        </label>
+        <span class="gis-file-remove" data-gis-id="${id}" title="Remove">×</span>
+    `;
+    container.appendChild(item); container.style.display = 'block';
+    item.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
+        toggleGISLayer(id, e.target.checked);
+    });
+    item.querySelector('.gis-file-remove').addEventListener('click', () => {
+        removeGISFile(container, id);
+    });
+    return id;
+}
+
+function createGISLayer(geojson, name) {
+    if (!window.L) return null;
+    const hue1 = Math.floor(Math.random() * 360), hue2 = Math.floor(Math.random() * 360);
+    const fillColor = `hsl(${hue1}, 70%, 50%)`, color = `hsl(${hue2}, 70%, 50%)`;
+    return L.geoJSON(geojson, {
+        style: {
+            color: color, weight: 2, fillColor: fillColor,
+            opacity: 1, fillOpacity: 0.2,
+        },
+        onEachFeature: (feature, layer) => {
+            const props = feature.properties || {};
+            const popupContent = Object.entries(props)
+                .slice(0, 10)
+                .map(([k, v]) => `<b>${k}</b>: ${v}`)
+                .join('<br>');
+            if (popupContent) {
+                layer.bindPopup(`<b>${name}</b><hr>${popupContent}`);
+            }
+        },
+    });
+}
+
+function removeGISFile(container, id) {
+    const fileInfo = window._uploadedGISFiles[id];
+    if (!fileInfo) return;
+    if (fileInfo.layer && mapObj) {
+        mapObj.removeLayer(fileInfo.layer);
+    }
+    const item = container.querySelector(`.gis-file-item[data-gis-id="${id}"]`);
+    if (item) item.remove();
+    delete window._uploadedGISFiles[id];
+    if (Object.keys(window._uploadedGISFiles).length === 0) {
+        container.style.display = 'none';
+    }
+}
+
+function toggleGISLayer(id, checked) {
+    const fileInfo = window._uploadedGISFiles[id];
+    if (!fileInfo) return; fileInfo.checked = checked;
+    if (checked) {
+        if (!fileInfo.layer) {
+            fileInfo.layer = createGISLayer(fileInfo.geojson, fileInfo.name);
+        }
+        if (fileInfo.layer && mapObj) { fileInfo.layer.addTo(mapObj); }
+    } else {
+        if (fileInfo.layer && mapObj) { mapObj.removeLayer(fileInfo.layer); }
+    }
 }
 
 function addDataToTable(table, header, data) {
@@ -344,33 +470,15 @@ async function saveCSVSmart(csvString, suggestedName) {
     return true;
 }
 
-function fillWeatherAttributeTable(table, values, addRow=true) {
-    if (!table) { alert('Table is null/undefined'); return; }
-    // Delete old thead
-    table.querySelector('thead')?.remove();
-    table.querySelector('tbody')?.remove();
-    const thead = document.createElement('thead');
-    const tr = document.createElement('tr');
-    const placeholders = [];
-    values.forEach(v => {
-        const th = document.createElement('th');
-        th.textContent = v.label; tr.appendChild(th);
-        placeholders.push(v.des);
-    }); thead.appendChild(tr);
-    // Add new thead
-    table.prepend(thead); 
-    if (addRow) addRowToTable(table, placeholders);
-}
-
 function mapOptions(mapObject) {
     mapObject.on('mousemove', function (e) { 
         if (!plotChecked && (waterFlowLayer || waterLevelLayer || overFlowLayer || tempLayer || preLayer || weirLayer || evaLayer)) {
-            const html = `- Left click to select station to add the download list.<br>- Right click to remove the last station.`;
+            const html = `- Left-click to select station and add to the download list.<br>- Right-click to remove the last station.`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             mapObject.openTooltip(hoverTooltip);
         } else if (era5Checked) {
             mapObject.getContainer().style.cursor = "crosshair";
-            const html = `Click the left mouse button to select a point.`;
+            const html = `Select average location.`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             mapObject.openTooltip(hoverTooltip);
         } else { if (hoverTooltip) mapObject.closeTooltip(hoverTooltip); }
@@ -448,7 +556,10 @@ async function loadStations(projectName, target, table, label, type, layer, filt
     const filtered = data.rows.filter(row => !filter.includes(row[1])); layer = clearMap(layer);
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);
-        const contents = { projectName: projectName, key: type };
+        const contents = { 
+            projectName: projectName, key: type, clientID: name,
+            clientSecret: secret, clientUserName: userName, clientPassword: password
+        };
         const response = await jsonLoader('init_station', contents);
         signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); target.checked = false; return; }
@@ -497,7 +608,9 @@ async function pointPloter(points, pointType) {
                     );
                     const contents = { 
                         id: [id], name: name, mode: mode, timeZone: timeZone,
-                        startTime: startTime, endTime: endTime, interval: interval
+                        startTime: startTime, endTime: endTime, interval: interval,
+                        clientID: name, clientSecret: secret, clientUserName: userName, 
+                        clientPassword: password
                     };
                     const response = await jsonLoader('plot_station', contents);
                     signalSender('hideOverlay');

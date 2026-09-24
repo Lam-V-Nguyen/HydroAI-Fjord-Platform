@@ -16,3 +16,4 @@ terracatalogueclient==0.1.19
 scikit-image==0.26.0
 numpy==1.26.4 # Important
 seaborn==0.13.2
+dask[complete]==2026.1.2

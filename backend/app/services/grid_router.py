@@ -72,7 +72,7 @@ async def load_lakes(request: Request, user=Depends(functions.basic_auth)):
         temp = lake_data.copy().to_crs(lake_data.estimate_utm_crs())
         lake_data['perimeter'] = temp.geometry.apply(
             lambda g: round(g.exterior.length if isinstance(g, Polygon)
-                            else sum(p.exterior.length for p in g.geoms), 2))
+                else sum(p.exterior.length for p in g.geoms), 2))
         project_cache['lake'], project_cache['depth'] = lake_data, depth_data
         contents = {'lake': json.loads(lake_data.to_json()), 
             'depth': json.loads(depth_data.to_json()) if depth_data is not None else None}
@@ -221,7 +221,7 @@ async def grid_creator(request: Request, user=Depends(functions.basic_auth)):
         if level == '': mk.mesh2d_make_triangular_mesh_from_polygon(polygon)
         else: mk.mesh2d_make_triangular_mesh_from_polygon(polygon, scale_factor=float(level))
         grid_uds = grid_functions.netCDF_creator(mk)
-        project_cache['grid_uds'], project_cache['mk'] = grid_uds, mk
+        project_cache['grid_uds'], project_cache['mk'], project_cache["mk_crs"] = grid_uds, mk, "EPSG:4326"
         grid = functions.unstructuredGridCreator(grid_uds)
         return JSONResponse({'content': json.loads(grid.to_json())})
     except Exception as e:
@@ -329,31 +329,21 @@ async def start_grid_optimization(request: Request, background_tasks: Background
 
 @router.post("/stop_grid_optimization")
 async def stop_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
-    body = await request.json()
-    project_name, _ = functions.project_definer(body.get('projectName'), user)
-    process_key = f"{project_name}:grid_optimization"
-    info = processes.get(process_key)
-    if not info:
-        return JSONResponse({"status": "error", "message": "No optimization running."})
-    info["stop"] = True
-    return JSONResponse({"status": "ok", "message": "Stop signal sent."})
-
-# @router.post("/stop_grid_optimization")
-# async def stop_grid_optimization(request: Request, user=Depends(functions.basic_auth)):
-#     try:
-#         body = await request.json()
-#         project_name, _ = functions.project_definer(body.get('projectName'), user)
-#         if project_name in processes:
-#             info = processes[project_name]
-#             if info["status"] == "running":
-#                 info["stop"], message = True,f"Optimization stopped by user. The grid will be created with the current best parameters."
-#                 return JSONResponse({"status": "error", "message": message})
-#         return JSONResponse({"status": "ok"})
-#     except Exception as e:
-#         print('/stop_grid_optimization:\n==============')
-#         traceback.print_exc()
-#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        process_key = f"{project_name}:grid_optimization"
+        info = processes.get(process_key)
+        if not info:
+            return JSONResponse({"status": "error", "message": "No optimization running."})
+        if info["status"] == "running":
+            info["stop"], message = True, "Optimization stopped by user. The grid will be created with the current best parameters."
+            return JSONResponse({"status": "error", "message": message})
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        print('/stop_grid_optimization:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/grid_checker")
 async def grid_checker(request: Request, user=Depends(functions.basic_auth)):

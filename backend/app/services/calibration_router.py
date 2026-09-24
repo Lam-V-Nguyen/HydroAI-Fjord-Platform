@@ -253,9 +253,7 @@ async def check_sim_status_calibration(request: Request, user=Depends(functions.
     process_key = f"{project_name}:{body.get('key')}"
     info = processes.get(process_key)
     if not info: 
-        return JSONResponse({"status": "not_started", "progress": 0, 
-            "message": 'No simulation running'
-        })
+        return JSONResponse({"status": "not_started", "progress": 0, "message": 'No simulation running'})
     status, progress = info.get("status"), info.get("progress", 0.0)
     current, total = info.get("current", 0), info.get("total", 0)
     if status == "finished":
@@ -318,7 +316,6 @@ async def start_sim_calibration(request: Request, background_tasks: BackgroundTa
             processes[process_key] = {"progress": 0.0, "status": "running",
                 "message": "Preparing data for simulation...", "current": 0, "total": len(list_sorted),
             }
-            info = processes[process_key]
             background_tasks.add_task(
                 calibration_functions.run_calibration, processes, process_key, scenario_dir, list_sorted, log_path
             )
@@ -335,9 +332,7 @@ async def check_optimization_status_calibration(request: Request, user=Depends(f
     process_key = f"{project_name}:{body.get('key')}"
     info = processes.get(process_key)
     if not info:
-        return JSONResponse({"status": "not_started", "progress": 0, 
-            "message": 'No optimization running'
-        })
+        return JSONResponse({"status": "not_started", "progress": 0, "message": 'No optimization running'})
     status, progress = info.get("status"), info.get("progress", 0.0)
     current, total = info.get("current", 0), info.get("total", 0)
     if status == "finished":
@@ -374,7 +369,6 @@ async def start_optimization_calibration(request: Request, background_tasks: Bac
             processes[process_key] = {"progress": 0.0, "status": "running", "current": 0, "total": 0,
                 "message": "Preparing data for optimization...",
             }
-            info = processes[process_key]
         summary_df = pd.read_csv(correlation_path)
         # Remove old log
         log_path = os.path.join(calibration_dir, "log.txt")
@@ -417,7 +411,6 @@ async def start_optimization_optuna(request: Request, background_tasks: Backgrou
             processes[process_key] = {"progress": 0.0, "status": "running", "current": 0, "total": iterations,
                 "message": "Preparing data for optimization...", "best_params": '',
             }
-            info = processes[process_key]
         # Remove old log
         log_path = os.path.join(calibration_dir, "log.txt")
         optuna_path = os.path.join(calibration_dir, 'optuna.csv')
@@ -516,9 +509,13 @@ async def obs_comparison_upload(file: UploadFile = File(...), simStart: str = Fo
 async def get_stations_comparison(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        name = body.get('projectName')
+        project_name, _ = functions.project_definer(name, user)
         redis, key = request.app.state.redis, f"{project_name}:station"
-        his_path = os.path.join(PROJECT_ROOT, project_name, "output", 'HYD', "FlowFM_his.zarr")
+        his_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "output", 'HYD', "FlowFM_his.zarr"))
+        if not os.path.exists(his_path):
+            path = his_path[his_path.index(name):].replace("\\", "/")
+            return JSONResponse({"status": "error", "message": f"No simulation found at: .../{path}\nConsider rerun the simulation."})
         lock = redis.lock(key, timeout=1000, blocking_timeout=10)
         async with lock:
             content = calibration_functions.get_station_from_his_file(his_path)

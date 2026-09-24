@@ -34,5 +34,6 @@ for router in all_routers:
 
 if __name__ == "__main__":
     # Remove reload=True for production
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True, reload_dirs=["./app"]
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True, 
+        reload_dirs=[os.path.dirname(os.path.abspath(__file__))]
     )

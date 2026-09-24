@@ -382,9 +382,17 @@
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 6;">
-                            <div class="row" id="weather-table-container" style="margin-top: -10px;">
-                                <div class="row">
-                                    <h3 style="margin-top: 10px;">Attribute Table</h3>
+                            <div class="row" id="weather-table-container" style="margin-top: -5px;">
+                                <div class="row"><h3 style="margin-top: 5px;">Attribute Table</h3>
+                                    <div style="margin-top: -10px;">
+                                        <label for="weather-interval">Interval:</label>
+                                        <select id="weather-interval" style="max-width: 300px;">
+                                            <option value="1H" selected>Hourly</option>
+                                            <option value="1D">Daily</option>
+                                            <option value="1W">Weekly</option>
+                                            <option value="1M">Monthly</option>
+                                        </select>
+                                    </div>
                                     <button type="button" id="weather-save-btn" 
                                         style="max-width: 250px; margin-left: 10px; margin-top: -10px;">Save Data to netcdf (*.nc)
                                     </button>

@@ -2,7 +2,7 @@ import os, re, subprocess, threading, asyncio, traceback, json, shutil
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT, DELFT_PATH
-from services import functions, wq_functions
+from services import functions, wq_functions, calibration_functions
 import xarray as xr
 from datetime import datetime, timezone
 
@@ -69,17 +69,30 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
             return JSONResponse({"status": "running", "progress": info["progress"], "message": complete})
         path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         mdu_path = os.path.normpath(os.path.join(path, "FlowFM.mdu"))
-        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "dflowfm/scripts/run_dflowfm.bat"))
+        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "x64/dflowfm/scripts/run_dflowfm.bat"))
         # Check if file exists
         if not os.path.exists(mdu_path): 
-            return JSONResponse({"status": "error", "progress": 0.0, "message": "MDU file not found"})
+            return JSONResponse({"status": "error", "progress": 0.0, "message": "MDU file not found."})
         if not os.path.exists(bat_path): 
-            return JSONResponse({"status": "error", "progress": 0.0, "message": "Executable file not found"})
+            return JSONResponse({"status": "error", "progress": 0.0, "message": "Executable file not found."})
         # Remove old log
         log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "log_hyd.txt"))
         if os.path.exists(log_path): os.remove(log_path)
         percent_re = re.compile(r'(?P<percent>\d{1,3}(?:\.\d+)?)\s*%')
         time_re = re.compile(r'(?P<tt>\d+d\s+\d{1,2}:\d{2}:\d{2})')
+        # Modify output structure
+        with open(mdu_path, 'r', encoding='utf-8', errors='ignore') as f:
+            mdu_base = f.readlines()
+        max_length = min(
+            len(line.split('=', 1)[1].split('#', 1)[0])
+            for line in mdu_base if '=' in line
+        )
+        mdu_base = calibration_functions.modify_mdu_key(mdu_base, 'OutputDir', 'DFM_OUTPUT', max_length)
+        value = calibration_functions.get_values_from_mdu(mdu_base, 'WaqOutputDir')
+        if value is None or value == '': value = 'DFM_DELWAQ'
+        mdu_base =calibration_functions.modify_mdu_key(mdu_base, 'WaqOutputDir', value, max_length)
+        with open(mdu_path, 'w', encoding='utf-8') as f:
+            f.writelines(mdu_base)
         # Run the process
         command = ["cmd.exe", "/c", bat_path, "--autostartstop", mdu_path]
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -134,12 +147,12 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
                         processes[process_key]["message"] = post_result["message"]
                     else:
                         processes[process_key]["status"] = "finished"
-                        processes[process_key]["message"] = "Simulation completed"
+                        processes[process_key]["message"] = "Simulation completed."
                 except Exception as e:
                     processes[process_key]["status"] = "failed"
-                    processes[process_key]["message"] = f"Simulation failed: {e}"
+                    processes[process_key]["message"] = f"Simulation failed: {e}."
         threading.Thread(target=stream_logs, daemon=True).start()
-    return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started"})
+    return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started."})
 
 @router.get("/sim_log_tail_hyd/{project_name}")
 async def sim_log_tail_hyd(project_name: str, offset: int = Query(0), 
@@ -265,9 +278,9 @@ async def run_waq_simulation(project_name, waq_name):
             log_file.flush(); log_file.close()
             return
         # Check if all paths are valid to run the simulation
-        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "dwaq/scripts/run_delwaq.bat"))
-        bloom_path = os.path.normpath(os.path.join(DELFT_PATH, 'dwaq/default/bloom.spe'))
-        proc_path = os.path.normpath(os.path.join(DELFT_PATH, 'dwaq/default/proc_def.def'))
+        bat_path = os.path.normpath(os.path.join(DELFT_PATH, "x64/dwaq/scripts/run_delwaq.bat"))
+        bloom_path = os.path.normpath(os.path.join(DELFT_PATH, 'x64/dwaq/default/bloom.spe'))
+        proc_path = os.path.normpath(os.path.join(DELFT_PATH, 'x64/dwaq/default/proc_def.def'))
         paths_to_check = [bat_path, proc_path, bloom_path]
         for path in paths_to_check:
             if not os.access(path, os.R_OK):
@@ -344,19 +357,19 @@ async def run_waq_simulation(project_name, waq_name):
                     # Delete folder
                     if os.path.exists(wq_folder): shutil.rmtree(wq_folder, onerror=functions.remove_readonly)
                     processes[process_key]["status"] = "finished"
-                    processes[process_key]["message"] = f"Simulation completed"
+                    processes[process_key]["message"] = f"Simulation completed."
                     log_file.write(f"\n=== Simulation {project_name} completed ===")
                     log_file.flush(); log_file.close()
                 except Exception as e:
-                    processes[process_key]["status"], processes[process_key]["message"] = "failed", f"Simulation failed: {e}"
-                    log_file.write(f"Simulation failed: {e}")
+                    processes[process_key]["status"], processes[process_key]["message"] = "failed", f"Simulation failed: {e}."
+                    log_file.write(f"Simulation failed: {e}.")
                     log_file.flush(); log_file.close()
         threading.Thread(target=stream_logs, daemon=True).start()
     except Exception as e:
         processes[process_key]["status"], processes[process_key]["message"] = "error", str(e)
         print('/run_waq_simulation:\n==============')
         traceback.print_exc()
-        log_file.write(f"Error running simulation: {str(e)}")
+        log_file.write(f"Error running simulation: {str(e)}.")
         log_file.flush(); log_file.close()
         return
 

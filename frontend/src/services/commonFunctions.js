@@ -5,7 +5,7 @@ import { getColorFromValue } from "./unstructuredGrid.js";
 
 const pendingRequests = new Map();
 
-let zIndex = 3000, activeProject = null;
+let zIndex = 3000, activeProject = null, logInterval = null;
 
 export function startLoading(str = '') {
     const loadingContainer = document.querySelector('.loading-container');
@@ -279,34 +279,41 @@ export async function saveCSV(filename, headers, rows) {
 }
 
 export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
-    const new_key = `${currentProject}_${key}`; let lastOffset = 0;
-    activeProject = new_key; 
-    async function loop() {
+    const new_key = `${currentProject}_${key}`; let lastOffset = 0; activeProject = new_key;
+    const pollStatus = async () => {
         if (activeProject !== new_key) return;
         try {
             const res = await fetch(
                 `/log_tail_download/${currentProject}?offset=${lastOffset}&log_file=log.txt`
             );
-            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject});
+            const content = {projectName: currentProject, key: key};
+            const statusRes = await jsonLoader('check_download_status', content);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.lines)) {
                     if (reloadLog) { info.value = data.lines.join("\n");
                     } else {
                         for (const line of data.lines) { info.value += line + "\n"; }
+                        lastOffset = data.offset; 
                     }
                 }
-                if (!reloadLog) { lastOffset = data.offset; }
             }
             if (statusRes.status !== "running") {
-                if (statusRes.message) { info.value += "\n" + statusRes.message + "\n"; }
-                if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
-                return;
+                if (statusRes.message) { 
+                    let message = "\n" + statusRes.message;
+                    if (statusRes.status === "failed" || statusRes.status === 'error') {
+                        message = "\n" + "=".repeat(150) + "\n" 
+                            + '|| ERROR FOUND: ' + statusRes.message + "\n" + "=".repeat(150)
+                    }
+                    info.value += message + "\n";
+                }
+                if (statusRes.status === 'finished' && onFinish) { 
+                    clearInterval(logInterval); logInterval = null; await onFinish();
+                }
             }
-        } catch (error) { alert(error); return; }
-        setTimeout(loop, seconds * 1000);
-    }
-    loop();
+        } catch (error) { clearInterval(logInterval); logInterval = null; }
+    };
+    pollStatus(); logInterval = setInterval(pollStatus, seconds * 1000); 
 }
 
 export function addRowToTable(table, list, fillValue=false){
@@ -419,8 +426,7 @@ export async function getProjectList(
     userName='', folderCheck='', key='getProjects', keyChecker=''
 ) {
     const contents = { 
-        filename: userName, key: key, folder_check: folderCheck,
-        keyChecked: keyChecker
+        filename: userName, key: key, folder_check: folderCheck, keyChecked: keyChecker
     };
     const data = await jsonLoader('select_project', contents);
     if (data.status === "error") { alert(data.message); return; }
@@ -594,11 +600,11 @@ export function stringToUTC(time) {
     return new Date(time.replace(' ', 'T') + 'Z');
 }
 
-
-
-
-
 export function iframeConnector(objBtn, objtarget, requestId, content = null, lineType='') {
+    if (!objBtn) {
+        const contents = { id: requestId, requestId: requestId, content: content }
+        window.parent.postMessage(contents, origin); return;
+    }
     if (objBtn.__handler) objBtn.removeEventListener('click', objBtn.__handler);
     objBtn.__handler = async () => {
         const freshData = typeof content === 'function' ? content() : content;

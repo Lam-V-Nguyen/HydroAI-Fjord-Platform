@@ -13,31 +13,86 @@
         <section class="main-tab" id="control-tab">
             <div class="tab-header" id="main-tabs">
                 <div class="tabs-list">
-                    <button class="tab-btn" data-tab="rosim-tab">ROSIM</button>
+                    <button class="tab-btn" data-tab="eklima-tab">MET</button>
+                    <button class="tab-btn" data-tab="regnbyge-tab">Regnbyge.no</button>
                     <button class="tab-btn" data-tab="era5-tab">Climate Data Store (ERA5)</button>
-                    <!-- <button class="tab-btn" data-tab="eklima-tab">MET</button>
+                    <!-- 
                     <button class="tab-btn" data-tab="nve-tab">NVE</button> -->
                 </div>
             </div>
             <div class="tabs-content">
-                <!-- ROSIM -->
-                <div class="tabpanel main-panel" data-panel="rosim-tab">
+                <!-- eKlima -->
+                <div class="tabpanel main-panel" data-panel="eklima-tab">
                     <h3 style="text-align: center;">
                         The data is sourced through the official
-                        <a href="https://web.rosim.no/regnbyge/" target="_blank" 
+                        <a href="https://api.met.no/" target="_blank" 
                             rel="noopener noreferrer" style="color: aqua;">
-                            ROSIM</a> platform
+                            Mete</a> platform
+                    </h3>
+
+
+
+
+
+
+
+                </div>
+                <!-- Regnbyge -->
+                <div class="tabpanel main-panel" data-panel="regnbyge-tab">
+                    <h3 style="text-align: center;">
+                        The data is sourced through the official
+                        <a href="https://regnbyge.no/regnbyge/" target="_blank" 
+                            rel="noopener noreferrer" style="color: aqua;">
+                            Regnbyge.no</a> platform
                     </h3>
                     <!-- Sub Tabs -->
                     <div class="main-tab sub-tab">
                         <div class="tab-header">
                             <div class="tabs-list">
-                                <button class="tab-btn" data-tab="rosim-tab-1">Map</button>
-                                <button class="tab-btn" data-tab="rosim-tab-2">Download Settings</button>
+                                <button class="tab-btn" data-tab="regnbyge-tab-1">Login</button>
+                                <button class="tab-btn" data-tab="regnbyge-tab-2">Map</button>
+                                <button class="tab-btn" data-tab="regnbyge-tab-3">Download Settings</button>
                             </div>
                         </div>
                         <div class="tabs-content">
-                            <div class="tabpanel" data-panel="rosim-tab-1">
+                            <div class="tabpanel" data-panel="regnbyge-tab-1">
+                                <div class="grid">
+                                    <div class="tile"><h3>Registration</h3>
+                                        <div class="row">
+                                            <div class="field-inline" style="flex-direction: column;">
+                                                <div class="field-row">
+                                                    <label for="regnbyge-client-id">Client Name:</label>
+                                                    <div class="input-with-icon">
+                                                        <input type="password" id="regnbyge-client-id">
+                                                        <button type="button" data-target="regnbyge-client-id" class="toggle-password">👁️</button>
+                                                    </div>
+                                                    <label for="regnbyge-client-secret">Client Secret:</label>
+                                                    <div class="input-with-icon">
+                                                        <input type="password" id="regnbyge-client-secret">
+                                                        <button type="button" data-target="regnbyge-client-secret" class="toggle-password">👁️</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="field-inline" style="flex-direction: column;">
+                                                <div class="field-row">
+                                                    <label for="regnbyge-client-username">Username:</label>
+                                                    <div class="input-with-icon">
+                                                        <input type="password" id="regnbyge-client-username">
+                                                        <button type="button" data-target="regnbyge-client-username" class="toggle-password">👁️</button>
+                                                    </div>
+                                                    <label for="regnbyge-client-password">Password:</label>
+                                                    <div class="input-with-icon">
+                                                        <input type="password" id="regnbyge-client-password">
+                                                        <button type="button" data-target="regnbyge-client-password" class="toggle-password">👁️</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button id="regnbyge-remember-btn">Remember me</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tabpanel" data-panel="regnbyge-tab-2">
                                 <div class="grid">
                                     <!-- Plot options -->
                                     <div class="tile" id="plot-container" style="grid-column: span 2; flex-direction: column;">
@@ -78,16 +133,26 @@
                                             <button type="button" id="reset-station-btn">Delete All Stations</button>
                                         </div>
                                     </div>
-                                    <!-- Names -->
-                                    <div class="tile" style="grid-column: span 4; flex-direction: column;"><h3>List of Stations</h3>
+                                    <!-- Station List -->
+                                    <div class="tile" style="grid-column: span 2; flex-direction: column;"><h3>List of Stations</h3>
                                         <table class="attributes-table" id="station-table">
                                             <thead><tr><th>Name</th><th>Type</th></tr></thead>
                                             <tbody></tbody>
                                         </table>
                                     </div>
+                                    <!-- GIS Data Upload -->
+                                    <div class="tile" style="grid-column: span 2; flex-direction: column;"><h3>Upload GIS File</h3>
+                                        <div class="row">
+                                            <div class="field-inline">
+                                                <button type="button" id="upload-gis-btn">Upload GIS Data</button>
+                                                <input type="file" id="data-gis-file" accept=".geojson" hidden>
+                                            </div>
+                                            <div class="data-gis-container" id="data-gis-container"></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="tabpanel" data-panel="rosim-tab-2">
+                            <div class="tabpanel" data-panel="regnbyge-tab-3">
                                 <div class="grid">
                                     <!-- Selected Names -->
                                     <div class="tile" style="grid-column: span 2; display: flex; flex-direction: column; height: 100%;">
@@ -156,14 +221,14 @@
                 </div>
                 <!-- ERA5 -->
                 <div class="tabpanel main-panel" data-panel="era5-tab">
-                    <h3 style="text-align: center;">
-                        The data is sourced through the official
-                        <a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=overview" target="_blank" 
-                            rel="noopener noreferrer" style="color: aqua;">
-                            Climate Data Store</a> website
-                    </h3>
                     <!-- Sub Tabs -->
                     <div class="main-tab sub-tab">
+                        <h3 style="text-align: center;">
+                            The data is sourced through the official
+                            <a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=overview" target="_blank" 
+                                rel="noopener noreferrer" style="color: aqua;">
+                                Climate Data Store</a> website
+                        </h3>
                         <div class="tab-header">
                             <div class="tabs-list">
                                 <button class="tab-btn" data-tab="era5-tab-1">Download Settings</button>
@@ -231,13 +296,12 @@
                                     <div class="tile" style="grid-column: span 12;">
                                         <div class="row">
                                             <div class="field-inline">
-                                                <h3>Attributes Table</h3>
                                                 <button type="button" id="era5-download-btn"
                                                     style="margin-top: -20px; max-width: 150px;">Download</button>
                                                 <button type="button" id="era5-save-btn"
                                                     style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
                                             </div>
-                                            <table class="attributes-table" id="era5-table">
+                                            <table class="attributes-table" id="era5-table" style="display: none;">
                                                 <thead></thead><tbody></tbody>
                                             </table>
                                             <div class="log-container" id="era5-log-container">
@@ -250,26 +314,10 @@
                         </div>
                     </div>
                 </div>
-                <!-- eKlima -->
-                <div class="tabpanel main-panel" data-panel="eklima-tab">
-                    <h3 style="text-align: center;">
-                        The data is sourced through the official
-                        <a href="https://api.met.no/" target="_blank" 
-                            rel="noopener noreferrer" style="color: aqua;">
-                            Norwegian Meteorological Institute</a> platform
-                    </h3>
-
-
-                </div>
+                
                 <!-- NVE -->
                 <div class="tabpanel main-panel" data-panel="nve-tab">
-                    <h3 style="text-align: center;">
-                        The data is sourced through the official
-                        <a href="https://www.nve.no/" target="_blank" 
-                            rel="noopener noreferrer" style="color: aqua;">
-                            Norwegian Water Resources and Energy Directorate</a> platform
-                    </h3>
-
+                    
 
 
 

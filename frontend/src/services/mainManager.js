@@ -105,7 +105,7 @@ function widgetMenuManager() {
         else if (id === 'visualization') { w = 12; h = 9; }
         else if (id === 'flow-preparation') { 
             w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
-        else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 10; }
+        else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 11; }
         else if (id === 'calibration' || id === 'calibration') { w = 12; h = 12; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
@@ -186,11 +186,11 @@ function updateComponent() {
 //                 source: event.source, content: event.data.content,
 //                 requestId: event.data.type 
 //             });
-//         } else if (event.data.type === 'gridPlot') { 
-//             renderPreview({ 
-//                 source: event.source, requestId: event.data.type,
-//                 content: event.data.content
-//             });
+        } else if (event.data.id === 'gridPlot') { 
+            renderPreview({ 
+                source: event.source, requestId: event.data.requestId, 
+                content: event.data.content
+            });
         } else if (event.data.type === 'flowOptions') { 
             const { requestId } = event.data.content;
             pendingRequests.set(requestId, { source: event.source });

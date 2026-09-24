@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 
 dataset, resolution, delta = 'reanalysis-era5-single-levels', 0.25, 0.125
 
-def meteo_downloader(project_name, processes, lat, lon, start, end, time_zone, key):
+def meteo_downloader(project_name, processes, process_key, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
@@ -90,12 +90,12 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, time_zone, k
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
         logger.info("Temporary monthly files removed")
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nMeteo download completed.\n\n"}
+        processes[process_key] = {"status": "finished", "message": "\nMeteo download completed.\n\n"}
     except Exception as e:
         print('/meteo_downloader:\n==============')
         traceback.print_exc()
         logger.exception("Meteo download failed")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
@@ -103,7 +103,7 @@ def meteo_downloader(project_name, processes, lat, lon, start, end, time_zone, k
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def wind_downloader(project_name, processes, lat, lon, start, end, time_zone, key):
+def wind_downloader(project_name, processes, process_key, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
@@ -177,12 +177,12 @@ def wind_downloader(project_name, processes, lat, lon, start, end, time_zone, ke
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
         logger.info("Temporary monthly files removed")
         logger.handlers[0].flush()
-        processes[project_name] = {"status": "finished", "message": "\nWind download completed.\n\n"}
+        processes[process_key] = {"status": "finished", "message": "\nWind download completed.\n\n"}
     except Exception as e:
         print('/wind_downloader:\n==============')
         traceback.print_exc()
         logger.exception("Wind download failed")
-        processes[project_name] = {"status": "failed", "message": str(e)}
+        processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:

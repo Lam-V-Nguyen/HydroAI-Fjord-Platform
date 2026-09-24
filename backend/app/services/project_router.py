@@ -121,7 +121,9 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
         key, folder_check, key_checker = body.get('key'), body.get('folder_check'), body.get('keyChecked')
         project_name, _ = functions.project_definer(body.get('filename'), user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-        if key_checker == 'flows': project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
+        if key_checker == 'flows': 
+            project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
+            os.makedirs(project_dir, exist_ok=True)
         if key == 'getProjects':
             project = [p.name for p in os.scandir(project_dir) if p.is_dir()]
             project = [p for p in project if os.path.exists(os.path.normpath(os.path.join(project_dir, p, folder_check)))]
@@ -143,25 +145,6 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
                 grid_functions.lake_generation(lakes_dir, project_cache)
             with open(lake_path, 'r') as f: lakes = json.load(f)
             data = sorted(lakes.keys())
-
-
-        # elif key == 'getFiles': # List the files
-        #     project_folder = os.path.normpath(os.path.join(PROJECT_STATIC_ROOT, project_name))
-        #     hyd_folder = os.path.normpath(os.path.join(project_folder, "output", 'HYD'))
-        #     waq_folder = os.path.normpath(os.path.join(project_folder, "output", 'WAQ'))
-        #     hyd_files, waq_files = [], []
-        #     if os.path.exists(hyd_folder):
-        #         hyd_files = [f for f in os.listdir(hyd_folder) if f.endswith(".zarr")]
-        #         hyd_files = set([f.replace('_his.zarr', '').replace('_map.zarr', '') for f in hyd_files])
-        #     if os.path.exists(waq_folder):
-        #         waq_files = [
-        #             (entry.name, entry.stat().st_ctime)
-        #             for entry in os.scandir(waq_folder)
-        #             if entry.is_file() and entry.name.endswith(".json")
-        #         ]
-        #         waq_files.sort(key=lambda x: x[1], reverse=True)
-        #         waq_files = [name.replace('.json', '') for name, _ in waq_files]
-        #     data = {'hyd': list(hyd_files), 'waq': waq_files}
         return JSONResponse({"content": data})
     except Exception as e:
         print('/select_project:\n==============')
@@ -238,7 +221,6 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
                 hyd_vars = functions.getVariablesNames([hyd_his, hyd_map])
                 config["hyd"], config["meta"]["hyd_scanned"] = hyd_vars, True
             model_path = os.path.normpath(os.path.join(waq_dir, f'{model_name}.json'))
-
             if model_type != '': 
                 waq_vars = functions.getVariablesNames([waq_his, waq_map], model_type, model_name)
                 config["waq"], config["meta"]["waq_scanned"] = waq_vars, True
