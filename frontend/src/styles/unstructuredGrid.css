@@ -79,42 +79,20 @@ body {
   text-align: center; box-sizing: border-box; 
 }
 
-.control-tab { 
-  display: flex; flex-direction: column;
-  gap: 10px; padding: 5px;
-} 
-.control-tab label { 
-  width: 165px; display: flex; 
-  align-items: center; justify-content: space-between; 
-} 
-.control-tab input { text-align: center; }
-.control-tab-inline { 
-  display: grid; grid-template-columns: minmax(90px, 130px) 1fr;
-  align-items: center; gap: 20px;
+.checkbox-item {
+  display: flex; align-items: center; gap: 4px; cursor: pointer;
 }
-.control-tab-inline input { 
-  width: 100px; text-align: center; 
+.checkbox-item input {
+  width: 100px; box-sizing: border-box; text-align: center;
 }
-#scale-factor { justify-self: end; }
-
-.content-line {
-  display: flex; gap: 8px; justify-content: center;
+.single-line {
+  display: flex; align-items: center; gap: 40px; padding: 10px;
 }
-
-.checkbox-right { 
-  display: flex; align-items: center; gap: 8px;
-  justify-content: space-between; width: 100%;
+.single-line button{ 
+  cursor: pointer; padding: 5px 20px; border: none; 
+  border-radius: 6px; font-weight: bold; height: 40px;
+  background: #0077b6; color: white; font-size: 14px; 
 }
-.checkbox-right span { margin-left: auto; }
-
-.button-grid, .save-grid { 
-  padding: 4px; border-radius: 10px; cursor: pointer;
-  font-weight: bold; text-align: center; display: flex; 
-  align-items: center; justify-content: center; width: auto; 
-} 
-.button-grid { 
-  background-color: #184bd6; color: #fff; 
-} 
 
 .map-container, .grid-optimization-container {
   display: flex; flex: 1; z-index: 2000; width: 100%; height: 100%;

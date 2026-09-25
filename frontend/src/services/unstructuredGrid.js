@@ -185,6 +185,11 @@ export function polygonPlotter(polygon, map, entireNorway=false, zoom = false) {
 
 export async function plotUnstructuredGrid(obj, map) {
     const tempLayer = L.geoJSON(obj, {
+        pointToLayer: (feature, latlng) => {
+            return L.circleMarker(latlng, {
+                radius: 3, color: 'white', weight: 1, fillColor: 'red', fillOpacity: 0.8
+            });
+        },
         style: feature => {
             switch (feature.geometry.type) {
                 case 'LineString': 
@@ -193,6 +198,17 @@ export async function plotUnstructuredGrid(obj, map) {
                 case 'MultiPolygon':
                     return { color: 'black', fillColor: 'darkcyan', fillOpacity: 0.5, weight: 0.5 };
                 default: return {};
+            }
+        },
+        onEachFeature:(feature, layer) => {
+            if (feature.geometry.type === 'Point' || feature.geometry.type === 'MultiPoint') {
+                if (feature.properties) {
+                    const content = Object.entries(feature.properties)
+                        .map(([name, value]) => `
+                        <div><b>${name}:</b> ${value}</div>
+                    `).join('');
+                    layer.bindTooltip(content, {sticky: true, direction: 'top'});
+                }
             }
         }
     }).addTo(map);

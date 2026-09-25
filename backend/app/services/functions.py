@@ -135,28 +135,23 @@ def local_to_utc(local_time, tz_name: str) -> datetime:
 
 def utc_to_local(utc_time, tz_name: str, fmt: str="%Y-%m-%d %H:%M:%S") -> str:
     if isinstance(utc_time, pd.Series):
-        s = utc_time.copy()
-        if s.empty: return s
-        if not pd.api.types.is_datetime64_any_dtype(s):
-            if pd.api.types.is_numeric_dtype(s): s = pd.to_datetime(s, unit="s", utc=True)
-            else: s = pd.to_datetime(s, utc=False)
-        if s.dt.tz is None: aware = s.dt.tz_localize("UTC")
-        else: aware = s.dt.tz_convert("UTC")
-        local = aware.dt.tz_convert(tz_name)
-        return local.dt.strftime(fmt)
+        if utc_time.empty: return []
+        if pd.api.types.is_numeric_dtype(utc_time):
+            s = pd.to_datetime(utc_time, unit="s", utc=True)
+        else: s = pd.to_datetime(utc_time, utc=True)
+        return s.dt.tz_convert(tz_name).dt.strftime(fmt).tolist()
     if isinstance(utc_time, pd.DatetimeIndex):
+        if utc_time.empty: return []
         idx = utc_time
-        if idx.empty: return idx
-        if idx.tz is None: aware = idx.tz_localize("UTC")
-        else: aware = idx.tz_convert("UTC")
-        local = aware.tz_convert(tz_name)
-        return local
+        if idx.tz is None: idx = idx.tz_localize("UTC")
+        else: idx = idx.tz_convert("UTC")
+        return idx.tz_convert(tz_name).strftime(fmt).tolist()
     if isinstance(utc_time, (int, float)):
         ts = pd.Timestamp(utc_time, unit="s", tz="UTC")
-        return ts.tz_convert(tz_name).strftime(fmt)
-    ts = pd.Timestamp(utc_time)
-    if ts.tzinfo is None: ts = ts.tz_localize("UTC")
-    else: ts = ts.tz_convert("UTC")
+    else: 
+        ts = pd.Timestamp(utc_time)
+        if ts.tzinfo is None: ts = ts.tz_localize("UTC")
+        else: ts = ts.tz_convert("UTC")
     return ts.tz_convert(tz_name).strftime(fmt)
 
 def _on_rm_error(func, path, exc_info):
@@ -256,9 +251,15 @@ def interpolation_Z(grid_net: gpd.GeoDataFrame, x_coords: np.ndarray, y_coords: 
 
 def unstructuredGridCreator(data_map: xr.Dataset) -> gpd.GeoDataFrame:
     # Use dask array to speed up, keep lazy-load
-    node_x = data_map['mesh2d_node_x'].data
-    node_y = data_map['mesh2d_node_y'].data
-    face_nodes = data_map['mesh2d_face_nodes'].data
+    if 'mesh2d_node_x' in data_map and 'mesh2d_node_y' in data_map:
+        node_x = data_map['mesh2d_node_x'].data
+        node_y = data_map['mesh2d_node_y'].data
+        face_nodes = data_map['mesh2d_face_nodes'].data
+    elif 'NetNode_x' in data_map and 'NetNode_y' in data_map:
+        node_x = data_map['NetNode_x'].data
+        node_y = data_map['NetNode_y'].data
+        face_nodes = data_map['NetElemNode'].data
+    else: return gpd.GeoDataFrame()
     coords = da.stack([node_x, node_y], axis=1)
     faces = xr.where(np.isnan(face_nodes), 0, face_nodes).astype(int)-1
     counts = da.sum(faces != -1, axis=1)

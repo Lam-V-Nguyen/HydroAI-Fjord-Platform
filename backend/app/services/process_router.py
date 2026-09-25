@@ -330,7 +330,7 @@ async def select_meshes(request: Request, user=Depends(functions.basic_auth)):
                 await redis.set(mesh_cache_key, msgpack.packb(mesh_cache, use_bin_type=True), ex=600)
                 time_column = 'time' if is_hyd else 'nTimesDlwq'
                 time_stamps = pd.to_datetime(data_ds[time_column], utc=True)
-                time_stamps = functions.utc_to_local(time_stamps, time_zone).tolist()
+                time_stamps = functions.utc_to_local(time_stamps, time_zone)
                 arr = values[0,:,:] if is_hyd else values[0,:,:].T
                 # Create GeoDataFrame for interpolation
                 grid, points_arr = project_cache.get("grid"), np.array(points)
@@ -348,7 +348,7 @@ async def select_meshes(request: Request, user=Depends(functions.basic_auth)):
                 vmin, vmax = fnm(np.nanmin(frame)).tolist(), fnm(np.nanmax(frame)).tolist()
                 depths_idx = np.arange(0, frame.shape[0]) if mesh_cache["n_rows"] > 0 else np.arange(0, -frame.shape[0], -1)
                 data = {"timestamps": time_stamps, "distance": np.round(points_arr[:, 0], 0).tolist(),
-                        "values": fnm(frame).tolist(), "depths": depths_idx.tolist(), "local_minmax": [vmin, vmax]}
+                    "values": fnm(frame).tolist(), "depths": depths_idx.tolist(), "local_minmax": [vmin, vmax]}
                 await redis.set(mesh_cache_key, msgpack.packb(mesh_cache, use_bin_type=True), ex=600)
             else: # Load next frame
                 raw_cache = await redis.get(mesh_cache_key)
@@ -478,11 +478,14 @@ async def unstructure_grid_plot(request: Request, user=Depends(functions.basic_a
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, grid_name = request.app.state.redis, body.get('gridName')
-        grid_path = os.path.join(PROJECT_ROOT, project_name, 'input', grid_name)
+        if body.get('key') == 'hyd':
+            grid_path = os.path.join(PROJECT_ROOT, project_name, 'input', grid_name)
+        else: grid_path = os.path.join(PROJECT_ROOT, project_name, 'DFM_DELWAQ', grid_name)
         lock = redis.lock(f"{project_name}:unstructure-grid", timeout=30, blocking_timeout=25)
         async with lock:
             with xr.open_dataset(grid_path) as ds:
                 grid = functions.unstructuredGridCreator(ds)
+                if len(grid) == 0: return JSONResponse({"status": 'error', "message": "No Grid loaded. Please check the grid."})
             return JSONResponse({"status": 'ok', "content": json.loads(grid.to_json())})
     except Exception as e:
         print('/unstructure_grid_plot:\n==============')

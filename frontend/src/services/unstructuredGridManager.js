@@ -6,6 +6,7 @@ import { gridPlotter, polygonPlotter, toggleMoveMode, orthoPlotter,
     getColorFromValue, updateColorbar, plotUnstructuredGrid
 } from "./unstructuredGrid.js";
 import { clearMap } from "./mapManager.js";
+import { setupTabs } from "./tabManager.js";
 
 const $ = (id) => document.getElementById(id);
 const obj = {
@@ -20,8 +21,8 @@ const obj = {
     moveCheckbox: $("move-checkbox"), deleteCheckbox: $("delete-checkbox"),
     scaleSelector: $("scale-factor"), scaleFactor: $("custom-scale-factor"),
     orthoCheckbox: $("orthogonality-checkbox"), createGrid: $("generate-grid"),
-    gridOptimizationCheckbox: $("optimization-checkbox"), chartDiv: $("myChart-grid"),
-    gridOptimizationContainer: $("grid-optimization-container"), saveGrid: $("save-grid"),
+    chartDiv: $("myChart-grid"), saveGrid: $("save-grid"),
+    interpolateGrid: $("interpolate-grid"),
     iterationValue: $("iterations"), valueFrom: $("detail-level-from"),
     gridName: $("grid-name"), valueTo: $("detail-level-to"), optimizeBtn: $("optimize-grid"),
     progressbarGrid: $("progressbar-grid"), progressTextGrid: $("progress-text-grid"),
@@ -36,7 +37,7 @@ const row = ['Name', 'Municipality', 'Area', 'Perimeter',
     'Max Depth', 'Min Depth', 'Average Depth'];
 let currentProject = null, lakeMap = null, mapContainer = null, 
     currentTileLayer = null, timeOut = null, lakesData = {}, 
-    dataLake = null, dataDepth = null, timeCounter = null,
+    dataLake = null, dataDepth = null, timeCounter = null, gridPoints = null,
     drawSelection = false, drawChecked = false, entireNorway = false,
     depthLayer = null, lakeLayer = null, gridLayer = null, orthoLayer = null,
     refineChecked = false, pointContainer = [], html = null, tempLine = null,
@@ -48,7 +49,7 @@ const hoverTooltip = L.tooltip({
     sticky: true, offset: [0, 10], className: 'custom-tooltip'
 });
 
-await getProject(); await initMap(); lakeOptions(); 
+setupTabs(document); await getProject(); await initMap(); lakeOptions(); 
 dataBaseOptions(); unGridManager();
 
 async function getProject() { 
@@ -319,8 +320,6 @@ function unGridManager() {
             moveChecked = false; obj.moveCheckbox.checked = false;
             refineChecked = false; obj.refinementCheckbox.checked = false;
             obj.refinementCheckbox.dispatchEvent(new Event('change'));
-            obj.gridOptimizationCheckbox.checked = false;
-            obj.gridOptimizationCheckbox.dispatchEvent(new Event('change'));
             obj.depthCheckbox.checked = false; obj.depthCheckbox.dispatchEvent(new Event('change'));
             obj.orthoCheckbox.checked = false; obj.orthoCheckbox.dispatchEvent(new Event('change'));
         });
@@ -336,12 +335,10 @@ function unGridManager() {
     obj.polygonCheckbox.addEventListener('change', (e) => {
         if (e.target.checked) { 
             if (!lakeLayer) {
-                lakeLayer = polygonPlotter(
-                    dataLake, lakeMap, entireNorway, true
-                );
+                lakeLayer = polygonPlotter(dataLake, lakeMap, entireNorway, true);
             }
         } else { 
-            lakeLayer = clearMap(lakeLayer, lakeMap);
+            lakeLayer = clearMap(lakeLayer, lakeMap); pointLayer = clearMap(pointLayer, lakeMap);
         }
     });
     obj.depthCheckbox.addEventListener('change', async (e) => {
@@ -464,16 +461,17 @@ function unGridManager() {
         const contents = { 
             projectName: currentProject, pointCollection: pointCollection, levelValue: levelValue 
         }
-        const response = await jsonLoader('grid_creator', contents); 
+        const response = await jsonLoader('grid_creator', contents);
         signalSender('hideOverlay');
+        pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
         if (response.status === "error") { alert(response.message); return; }
         gridLayer = clearMap(gridLayer, lakeMap); orthoLayer = clearMap(orthoLayer, lakeMap);
-        gridLayer = await plotUnstructuredGrid(response.content, lakeMap);
+        gridLayer = await plotUnstructuredGrid(response.content.polygon, lakeMap);
+        gridPoints = clearMap(gridPoints, lakeMap); 
+        gridPoints = await plotUnstructuredGrid(response.content.point, lakeMap);
         moveChecked = false; obj.moveCheckbox.checked = false;
         refineChecked = false; obj.refinementCheckbox.checked = false;
         obj.refinementCheckbox.dispatchEvent(new Event('change'));
-        obj.gridOptimizationCheckbox.checked = false;
-        obj.gridOptimizationCheckbox.dispatchEvent(new Event('change'));
         obj.depthCheckbox.checked = false; obj.depthCheckbox.dispatchEvent(new Event('change'));
         obj.orthoCheckbox.checked = false; obj.orthoCheckbox.dispatchEvent(new Event('change'));
     });
@@ -514,15 +512,6 @@ function unGridManager() {
             orthoLayer = clearMap(orthoLayer, lakeMap);
             if (!obj.depthCheckbox.checked) { obj.colorBarContainer.style.display = 'none'; } 
         }
-    });
-    obj.gridOptimizationCheckbox.addEventListener('change', async (e) => {
-        if (e.target.checked) {
-            if (gridLayer === null) { 
-                alert("Please generate grid first."); 
-                e.target.checked = false; return; 
-            }
-            obj.gridOptimizationContainer.style.display = 'flex';
-        } else { obj.gridOptimizationContainer.style.display = 'none'; }
     });
     obj.optimizeBtn.addEventListener('click', async () => {
         obj.progressbarGrid.value = 0; obj.progressTextGrid.innerText = ''; 
@@ -571,6 +560,35 @@ function unGridManager() {
             obj.menuContent.style.display = 'grid';
         }
     });
+
+
+
+
+
+    obj.interpolateGrid.addEventListener('click', async() => {
+        if (pointLayer === null) { alert("Please add point to interpolate."); return; }
+
+
+
+
+        // pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
+        // pointLayer = addGridPoints(response.content.point);
+        
+        pointLayer.eachLayer(layer => {
+            const latlng = layer.getLatLng();
+            pointCollection.push([latlng.lat, latlng.lng, value]);
+        });
+
+
+        if (pointCollection.length === 0) { alert("No vertexes found."); return; }
+        signalSender('showOverlay', 'Interpolating an Unstructured Grid.\nPlease wait...');
+        const contents = { projectName: currentProject, pointCollection: pointCollection }
+        const response = await jsonLoader('grid_interpolation', contents); 
+        signalSender('hideOverlay');
+        if (response.status === "error") { alert(response.message); return; }
+        gridPoints = clearMap(gridPoints, lakeMap); 
+        gridPoints = await plotUnstructuredGrid(response.content, lakeMap);
+    });
     obj.saveGrid.addEventListener('click', async() => {
         if (gridLayer === null) { alert("Please generate unstructured grid first."); return; }
         let name = obj.gridName.value.trim();
@@ -579,10 +597,9 @@ function unGridManager() {
         if (!name.toLowerCase().endsWith('.nc')) { name = name + '.nc'; }
         signalSender('showOverlay', 'Checking grid existence.\nPlease wait...');
         const contents = { projectName: currentProject, gridName: name };
-        const check = await jsonLoader('grid_checker', contents);
-        signalSender('hideOverlay');
+        const check = await jsonLoader('grid_checker', contents); signalSender('hideOverlay');
         if (check.status === "error") { 
-            if (!confirm(`File "${name}" already exists. Do you want to overwrite it?`)) { return; }
+            if (!confirm(`File "${name}" already exists. Do you want to overwrite it?`)) return;
         }
         signalSender('showOverlay', 'Saving grid.\nPlease wait...');
         const response = await jsonLoader('grid_saver', contents);
@@ -638,6 +655,16 @@ async function drawPolygon(pointList) {
     obj.polygonCheckbox.checked = true; dataLake = polygon; resetMap();
     lakeLayer = polygonPlotter(polygon, lakeMap); 
     pointLayer = addPointLayer(point, lakeMap, true);
+}
+
+export function addGridPoints(points) {
+
+
+
+
+
+    
+
 }
 
 export function addPointLayer(points, checkMove=false) {

@@ -38,13 +38,12 @@ export function timeStepCalculator(daysString, timeString){
 
 export async function saveProject(elements, timeZone) {
     signalSender('showOverlay', 'Saving project. Please wait...');
-    const { projectName, latitude, nLayers, gridPathText, startDate, stopDate,
+    const { name, latitude, nLayers, gridPathText, startDate, stopDate,
         userTimeSec, nodalTimeSec, obsPointTable, crossSectionName, crossSectionTable, salinity, 
         temperature, initWaterLevel, initSalinity, initTemperature , outputHis, hisInterval, hisStart, 
         hisStop, outputMap, mapInterval, mapStart, mapStop, outputWQ, wqInterval, wqStart, wqStop, 
         outputRestart, rtsInterval, rtsStart, rtsStop, sttInterval, timingInterval } = elements;
     // Get project name
-    const name = projectName.value.trim();
     if (name === '') { alert('Please check project name.'); return; }
     let data = new Map();
     data.set('project_name', name);

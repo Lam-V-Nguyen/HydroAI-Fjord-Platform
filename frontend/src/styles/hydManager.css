@@ -102,7 +102,6 @@ ul li { margin-top: 15px; }
   cursor: pointer; margin: 5px 5px 0 5px; padding: 6px 12px;
   background-color: #025040; font-size: 16px;
   border: none; border-radius: 4px; color: white; 
- 
 }
 .plot-controls button:hover, .checkbox-list label:hover { 
   background-color: #019475; 

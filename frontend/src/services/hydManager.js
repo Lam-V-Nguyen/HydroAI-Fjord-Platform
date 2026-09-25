@@ -101,7 +101,13 @@ async function projectOptions(){
         const name = obj.projectName.value.trim();
         if (!name || name.trim() === '') { alert('Please define scenario.'); return; }
         // Ask for confirmation
-        if (!confirm(`Are you sure you want to delete scenario '${name}'?`)) { return; }
+        if (name === 'demo') {
+            if (!confirm(
+                `1. Deleting the default scenario 'demo' is NOT recommended.\n` + 
+                `2. This might cause unknown problems while visualizing outputs.\n\n` +
+                `Are you sure you want to delete scenario '${name}'?`
+            )) { return; }
+        }
         signalSender('showOverlay', `Deleting scenario '${name}'. Please wait...`);
         const data = await jsonLoader('delete_project', {projectName: name});
         obj.projectName.value = ''; const respond = await getProjectList();
@@ -173,7 +179,10 @@ async function hydManager(){
             'FlowFM_net.nc', 'Uploading the unstructured grid to project...', 'grid'
         ); event.target.value = '';
         // Plot grid on map
-        const content = { projectName: obj.projectName.value, gridName: obj.gridPathText.value }
+        const content = { 
+            projectName: obj.projectName.value, key: 'hyd', 
+            gridName: obj.gridPathText.value, opacity: 1
+        }
         iframeConnector(null, null, 'gridPlot', content);
     });
     // Event when user uploads CSV file
@@ -386,7 +395,7 @@ async function hydManager(){
     // Remove source from project
     obj.sourceRemoveBtn.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
-        if (nameProject === ''){ alert('Please check project name.'); return; }
+        if (nameProject === ''){ alert('Please check HYD scenario.'); return; }
         const name = obj.sourceSelectorRemove.value;
         removeRowFromTable(obj.sourceRemoveTable, name); deleteTable(obj.sourceTable);
         const content = getDataFromTable(obj.sourceRemoveTable, true).rows;
@@ -400,7 +409,7 @@ async function hydManager(){
     // Save source to project
     obj.sourceSaveBtn.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
-        if (nameProject === ''){ alert('Please check project name.'); return; }
+        if (nameProject === ''){ alert('Please check HYD scenario.'); return; }
         const table = getDataFromTable(obj.sourceTable, true), name = obj.sourceName.value;
         const lat = obj.sourceLatitude.value, lon = obj.sourceLongitude.value;
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
@@ -416,7 +425,7 @@ async function hydManager(){
     // Save meteo data to project
     obj.meteoSaveBtn.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
-        if (nameProject === ''){ alert('Please check project name.'); return; }        
+        if (nameProject === ''){ alert('Please check HYD scenario.'); return; }        
         const table = getDataFromTable(obj.meteoTable, true);
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
         const content = {projectName: nameProject, data: table.rows, timeZone: getLastTimeZone()};
@@ -437,7 +446,7 @@ async function hydManager(){
     });
     obj.weatherUpload.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
-        if (nameProject === ''){ alert('Please check project name.'); return; }        
+        if (nameProject === ''){ alert('Please check HYD scenario.'); return; }        
         const table = getDataFromTable(obj.weatherTable, true);
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
         const content = { projectName: nameProject, data: table.rows, timeZone: getLastTimeZone() };
@@ -445,6 +454,16 @@ async function hydManager(){
     })
     // Save project
     obj.projectSaver.addEventListener('click', async () => { 
+        const name = obj.projectName.value.trim();
+        if (name === '') { alert('Please check HYD scenario.'); return; }
+        if (name === 'demo') {
+            if (!confirm(
+                `1. Adjusting/Overwriting the default scenario 'demo' is NOT recommended.\n` + 
+                `2. This might cause unknown problems while visualizing outputs.\n` +
+                `3. It is hightly recommended to make a clone of this scenario before doing any adjusment.\n\n` +
+                `Are you sure you want to move on?`
+            )) { return; }
+        }
         const userTimeSec = timeStepCalculator(obj.userTimestepDate.value, obj.userTimestepTime.value);
         const nodalTimeSec = timeStepCalculator(obj.nodalTimestepDate.value, obj.nodalTimestepTime.value);
         const hisInterval = timeStepCalculator(obj.hisIntervalDate.value, obj.hisIntervalTime.value);
@@ -453,7 +472,7 @@ async function hydManager(){
         const rtsInterval = timeStepCalculator(obj.rstIntervalDate.value, obj.rstIntervalTime.value);
         const sttInterval = timeStepCalculator(obj.statisticDate.value, obj.statisticTime.value);
         const timingInterval = timeStepCalculator(obj.timingDate.value, obj.timingTime.value);
-        const elements = { projectName: obj.projectName, latitude: obj.latitude, nLayers: obj.nLayers, 
+        const elements = { name: name, latitude: obj.latitude, nLayers: obj.nLayers, 
             gridPathText: obj.gridPathText, startDate: obj.startDate, stopDate: obj.stopDate,
             userTimeSec: userTimeSec, nodalTimeSec: nodalTimeSec, obsPointTable: obj.obsPointTable, 
             crossSectionName: obj.crossSectionName, crossSectionTable: obj.crossSectionTable, 
@@ -471,7 +490,7 @@ async function hydManager(){
 
 async function loadScenario(scenarioName){
     // Get average latitude
-    const content = {projectName: scenarioName, timeZone: getLastTimeZone()};
+    const content = { projectName: scenarioName, timeZone: getLastTimeZone() };
     const data = await jsonLoader('get_scenario', content);
     if (data.status === 'new') { return; }
     if (data.status === 'error') { alert(data.message); return; }
@@ -479,7 +498,10 @@ async function loadScenario(scenarioName){
     obj.nLayers.value = data.content.nLayers;
     const gridName = data.content.gridPath;
     if (gridName != '') {
-        const contentGrid = { projectName: scenarioName, gridName: gridName }
+        const contentGrid = { 
+            projectName: scenarioName, key: 'hyd' , 
+            gridName: gridName, opacity: 1
+        }
         iframeConnector(null, null, 'gridPlot', contentGrid);
     }
     obj.gridPathText.value = gridName;

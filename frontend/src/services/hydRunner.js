@@ -54,6 +54,14 @@ async function hydComponents() {
     obj.runBtn.addEventListener('click', async () => {
         currentProject = obj.scenarioSelector.value;
         if (!currentProject || currentProject === '') { alert('Please select a scenario.'); return; }
+        if (currentProject === 'demo') {
+            if (!confirm(
+                `1. Running the default scenario 'demo' is NOT recommended.\n` + 
+                `2. This might cause unknown problems while visualizing outputs.\n` +
+                `3. It is hightly recommended to make a clone of this scenario before running a simulation.\n\n` +
+                `Are you sure you want to move on?`
+            )) { return; }
+        }
         // Check if HYD simulation is running
         if (HYDRunning) { alert("Detected an HYD simulation is running. Please wait until it finishes."); return; }
         const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: currentProject});

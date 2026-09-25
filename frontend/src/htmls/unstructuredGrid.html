@@ -5,9 +5,10 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-        <link rel="stylesheet" href="/src_frontend/styles/index.css?v=002">
-        <link rel="stylesheet" href="/src_frontend/styles/unstructuredGrid.css?v=001">
-        <link rel="stylesheet" href="/src_frontend/styles/gridLayout.css?v=002">
+        <link rel="stylesheet" href="/src_frontend/styles/index.css">
+        <link rel="stylesheet" href="/src_frontend/styles/unstructuredGrid.css">
+        <link rel="stylesheet" href="/src_frontend/styles/gridLayout.css">
+        <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
     </head>
     <body>
         <div class="data-source">
@@ -55,73 +56,98 @@
                 </tbody>
             </table>
         </div>
-        <div class="group-container-grid" id="menu-container">
-            <div class="control-tab"> 
-                <label class="checkbox-right">
-                    <input type="checkbox" id="polygon-checkbox"><span>Show Polygon</span>
-                </label>
-                <label class="checkbox-right">
-                    <input type="checkbox" id="depth-checkbox"><span>Show Depth</span>
-                </label> 
-            </div> 
-            <div class="control-tab"> 
-                <button class="button-grid" id="vertexes-btn">
-                    Get/Reset Vertexes<span class="ink"></span>
-                </button> 
-                <label class="checkbox-right">
-                    <input type="checkbox" id="refinement-checkbox"><span>Refine Vertexes</span>
-                </label> 
-                <div class="content-line" id ="refinement-container" style="display: none;"> 
-                    <input type="text" id="refinement-value" style="width: 100px;"
-                        placeholder="Enter refinement value" value="200.0"> 
-                    <label style="width: 5px;">(m)</label> 
-                </div> 
-            </div> 
-            <div class="control-tab">
-                <label class="checkbox-right">
-                    <input type="checkbox" id="move-checkbox"><span>Move Vertex</span>
-                </label>
-                <label class="checkbox-right">
-                    <input type="checkbox" id="delete-checkbox">Delete Vertexes
-                </label>
-                <div class="control-tab-inline">
-                    <label for="scale-factor">Mode (and Level)</label>
-                    <select id="scale-factor">
-                        <option value="auto" selected>Auto</option>
-                        <option value="custom">Custom</option>
-                    </select>
-                </div>
-                <input type="number" id="custom-scale-factor" placeholder="Scale" step="0.1" value="1.0" hidden>
-            </div>
-            <div class="control-tab"> 
-                <button class="button-grid" id="generate-grid">Generate Grid<span class="ink"></span></button> 
-                <label class="checkbox-right">
-                    <input type="checkbox" id="orthogonality-checkbox">Orthogonality
-                </label> 
-                <label class="checkbox-right">
-                    <input type="checkbox" id="optimization-checkbox">Grid Optimization
-                </label> 
-            </div> 
-            <div class="control-tab" id="grid-optimization-container"> 
-                <div class="control-tab-inline"> 
-                    <label>Iterations</label>
-                    <input type="text" id="iterations" value="500" style="width: 100%;"> 
-                </div> 
-                <div class="control-tab-inline"> 
-                    <label>Level</label>
-                    <div class="content-line">
-                        <input type="text" id="detail-level-from" value="5" style="width: 20px;"> 
-                        <label style="width: 22px;"> --> </label> 
-                        <input type="text" id="detail-level-to" value="500" style="width: 40px;"> 
+        <div class="wrapper" id="menu-container" style="margin: 0 10px 10px 10px;">
+            <section class="main-tab" id="control-tab">
+                <div class="tab-header" id="main-tabs">
+                    <div class="tabs-list">
+                        <button class="tab-btn" data-tab="grid-show-tab">Grid Layer</button>
+                        <button class="tab-btn" data-tab="grid-edit-tab">Grid Modification</button>
+                        <button class="tab-btn" data-tab="grid-generation-tab">Grid Generation</button>
+                        <button class="tab-btn" data-tab="grid-optimization-tab">Grid Optimization</button>
+                        <button class="tab-btn" data-tab="grid-interpolation-tab">Grid Interpolation</button>
+                        <button class="tab-btn" data-tab="grid-save-tab">Export Grid</button>
                     </div>
-                </div> 
-                <button class="button-grid" id="optimize-grid">Optimize Orthogonality<span class="ink"></span></button> 
-            </div> 
-            <div class="control-tab"> 
-                <label for="grid-name" style="justify-content: center; width: 100%;">Grid Name (*.nc)</label> 
-                <input type="text" id="grid-name" placeholder="Enter grid name" style="text-align: center;" value="Grid">
-                <button class="save-grid" id="save-grid">Save Grid<span class="ink"></span></button> 
-            </div>
+                </div>
+                <div class="tabs-content">
+                    <div class="tabpanel main-panel" data-panel="grid-show-tab">
+                        <div class="single-line">
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="polygon-checkbox"><span>Show Polygon</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="depth-checkbox"><span>Show Depth</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="tabpanel main-panel" data-panel="grid-edit-tab">
+                        <div class="single-line">
+                            <button id="vertexes-btn">Get/Reset Vertexes</button>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="refinement-checkbox"><span>Refine Vertexes</span>
+                            </label>
+                            <div id ="refinement-container" style="display: none;"> 
+                                <input type="text" id="refinement-value" style="width: 100px; text-align: center;"
+                                    placeholder="Enter refinement value" value="200.0"> 
+                                <label style="width: 5px;">(m)</label> 
+                            </div>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="move-checkbox"><span>Move Vertex</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="delete-checkbox"><span>Delete Vertexes</span>
+                            </label>
+                            <div class="checkbox-item">
+                                <label for="scale-factor">Mode (and Level)</label>
+                                <select id="scale-factor">
+                                    <option value="auto" selected>Auto</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" style="width: 100px; text-align: center; margin-left: 10px;"
+                                    id="custom-scale-factor" placeholder="Scale" step="0.1" value="1.0" hidden>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tabpanel main-panel" data-panel="grid-generation-tab">
+                        <div class="single-line">
+                            <button class="button-grid" id="generate-grid">Generate Grid</button>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="orthogonality-checkbox"><span>Orthogonality</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="tabpanel main-panel" data-panel="grid-optimization-tab">
+                        <div class="single-line">
+                            <label class="checkbox-item">
+                                <span>Iterations</span>
+                                <input type="text" id="iterations" value="500">
+                            </label>
+                            <label class="checkbox-item">
+                                <span>Level</span>
+                                <input type="text" id="detail-level-from" value="5"> 
+                                <span style="width: 22px;"> --> </span> 
+                                <input type="text" id="detail-level-to" value="500"> 
+                            </label>
+                            <button class="button-grid" id="optimize-grid">Optimize Orthogonality</button>
+                        </div>
+                    </div>
+                    <div class="tabpanel main-panel" data-panel="grid-interpolation-tab">
+                        <div class="single-line">
+
+
+                            <button class="button-grid" id="interpolate-grid">Interpolate Grid</button>
+                        </div>
+                    </div>
+                    <div class="tabpanel main-panel" data-panel="grid-save-tab">
+                        <div class="single-line">
+                            <label class="checkbox-item">
+                                <span>Grid Name (*.nc)</span>
+                                <input type="text" id="grid-name" placeholder="Enter grid name" style="width: 200px;;" value="Grid">
+                            </label>
+                            <button class="save-grid" id="save-grid">Save Grid</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
         <!-- Add the map -->
         <div class="map-container" id="map-container">
@@ -163,7 +189,7 @@
                     <progress id="progressbar-grid" value="0" max="100"></progress>
                     <label id="progress-text-grid"></label>
                 </div>
-                <button class="button-grid" id="optimization-close">Stop<span class="ink"></span></button>
+                <button class="button-grid" id="optimization-close">Stop</button>
             </div>
             <div class="table-header"><h3>Optimization History</h3></div>
             <div id="myChart-grid"></div>

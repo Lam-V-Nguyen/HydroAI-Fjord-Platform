@@ -36,6 +36,8 @@ def hydReader(hyd_path: str, time_zone: str) -> dict:
             data['exchange_x'] = int(line.split()[1])
         if "number-vertical-exchanges" in line:
             data['exchange_z'] = int(line.split()[1])
+        if "waqgeom-file" in line or "grid-coordinates-file" in line:
+            data['grid'] = line.split()[1].replace("'", "")
         if "pointers-file" in line:
             data['ptr_path'] = line.split()[1].replace("'", "")
         if "areas-file" in line:

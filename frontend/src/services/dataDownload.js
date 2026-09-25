@@ -457,7 +457,7 @@ async function saveCSVSmart(csvString, suggestedName) {
             await writable.close(); return true;
         } catch (err) {
             if (err.name === 'AbortError') return false; // user cancel
-            console.warn('Picker failed, fallback to download:', err);
+            alert('Picker failed, fallback to download:', err);
         }
     }
     // Fallback: <a download>

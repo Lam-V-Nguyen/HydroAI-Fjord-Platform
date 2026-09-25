@@ -197,7 +197,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if len(line.strip().split()) != 5: continue
                     temp = line.strip().split()
-                    val = datetime.fromtimestamp(float(temp[0].strip())*60, tz=timezone.utc)
+                    val = datetime.fromtimestamp(float(temp[0].strip())*60.0, tz=timezone.utc)
                     temp[0] = functions.utc_to_local(val, time_zone)
                     meteos.append(temp)
                 data["meteoPath"] = meteos
@@ -210,7 +210,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if not line.strip(): continue
                     temp = line.strip().split()
-                    val = datetime.fromtimestamp(int(temp[0].strip())*60.0, tz=timezone.utc)
+                    val = datetime.fromtimestamp(float(temp[0].strip())*60.0, tz=timezone.utc)
                     temp[0] = functions.utc_to_local(val, time_zone)
                     weathers.append(temp)
                 if len(temp) == 3: data["weatherType"] = "wind-magnitude-direction"

@@ -139,15 +139,18 @@ export async function renderPreview(request=null) {
     } else if (requestId === 'gridPlot') {
         // Plot unstructure grid on map
         const currentProject = request.content.projectName;
-        const gridName = request.content.gridName;
+        const gridName = request.content.gridName, key = request.content.key;
         signalSender('showOverlay', `Preparing Unstructure Grid. Please wait...`);
-        const content = { projectName: currentProject, gridName: gridName };
+        const content = { projectName: currentProject, gridName: gridName, key: key };
         const data = await jsonLoader('unstructure_grid_plot', content);
+        signalSender('hideOverlay'); gridLayer = clearMap(gridLayer, currentMap);
         if (data.status === "error") { alert(data.message); return; }
-        gridLayer = clearMap(gridLayer, currentMap);
         gridLayer = L.geoJSON(data.content, {
-            style: { color: 'black', weight: 1, fillColor: 'transparent', fillOpacity: 0 },
-        }).addTo(currentMap); signalSender('hideOverlay');
+            style: { 
+                color: 'black', weight: 1, fillColor: 'transparent', 
+                fillOpacity: 0.2 , opacity: request.content.opacity
+            },
+        }).addTo(currentMap); 
     } else if (type === 'flowOptions') {
         const key = request.content.key;
         const content = { requestId: request.content.requestId }

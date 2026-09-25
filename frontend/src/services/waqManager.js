@@ -136,6 +136,12 @@ async function projectOptions(){
         temPath = data.content.tem_path; salPath = data.content.sal_path;
         obj.startTime.value = data.content.start_time; 
         obj.stopTime.value = data.content.stop_time;
+        // Plot grid on map
+        const content = { 
+            projectName: name, gridName: data.content.grid, 
+            key: 'waq', opacity: 0.2
+        }
+        iframeConnector(null, null, 'gridPlot', content);
         // Set default values
         deleteTable(obj.obsPointTable); deleteTable(obj.loadsPointTable);
         addRowToTable(obj.obsPointTable, ['Name', 'Latitude', 'Longitude']);
