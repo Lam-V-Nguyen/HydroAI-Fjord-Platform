@@ -21,9 +21,11 @@ const obj = {
     moveCheckbox: $("move-checkbox"), deleteCheckbox: $("delete-checkbox"),
     scaleSelector: $("scale-factor"), scaleFactor: $("custom-scale-factor"),
     orthoCheckbox: $("orthogonality-checkbox"), createGrid: $("generate-grid"),
-    chartDiv: $("myChart-grid"), saveGrid: $("save-grid"),
-    interpolateGrid: $("interpolate-grid"),
-    iterationValue: $("iterations"), valueFrom: $("detail-level-from"),
+    chartDiv: $("myChart-grid"), saveGrid: $("save-grid"), reCheckGrid: $("recheck-grid"), 
+    interpolateDelete: $("interpolate-grid-delete"), interpolateHide: $("interpolate-grid-hide"),
+    interpolateGrid: $("interpolate-grid"), interpolateMapBtn: $("interpolate-grid-pick-btn"),
+    interpolateCSVBtn: $("interpolate-grid-csv-btn"), interpolateFile: $("interpolate-grid-csv"),
+    iterationValue: $("iterations"), valueFrom: $("detail-level-from"), 
     gridName: $("grid-name"), valueTo: $("detail-level-to"), optimizeBtn: $("optimize-grid"),
     progressbarGrid: $("progressbar-grid"), progressTextGrid: $("progress-text-grid"),
     baseMap: $("basemap-btn"), leafletMap: $("leaflet-map-lakes"),
@@ -38,7 +40,9 @@ const row = ['Name', 'Municipality', 'Area', 'Perimeter',
 let currentProject = null, lakeMap = null, mapContainer = null, 
     currentTileLayer = null, timeOut = null, lakesData = {}, 
     dataLake = null, dataDepth = null, timeCounter = null, gridPoints = null,
-    drawSelection = false, drawChecked = false, entireNorway = false,
+    drawSelection = false, drawChecked = false, entireNorway = false, 
+    interpolateCheked = null, interpolateDeleteChecked = false, 
+    interpolatedLayer = null, interpolatedPoints = [],
     depthLayer = null, lakeLayer = null, gridLayer = null, orthoLayer = null,
     refineChecked = false, pointContainer = [], html = null, tempLine = null,
     moveChecked = false, deleteChecked = false, levelValue = null, lakeList = [],
@@ -80,6 +84,7 @@ async function initMap() {
         } 
     });
     pointLayer = L.layerGroup().addTo(lakeMap);
+    interpolatedLayer = L.layerGroup().addTo(lakeMap);
     lakeMap.on('mousemove', function (e) { 
         mapContainer.style.cursor = "grab";
         if (refineChecked) {
@@ -97,14 +102,22 @@ async function initMap() {
         if (drawChecked) { 
             mapContainer.style.cursor = "crosshair";
             if (pointContainer.length === 0) { 
-                html = `Draw a polygon with the left mouse button`; 
-            }
+                html = `Draw a polygon with the left-mouse button`; 
+            } else { html = `Finish drawing with the right-mouse button`; }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
         } 
         if (moveChecked) { 
             mapContainer.style.cursor = "move";
-            html = `Move a vertex using the left mouse button`;
+            html = `Move a vertex using the left-mouse button`;
+            hoverTooltip.setLatLng(e.latlng).setContent(html);
+            lakeMap.openTooltip(hoverTooltip);
+        }
+        if (interpolateCheked) { 
+            mapContainer.style.cursor = "crosshair";
+            if (interpolatedPoints.length === 0) { 
+                html = `Click on map to add a point and depth`;
+            } else { html = `Finish selecting with the right-mouse button`; }
             hoverTooltip.setLatLng(e.latlng).setContent(html);
             lakeMap.openTooltip(hoverTooltip);
         }
@@ -112,7 +125,6 @@ async function initMap() {
     lakeMap.on('click', async function (e) {
         if (drawChecked) { 
             mapContainer.style.cursor = "crosshair";
-            html = `Finish drawing with the right mouse button`;
             // Add marker
             const marker = L.circleMarker(e.latlng, {
                 radius: 5, color: 'red', fillColor: 'pink', fillOpacity: 0.9
@@ -128,6 +140,71 @@ async function initMap() {
             }
             if (hoverTooltip) lakeMap.closeTooltip(hoverTooltip); return; 
         }
+        if (interpolateCheked) {
+            mapContainer.style.cursor = "crosshair";
+            if (!interpolatedLayer) interpolatedLayer = L.layerGroup().addTo(lakeMap);
+            if (hoverTooltip) lakeMap.closeTooltip(hoverTooltip);
+            const latlng = e.latlng;
+            const marker = L.circleMarker(latlng, {
+                radius: 3, color: 'white', weight: 1, fillColor: 'red', fillOpacity: 0.8
+            });
+            marker.addTo(interpolatedLayer);
+            // Add form
+            const container = document.createElement('div');
+            container.innerHTML = `
+                <div style="min-width: 200px;">
+                    <div><b>Latitude:</b> ${latlng.lat.toFixed(10)}</div>
+                    <div><b>Longitude:</b> ${latlng.lng.toFixed(10)}</div>
+                    <label><b>Depth:</b></label>
+                    <input type="number" id="depthInput" step="any" ="Enter depth"
+                        style="width:100%; box-sizing:border-box;
+                        margin-top:5px; margin-bottom:10px;"/>
+                    <div style="display:flex; gap:8px; justify-content: -end;">
+                        <button id="saveDepth">Save</button>
+                        <button id="cancelDepth">Cancel</button>
+                    </div>
+                </div>
+            `;
+            const popup = L.popup({
+                closeOnClick: false, autoClose: false, maxWidth: 300
+            }).setLatLng(latlng).setContent(container).openOn(lakeMap);
+            const input = container.querySelector('#depthInput'); input.focus();
+            // Save
+            container.querySelector('#saveDepth').addEventListener('click', () => {
+                const value = input.value.trim();
+                if (value === '' || !Number.isFinite(Number(value))) {
+                    alert('Please enter a valid depth value.'); input.focus(); return;
+                }
+                const depth = Number(value);
+                const point = {
+                    id: crypto.randomUUID(), lat: latlng.lat, lng: latlng.lng, 
+                    Depth: depth, marker: marker
+                };
+                interpolatedPoints.push(point);
+                marker._interpolatedIndex = interpolatedPoints.length - 1;
+                marker.feature = {
+                    type: 'Feature', properties: { Depth: depth },
+                    geometry: { type: 'Point',
+                        coordinates: [latlng.lng, latlng.lat]
+                    }
+                };
+                marker.bindTooltip(`
+                    <b>Lat:</b> ${latlng.lat.toFixed(10)}<br>
+                    <b>Lon:</b> ${latlng.lng.toFixed(10)}<br>
+                    <b>Depth:</b> ${depth.toFixed(2)}
+                `, { sticky: true, direction: 'top' });
+                marker.on('click', () => { 
+                    if (interpolateDeleteChecked) { deleteInterpolatedPoint(marker); }
+                    else { editDepth(marker); }
+                });
+                lakeMap.closePopup(popup);
+            });
+            // Cancel
+            container.querySelector('#cancelDepth').addEventListener('click', () => {
+                marker.remove(); lakeMap.closePopup(popup);
+            });
+            return;
+        }
     });
     lakeMap.on('contextmenu', async function (e) { 
         e.originalEvent.preventDefault();
@@ -141,6 +218,73 @@ async function initMap() {
             await drawPolygon(pointContainer); drawChecked = false;
             pointContainer = []; mapContainer.style.cursor = "auto";
         }
+        if (interpolateCheked) {
+            interpolateCheked = false; mapContainer.style.cursor = "auto";
+        }
+        if (hoverTooltip) { lakeMap.closeTooltip(hoverTooltip); }
+    });
+}
+
+function deleteInterpolatedPoint(marker) {
+    const index = interpolatedPoints.findIndex(
+        point => point.marker === marker
+    );
+    if (index !== -1) { interpolatedPoints.splice(index, 1); }
+    marker.remove();
+}
+
+function editDepth(marker) {
+    const latlng = marker.getLatLng();
+    const currentDepth = marker.feature?.properties?.depth ?? '';
+    const container = document.createElement('div');
+    container.innerHTML = `
+        <div style="min-width: 200px;">
+            <div><b>Latitude:</b> ${latlng.lat.toFixed(10)}</div>
+            <div><b>Longitude:</b> ${latlng.lng.toFixed(10)}</div>
+            <label><b>Depth:</b></label>
+            <input type="number" id="depthInput" step="any" ="Enter depth"
+                style="width:100%; box-sizing:border-box;
+                margin-top:5px; margin-bottom:10px;"/>
+            <div style="display:flex; gap:8px; justify-content: -end;">
+                <button id="saveDepth">Save</button>
+                <button id="cancelDepth">Cancel</button>
+            </div>
+        </div>
+    `;
+    const popup = L.popup({
+        closeOnClick: false, autoClose: false, maxWidth: 300
+    }).setLatLng(latlng).setContent(container).openOn(lakeMap);
+    const input = container.querySelector('#depthInput');
+    input.focus(); input.select(); input.value = currentDepth;
+    // Save
+    container.querySelector('#saveDepth').addEventListener('click', () => {
+        const value = input.value.trim();
+        if (value === '' || !Number.isFinite(Number(value))) {
+            alert('Please enter a valid depth value.');
+            input.focus(); return;
+        }
+        const newDepth = Number(value);
+        if (!marker.feature) {
+            marker.feature = {
+                type: 'Feature', properties: {},
+                geometry: { type: 'Point',
+                    coordinates: [latlng.lng, latlng.lat]
+                }
+            };
+        }
+        marker.feature.properties.Depth = newDepth;
+        const index = marker._interpolatedIndex;
+        if (index !== undefined && interpolatedPoints[index]) { interpolatedPoints[index].depth = newDepth; }
+        marker.bindTooltip(`
+            <b>Lat:</b> ${latlng.lat.toFixed(10)}<br>
+            <b>Lon:</b> ${latlng.lng.toFixed(10)}<br>
+            <b>Depth:</b> ${newDepth}
+        `, { sticky: true, direction: 'top' });
+        lakeMap.closePopup(popup);
+    });
+    // Cancel
+    container.querySelector('#cancelDepth').addEventListener('click', () => {
+        lakeMap.closePopup(popup);
     });
 }
 
@@ -315,6 +459,7 @@ function unGridManager() {
                 drawSelection = true; drawChecked = true;
                 obj.menuContent.style.display = 'grid';
                 obj.colorBarContainer.style.display = 'none';
+                interpolatedLayer = clearMap(interpolatedLayer, lakeMap);
             }
             deleteTable(obj.lakeTable); addRowToTable(obj.lakeTable, row); resetMap();
             moveChecked = false; obj.moveCheckbox.checked = false;
@@ -463,7 +608,7 @@ function unGridManager() {
         }
         const response = await jsonLoader('grid_creator', contents);
         signalSender('hideOverlay');
-        pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
+        // pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
         if (response.status === "error") { alert(response.message); return; }
         gridLayer = clearMap(gridLayer, lakeMap); orthoLayer = clearMap(orthoLayer, lakeMap);
         gridLayer = await plotUnstructuredGrid(response.content.polygon, lakeMap);
@@ -560,50 +705,85 @@ function unGridManager() {
             obj.menuContent.style.display = 'grid';
         }
     });
-
-
-
-
-
-    obj.interpolateGrid.addEventListener('click', async() => {
-        if (pointLayer === null) { alert("Please add point to interpolate."); return; }
-
-
-
-
-        // pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
-        // pointLayer = addGridPoints(response.content.point);
-        
-        pointLayer.eachLayer(layer => {
+    obj.interpolateCSVBtn.addEventListener('click', async () => {
+        obj.interpolateFile.click(); interpolateCheked = false;
+    });
+    obj.interpolateFile.addEventListener('change', async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const formData = new FormData(); formData.append('file', file); 
+        signalSender('showOverlay', 'Reading depth data. Please wait...');
+        const response = await fetch('/grid_interpolation_upload', { method: 'POST', body: formData });
+        const data = await response.json(); signalSender('hideOverlay'); e.target.value = '';
+        if (data.status === 'error') { 
+            alert(`Uploading depth data failed: ${data.message}`); return; 
+        }
+        interpolatedLayer = clearMap(interpolatedLayer, lakeMap); drawChecked = false;
+        interpolatedLayer = addGridPoints(data.content); obj.interpolateHide.checked = true;
+    });
+    obj.interpolateMapBtn.addEventListener('click', async () => { 
+        drawChecked = false; interpolateCheked = true; pointContainer = [];
+        interpolatedLayer = clearMap(interpolatedLayer, lakeMap);
+    });
+    obj.interpolateDelete.addEventListener('change', (e) => {
+        if (e.target.checked && interpolatedLayer === null) { 
+            alert("Please add points to interpolate."); e.target.checked = false;
+        }
+        interpolateDeleteChecked = e.target.checked;
+    });
+    obj.interpolateGrid.addEventListener('click', async () => {
+        if (gridLayer === null) { alert("Please add unstructured grid first."); return; }
+        if (interpolatedLayer === null) { alert("Please add points to interpolate."); return; }
+        interpolatedPoints = [];
+        interpolatedLayer.eachLayer(layer => {
             const latlng = layer.getLatLng();
-            pointCollection.push([latlng.lat, latlng.lng, value]);
+            const depth = layer.feature?.properties?.Depth;
+            if (depth === undefined || depth === null || !Number.isFinite(Number(depth))) {
+                alert("Invalid depth for marker:", layer); return;
+            }
+            interpolatedPoints.push([latlng.lat, latlng.lng, Number(depth)]);
         });
-
-
-        if (pointCollection.length === 0) { alert("No vertexes found."); return; }
+        if (interpolatedPoints.length === 0) { alert("No depth points found."); return; }
+        if (interpolatedPoints.length < 2) { alert("Please add at least 2 points to interpolate."); return; }
         signalSender('showOverlay', 'Interpolating an Unstructured Grid.\nPlease wait...');
-        const contents = { projectName: currentProject, pointCollection: pointCollection }
+        const contents = { 
+            projectName: currentProject, grid: gridLayer.toGeoJSON(), 
+            pointCollection: interpolatedPoints
+        }
         const response = await jsonLoader('grid_interpolation', contents); 
         signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); return; }
         gridPoints = clearMap(gridPoints, lakeMap); 
         gridPoints = await plotUnstructuredGrid(response.content, lakeMap);
+        obj.interpolateHide.checked = false; obj.interpolateHide.dispatchEvent(new Event('change'));
+    });
+    obj.interpolateHide.addEventListener('change', (e) => {
+        if (e.target.checked) { lakeMap.addLayer(interpolatedLayer); }
+        else { lakeMap.removeLayer(interpolatedLayer); }
     });
     obj.saveGrid.addEventListener('click', async() => {
-        if (gridLayer === null) { alert("Please generate unstructured grid first."); return; }
+        if (gridPoints === null) { alert("No interpolated grid found. Please interpolate grid first."); return; }
         let name = obj.gridName.value.trim();
         if (name === "") { alert("Please enter a name."); return; }
         if (nameChecker(name)) { alert('Grid name contains invalid characters.'); return; }
         if (!name.toLowerCase().endsWith('.nc')) { name = name + '.nc'; }
         signalSender('showOverlay', 'Checking grid existence.\nPlease wait...');
-        const contents = { projectName: currentProject, gridName: name };
+        const contents = { projectName: currentProject, gridName: name, gridPoints: gridPoints.toGeoJSON() };
         const check = await jsonLoader('grid_checker', contents); signalSender('hideOverlay');
         if (check.status === "error") { 
             if (!confirm(`File "${name}" already exists. Do you want to overwrite it?`)) return;
         }
         signalSender('showOverlay', 'Saving grid.\nPlease wait...');
         const response = await jsonLoader('grid_saver', contents);
-        signalSender('hideOverlay'); alert(response.message);
+        signalSender('hideOverlay'); alert(response.message); 
+        obj.reCheckGrid.style.display = 'block';
+    });
+    obj.reCheckGrid.addEventListener('click', async() => {
+        const gridName = obj.gridName.value.trim();
+        if (gridName === "") { alert("Please enter a name of the grid."); return; }
+        signalSender('showOverlay', 'Checking grid existence.\nPlease wait...');
+        const contents = { projectName: currentProject, gridName: gridName };
+        const check = await jsonLoader('grid_rechecker', contents); signalSender('hideOverlay');
+        if (check.status === "error") { alert(check.message); return; }
     });
 }
 
@@ -658,13 +838,63 @@ async function drawPolygon(pointList) {
 }
 
 export function addGridPoints(points) {
-
-
-
-
-
-    
-
+    const tempLayer = L.geoJSON(points, {
+        pointToLayer: (_, latlng) => {
+           return L.circleMarker(latlng, {
+                radius: 3, color: 'white', weight: 1, fillColor: 'red', fillOpacity: 0.8
+            });
+        },
+        onEachFeature: (feature, layer) => {
+            if (!feature.properties) return;
+            const tooltip = () => {
+                const content = Object.entries(feature.properties)
+                    .map(([name, value]) => `
+                        <div><b>${name}:</b> ${value}</div>
+                    `).join('');
+                return `${content}<hr><b>Click to adjust depth</b>`;
+            };
+            layer.bindTooltip(tooltip, {sticky: true, direction: 'top'});
+            layer.on('click', () => { 
+                const originalDepth = feature.properties.Depth;
+                const container = document.createElement('div');
+                container.innerHTML = `
+                    <div style="min-width: 200px;">
+                        <label><b>Depth Adjustment:</b></label>
+                        <input type="number" id="depthInput" step="any"
+                            style="
+                                width:100%; box-sizing:border-box;
+                                margin-top:5px; margin-bottom:10px;
+                            "
+                        />
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button id="saveDepth" style="cursor:pointer;">Save</button>
+                            <button id="cancelDepth" style="cursor:pointer;">Cancel</button>
+                        </div>
+                    </div>
+                `;
+                const input = container.querySelector('#depthInput');
+                input.value = originalDepth ?? '';
+                const popup = L.popup({
+                    closeOnClick: false, autoClose: false, maxWidth: 300
+                }).setLatLng(layer.getLatLng()).setContent(container).openOn(lakeMap);
+                // Save Depth
+                container.querySelector('#saveDepth').addEventListener('click', () => {
+                    const newDepth = input.value.trim();
+                    if (newDepth === '' || !Number.isFinite(Number(newDepth))) {
+                        alert('Please enter a valid depth value.'); return;
+                    }
+                    feature.properties.Depth = Number(newDepth); // Update Depth to GeoJSON feature
+                    layer.setTooltipContent(createTooltip()); // Update Tooltip
+                    layer.closePopup(popup);
+                });
+                // Cancel Depth
+                container.querySelector('#cancelDepth').addEventListener('click', () => {
+                    layer.closePopup(popup);
+                });
+            });
+        }
+    }).addTo(lakeMap);
+    return tempLayer;
 }
 
 export function addPointLayer(points, checkMove=false) {

@@ -132,9 +132,19 @@
                     </div>
                     <div class="tabpanel main-panel" data-panel="grid-interpolation-tab">
                         <div class="single-line">
-
-
-                            <button class="button-grid" id="interpolate-grid">Interpolate Grid</button>
+                            <button class="button-grid" id="interpolate-grid-csv-btn" 
+                                style="background-color: rgb(59, 116, 97);" 
+                                title="CSV file must have columns: Lat, Lon, Depth">Import from CSV</button>
+                            <input type="file" id="interpolate-grid-csv" accept=".csv" hidden>
+                            <button class="button-grid" id="interpolate-grid-pick-btn" 
+                                style="background-color: sandybrown;">Define from Map</button>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="interpolate-grid-delete"><span>Delete Point</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="interpolate-grid-hide"><span>Hide Point</span>
+                            </label>
+                            <button class="button-grid" id="interpolate-grid">Interpolation</button>
                         </div>
                     </div>
                     <div class="tabpanel main-panel" data-panel="grid-save-tab">
@@ -144,6 +154,7 @@
                                 <input type="text" id="grid-name" placeholder="Enter grid name" style="width: 200px;;" value="Grid">
                             </label>
                             <button class="save-grid" id="save-grid">Save Grid</button>
+                            <button class="save-grid" id="recheck-grid" style="display: none;">Recheck Grid</button>
                         </div>
                     </div>
                 </div>
@@ -197,6 +208,6 @@
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script src="https://cdn.plot.ly/plotly-2.26.1.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-        <script type="module" src="/src_frontend/services/unstructuredGridManager.js"></script>
+        <script type="module" src="/src_frontend/services/unstructuredGridManager.js?v=1"></script>
     </body>
 </html>

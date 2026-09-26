@@ -185,7 +185,7 @@ export function polygonPlotter(polygon, map, entireNorway=false, zoom = false) {
 
 export async function plotUnstructuredGrid(obj, map) {
     const tempLayer = L.geoJSON(obj, {
-        pointToLayer: (feature, latlng) => {
+        pointToLayer: (_, latlng) => {
             return L.circleMarker(latlng, {
                 radius: 3, color: 'white', weight: 1, fillColor: 'red', fillOpacity: 0.8
             });

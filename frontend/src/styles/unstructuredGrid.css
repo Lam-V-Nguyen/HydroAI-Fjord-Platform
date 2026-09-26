@@ -82,7 +82,10 @@ body {
 .checkbox-item {
   display: flex; align-items: center; gap: 4px; cursor: pointer;
 }
-.checkbox-item input {
+.checkbox-item input[type="checkbox"] {
+  width: auto; box-sizing: border-box; text-align: center; margin: 0;
+}
+.checkbox-item input[type="text"], .checkbox-item input[type="number"] {
   width: 100px; box-sizing: border-box; text-align: center;
 }
 .single-line {

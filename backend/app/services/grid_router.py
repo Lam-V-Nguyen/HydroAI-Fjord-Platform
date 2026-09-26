@@ -1,10 +1,10 @@
-import traceback, os, json, threading
-from fastapi import APIRouter, Request, Depends, BackgroundTasks
+import traceback, os, json
+from fastapi import UploadFile, File, APIRouter, Request, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from services import functions, grid_functions
 from config import PROJECT_ROOT
 from shapely.geometry import Point, Polygon
-import numpy as np, geopandas as gpd
+import numpy as np, geopandas as gpd, pandas as pd, xarray as xr
 from meshkernel import MeshKernel, GeometryList
 
 router, processes = APIRouter(), {}
@@ -222,20 +222,10 @@ async def grid_creator(request: Request, user=Depends(functions.basic_auth)):
         else: mk.mesh2d_make_triangular_mesh_from_polygon(polygon, scale_factor=float(level))
         grid_uds = grid_functions.netCDF_creator(mk)
         project_cache['grid_uds'], project_cache['mk'] = grid_uds, mk
-        project_cache["mk_crs"], points = "EPSG:4326", []
+        project_cache["mk_crs"] = "EPSG:4326"
         grid = functions.unstructuredGridCreator(grid_uds)
-        for geometry in grid.geometry:
-            if geometry.geom_type == "Polygon":
-                points.extend(geometry.exterior.coords)
-            elif geometry.geom_type == "MultiPolygon":
-                for polygon in geometry.geoms:
-                    points.extend(polygon.exterior.coords)
-        unique_points = list(set(points))
-        points = gpd.GeoDataFrame(
-            geometry=[Point(x, y) for x, y in unique_points], crs=grid.crs
-        )
+        points = functions.nodes_from_grid(grid)
         points['Lat'], points['Lon'] = points.geometry.y, points.geometry.x
-        project_cache["grid_points"], project_cache["grid"] = points, grid
         content = {'point': json.loads(points.to_json()), 'polygon': json.loads(grid.to_json())}
         return JSONResponse({'content': content})
     except Exception as e:
@@ -368,50 +358,85 @@ async def grid_checker(request: Request, user=Depends(functions.basic_auth)):
     if not os.path.exists(grid_path): return JSONResponse({'status': 'ok'})
     else: return JSONResponse({'status': 'error'})
 
+@router.post("/grid_interpolation_upload")
+async def grid_interpolation_upload(file: UploadFile = File(...)):
+    try:
+        df = pd.read_csv(file.file, low_memory=False)
+        required_columns = ['Lat', 'Lon', 'Depth']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return JSONResponse({'status': 'error',
+                'message': f"Missing required columns: {', '.join(missing_columns)}"}, status_code=400)
+        content = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(x=df['Lon'], y=df['Lat']), crs="EPSG:4326")
+        return JSONResponse({'status': 'ok', 'content': json.loads(content.to_json())})
+    except Exception as e:
+        print('/grid_interpolation_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 @router.post("/grid_interpolation")
-async def grid_interpolation(request: Request, user=Depends(functions.basic_auth)):
+async def grid_interpolation(request: Request):
     try:
         body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        cache_root = request.app.state.project_cache
-        if not isinstance(cache_root, dict):
-            cache_root = {}
-            request.app.state.project_cache = cache_root
-        project_cache = cache_root.get(project_name)
-        if not isinstance(project_cache, dict):
-            project_cache = {}
-            cache_root[project_name] = project_cache
-        points, grid = project_cache.get('grid_points'), project_cache.get('grid')
+        data_point, data_grid = np.array(body.get('pointCollection')), body.get('grid')
+        grid = gpd.GeoDataFrame.from_features(
+            data_grid['features'] if data_grid['type'] == 'FeatureCollection' else [data_grid], crs="EPSG:4326"
+        )
+        points = pd.DataFrame(data_point, columns=['lat', 'lon', 'depth'])
         # Interpolation
-
-
-        points['Depth'] = functions.interpolation_Z(grid, x_array, y_array, z_array, geo_type='point')
-        return JSONResponse({'status': 'ok', 'content': json.loads(points.to_json())})
+        x_array, y_array, z_array = points['lon'].values, points['lat'].values, points['depth'].values
+        nodes = functions.nodes_from_grid(grid)
+        nodes['Depth'] = functions.interpolation_Z(nodes, x_array, y_array, z_array, geo_type='point')
+        return JSONResponse({'status': 'ok', 'content': json.loads(nodes.to_json())})
     except Exception as e:
         print('/grid_interpolation:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-
-
 
 @router.post("/grid_saver")
 async def grid_saver(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
+        point_data, grid_name = body.get('gridPoints'), body.get('gridName')
+        points = gpd.GeoDataFrame.from_features(
+            point_data['features'] if point_data['type'] == 'FeatureCollection' else [point_data], crs="EPSG:4326"
+        )
+        grid_dir = os.path.join(PROJECT_ROOT, project_name, "grids")
+        grid_path = os.path.normpath(os.path.join(grid_dir, grid_name))
         project_cache = request.app.state.project_cache.setdefault(project_name)
         if not project_cache: 
             return JSONResponse({"status": "error", "message": "Project is not available in memory."}) 
         grid_uds = project_cache.get('grid_uds')
-        grid_dir = os.path.join(PROJECT_ROOT, project_name, "grids")
-        grid_path = os.path.normpath(os.path.join(grid_dir, body.get('gridName')))
+        print(points, grid_uds)
 
 
 
-        grid_uds.to_netcdf(grid_path)
+        # grid_uds.to_netcdf(grid_path)
         return JSONResponse({'status': 'ok', 'message': f'Grid saved successfully: {grid_path.replace(PROJECT_ROOT, "...")}'})
     except Exception as e:
         print('/grid_saver:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+@router.post("/grid_rechecker")
+async def grid_rechecker(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        grid_name = f"{body.get('gridName')}.nc"
+        grid_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "grids", grid_name))
+        if not os.path.exists(grid_path): 
+            return JSONResponse({'status': 'error', 'message': f"Grid not found: {grid_path.replace(PROJECT_ROOT, '...')}"})
+        with xr.open_dataset(grid_path) as grid_uds:
+            grid = functions.unstructuredGridCreator(grid_uds)
+
+
+
+        # grid_uds.to_netcdf(grid_path)
+        return JSONResponse({'status': 'ok', 'message': f'Grid saved successfully: {grid_path.replace(PROJECT_ROOT, "...")}'})
+    except Exception as e:
+        print('/grid_rechecker:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
