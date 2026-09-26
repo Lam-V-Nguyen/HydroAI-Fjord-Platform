@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from services import functions, grid_functions
 from config import PROJECT_ROOT
 from shapely.geometry import Point, Polygon
-import numpy as np, geopandas as gpd, pandas as pd, xarray as xr
+import numpy as np, geopandas as gpd, pandas as pd, xarray as xr, dask.array as da
 from meshkernel import MeshKernel, GeometryList
 
 router, processes = APIRouter(), {}
@@ -96,6 +96,23 @@ async def search_lake(request: Request, user=Depends(functions.basic_auth)):
     name = body.get('name')
     result = data if name == '' else [x for x in data if name.lower() in x.lower()]
     return JSONResponse({'content': result})
+
+@router.post("/export_depth")
+async def export_depth(request: Request):
+    try:
+        body = await request.json()
+        data = body.get('depthData')
+        depth = gpd.GeoDataFrame.from_features(
+            data['features'] if data['type'] == 'FeatureCollection' else [data], crs="EPSG:4326"
+        )
+        depth['geometry'] = depth['geometry'].centroid
+        depth['Latitude'], depth['Longitude'], depth['Depth'] = depth.geometry.y, depth.geometry.x, depth['value']
+        depth = depth[['Latitude', 'Longitude', 'Depth', 'geometry']]
+        return JSONResponse({'status': 'ok', 'content': json.loads(depth.to_json())})
+    except Exception as e:
+        print('/export_depth:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/vertex_generator")
 async def vertex_generator(request: Request):
@@ -402,23 +419,24 @@ async def grid_saver(request: Request, user=Depends(functions.basic_auth)):
         points = gpd.GeoDataFrame.from_features(
             point_data['features'] if point_data['type'] == 'FeatureCollection' else [point_data], crs="EPSG:4326"
         )
+        points['lat'], points['lon'] = points.geometry.y, points.geometry.x
         grid_dir = os.path.join(PROJECT_ROOT, project_name, "grids")
         grid_path = os.path.normpath(os.path.join(grid_dir, grid_name))
         project_cache = request.app.state.project_cache.setdefault(project_name)
         if not project_cache: 
             return JSONResponse({"status": "error", "message": "Project is not available in memory."}) 
         grid_uds = project_cache.get('grid_uds')
-        print(points, grid_uds)
-
-
-
-        # grid_uds.to_netcdf(grid_path)
+        grid = functions.unstructuredGridCreator(grid_uds)
+        nodes = functions.nodes_from_grid(grid)
+        x_array, y_array, z_array = points['lon'].values, points['lat'].values, points['Depth'].values
+        depth = functions.interpolation_Z(nodes, x_array, y_array, z_array, geo_type='point')
+        grid_uds['mesh2d_node_z'] = (("mesh2d_nNodes",), da.from_array(depth.astype(np.float64)))  
+        grid_uds.to_netcdf(grid_path)  
         return JSONResponse({'status': 'ok', 'message': f'Grid saved successfully: {grid_path.replace(PROJECT_ROOT, "...")}'})
     except Exception as e:
         print('/grid_saver:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
 
 @router.post("/grid_rechecker")
 async def grid_rechecker(request: Request, user=Depends(functions.basic_auth)):
@@ -431,11 +449,12 @@ async def grid_rechecker(request: Request, user=Depends(functions.basic_auth)):
             return JSONResponse({'status': 'error', 'message': f"Grid not found: {grid_path.replace(PROJECT_ROOT, '...')}"})
         with xr.open_dataset(grid_path) as grid_uds:
             grid = functions.unstructuredGridCreator(grid_uds)
-
-
-
-        # grid_uds.to_netcdf(grid_path)
-        return JSONResponse({'status': 'ok', 'message': f'Grid saved successfully: {grid_path.replace(PROJECT_ROOT, "...")}'})
+            nodes = functions.nodes_from_grid(grid)
+            nodes['Depth'] = 0
+            if 'mesh2d_node_z' in grid_uds: nodes['Depth'] = grid_uds['mesh2d_node_z'].values
+            if 'NetNode_z' in grid_uds: nodes['Depth'] = grid_uds['NetNode_z'].values
+        content = {'grid': json.loads(grid.to_json()), 'nodes': json.loads(nodes.to_json())}
+        return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/grid_rechecker:\n==============')
         traceback.print_exc()

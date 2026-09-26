@@ -13,7 +13,7 @@ const obj = {
     selectContainer: $("select-container"), municipalityName: $("municipality-name"), 
     municipalityList: $("municipality-list"), lakeSearcher: $("lake-search"), 
     sugesstionLake: $("lake-suggestions"), lakeLabel: $("lake-name-label"), 
-    lakeSelector: $("lake-name"), lakeTable: $("lake-table"), 
+    lakeSelector: $("lake-name"), lakeTable: $("lake-table"), exportDepth: $("get-depth-btn"),
     tableContent: $("table-of-contents"), menuContent: $("menu-container"),
     polygonCheckbox: $("polygon-checkbox"), depthCheckbox: $("depth-checkbox"),
     vertexesBtn: $("vertexes-btn"), refinementCheckbox: $("refinement-checkbox"),
@@ -501,6 +501,20 @@ function unGridManager() {
             obj.colorBarContainer.style.display = 'none';
         }
     });
+    obj.exportDepth.addEventListener('click', async () => {
+        if (depthLayer === null) { alert("No depth layer found on the map.\nActive this layer and try again."); return; }
+        signalSender('showOverlay', 'Exporting depth data.\nPlease wait...');
+        const contents = { depthData: depthLayer.toGeoJSON() };
+        const response = await jsonLoader('export_depth', contents); signalSender('hideOverlay');
+        
+        
+        
+        alert(response.message);
+        // if (response.status === "error") { return; }
+    });
+
+
+
     obj.vertexesBtn.addEventListener('click', async () => {
         obj.colorBarContainer.style.display = 'none';
         if (lakeLayer === null) { alert('Please add/draw a polygon on the map first.'); return;}
@@ -774,7 +788,8 @@ function unGridManager() {
         }
         signalSender('showOverlay', 'Saving grid.\nPlease wait...');
         const response = await jsonLoader('grid_saver', contents);
-        signalSender('hideOverlay'); alert(response.message); 
+        signalSender('hideOverlay'); alert(response.message);
+        if (response.status === "error") { return; }
         obj.reCheckGrid.style.display = 'block';
     });
     obj.reCheckGrid.addEventListener('click', async() => {
@@ -784,6 +799,10 @@ function unGridManager() {
         const contents = { projectName: currentProject, gridName: gridName };
         const check = await jsonLoader('grid_rechecker', contents); signalSender('hideOverlay');
         if (check.status === "error") { alert(check.message); return; }
+        gridLayer = clearMap(gridLayer, lakeMap); gridPoints = clearMap(gridPoints, lakeMap);
+        pointLayer = clearMap(pointLayer, lakeMap);
+        gridLayer = await plotUnstructuredGrid(check.content.grid, lakeMap);
+        gridPoints = await plotUnstructuredGrid(check.content.nodes, lakeMap);
     });
 }
 

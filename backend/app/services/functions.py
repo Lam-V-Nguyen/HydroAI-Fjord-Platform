@@ -272,11 +272,11 @@ def unstructuredGridCreator(data_map: xr.Dataset) -> gpd.GeoDataFrame:
         for face, count in zip(faces, counts)
     ]
     # Check coordinate reference system
-    if 'projected_coordinate_system' in data_map.variables:
+    if 'projected_coordinate_system' in data_map:
         crs_code = data_map['projected_coordinate_system'].attrs.get('EPSG_code')
         # Convert to WGS84 if not already
         grid = gpd.GeoDataFrame(geometry=polygons, crs=crs_code).to_crs(epsg=4326)
-    elif 'crs' in data_map.variables:
+    elif 'crs' in data_map:
         crs_wkt = data_map['crs'].attrs.get('crs_wkt')
         if crs_wkt: 
             grid = gpd.GeoDataFrame(geometry=polygons, crs=crs_wkt).to_crs(epsg=4326)

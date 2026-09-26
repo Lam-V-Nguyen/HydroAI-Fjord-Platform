@@ -87,18 +87,18 @@ def sort_face_ccw(nodes, x, y):
 
 def meshkernel_to_Ugrid(mk: MeshKernel, crs: str):
     mesh = mk.mesh2d_get()
-    node_x = np.asarray(mesh.node_x, dtype=np.float64)
-    node_y = np.asarray(mesh.node_y, dtype=np.float64)
-    edge_x = np.asarray(mesh.edge_x, dtype=np.float64)
-    edge_y = np.asarray(mesh.edge_y, dtype=np.float64)
+    node_x = np.asarray(mesh.node_x, dtype=np.float32)
+    node_y = np.asarray(mesh.node_y, dtype=np.float32)
+    edge_x = np.asarray(mesh.edge_x, dtype=np.float32)
+    edge_y = np.asarray(mesh.edge_y, dtype=np.float32)
     edge_nodes = mesh.edge_nodes.reshape((-1, 2)).astype(np.int32)  # 0-based
     face_nodes_flat = mesh.face_nodes.astype(np.int32)
     nodes_per_face = mesh.nodes_per_face.astype(np.int32)
-    face_x = np.asarray(mesh.face_x, dtype=np.float64)
-    face_y = np.asarray(mesh.face_y, dtype=np.float64)
+    face_x = np.asarray(mesh.face_x, dtype=np.float32)
+    face_y = np.asarray(mesh.face_y, dtype=np.float32)
     nEdges, nFaces = edge_x.size, face_x.size
     max_n = int(nodes_per_face.max()) if nFaces > 0 else 0
-    face_nodes = np.full((nFaces, max_n), np.nan, dtype=np.float64)
+    face_nodes = np.full((nFaces, max_n), np.nan, dtype=np.float32)
     if nFaces > 0:
         offset = np.zeros(nFaces, dtype=int)
         offset[1:] = np.cumsum(nodes_per_face[:-1])
@@ -146,8 +146,8 @@ def meshkernel_to_Ugrid(mk: MeshKernel, crs: str):
     ds["mesh2d_node_y"] = (("mesh2d_nNodes",), da.from_array(node_y))
     ds["mesh2d_node_x"].attrs["grid_mapping"] = "crs"
     ds["mesh2d_node_y"].attrs["grid_mapping"] = "crs"
-    x_bnd = np.full_like(face_nodes, np.nan, dtype=np.float64)
-    y_bnd = np.full_like(face_nodes, np.nan, dtype=np.float64)
+    x_bnd = np.full_like(face_nodes, np.nan, dtype=np.float32)
+    y_bnd = np.full_like(face_nodes, np.nan, dtype=np.float32)
     for i in range(nFaces):
         fn = face_nodes[i]
         valid = ~np.isnan(fn)
@@ -192,7 +192,7 @@ def netCDF_creator(mk: MeshKernel, depth: gpd.GeoDataFrame=None):
     else: node_z = np.zeros(len(node_x))
     # Convert to Ugrid
     grid_uds = meshkernel_to_Ugrid(mk, crs)
-    grid_uds['mesh2d_node_z'] = (("mesh2d_nNodes",), da.from_array(node_z.astype(np.float64)))    
+    grid_uds['mesh2d_node_z'] = (("mesh2d_nNodes",), da.from_array(node_z.astype(np.float32)))    
     grid_uds.attrs.update({ "institution": 'Private', "references": 'vanlnNTNU@gmail.com'})
     return grid_uds
 
