@@ -93,7 +93,7 @@ body {
 }
 .single-line button{ 
   cursor: pointer; padding: 5px 20px; border: none; 
-  border-radius: 6px; font-weight: bold; height: 40px;
+  border-radius: 6px; font-weight: bold; height: 30px;
   background: #0077b6; color: white; font-size: 14px; 
 }
 

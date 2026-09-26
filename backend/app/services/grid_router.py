@@ -1,10 +1,11 @@
-import traceback, os, json
+import traceback, os, json, tempfile
 from fastapi import UploadFile, File, APIRouter, Request, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, grid_functions
 from config import PROJECT_ROOT
 from shapely.geometry import Point, Polygon
-import numpy as np, geopandas as gpd, pandas as pd, xarray as xr, dask.array as da
+import numpy as np, geopandas as gpd
+import pandas as pd, xarray as xr, dask.array as da
 from meshkernel import MeshKernel, GeometryList
 
 router, processes = APIRouter(), {}
@@ -108,6 +109,7 @@ async def export_depth(request: Request):
         depth['geometry'] = depth['geometry'].centroid
         depth['Latitude'], depth['Longitude'], depth['Depth'] = depth.geometry.y, depth.geometry.x, depth['value']
         depth = depth[['Latitude', 'Longitude', 'Depth', 'geometry']]
+        print(depth)
         return JSONResponse({'status': 'ok', 'content': json.loads(depth.to_json())})
     except Exception as e:
         print('/export_depth:\n==============')
@@ -412,42 +414,53 @@ async def grid_interpolation(request: Request):
 
 @router.post("/grid_saver")
 async def grid_saver(request: Request, user=Depends(functions.basic_auth)):
+    temp_path = None
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        point_data, grid_name = body.get('gridPoints'), body.get('gridName')
+        point_data = body.get('gridPoints')
         points = gpd.GeoDataFrame.from_features(
             point_data['features'] if point_data['type'] == 'FeatureCollection' else [point_data], crs="EPSG:4326"
         )
         points['lat'], points['lon'] = points.geometry.y, points.geometry.x
-        grid_dir = os.path.join(PROJECT_ROOT, project_name, "grids")
-        grid_path = os.path.normpath(os.path.join(grid_dir, grid_name))
         project_cache = request.app.state.project_cache.setdefault(project_name)
         if not project_cache: 
             return JSONResponse({"status": "error", "message": "Project is not available in memory."}) 
         grid_uds = project_cache.get('grid_uds')
+        if grid_uds is None:
+            return JSONResponse({"status": "error", "message": "Grid is not available."})
         grid = functions.unstructuredGridCreator(grid_uds)
         nodes = functions.nodes_from_grid(grid)
         x_array, y_array, z_array = points['lon'].values, points['lat'].values, points['Depth'].values
         depth = functions.interpolation_Z(nodes, x_array, y_array, z_array, geo_type='point')
-        grid_uds['mesh2d_node_z'] = (("mesh2d_nNodes",), da.from_array(depth.astype(np.float64)))  
-        grid_uds.to_netcdf(grid_path)  
-        return JSONResponse({'status': 'ok', 'message': f'Grid saved successfully: {grid_path.replace(PROJECT_ROOT, "...")}'})
+        grid_uds['mesh2d_node_z'] = (("mesh2d_nNodes",), da.from_array(depth.astype(np.float32)))
+        with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as temp_file:
+            temp_path = temp_file.name
+        grid_uds.to_netcdf(temp_path, engine='netcdf4')
+        def file_iterator():
+            try:
+                with open(temp_path, 'rb') as f:
+                    while chunk := f.read(1024 * 1024):
+                        yield chunk
+            finally:
+                if os.path.exists(temp_path): os.remove(temp_path)
+        return StreamingResponse(file_iterator(), media_type="application/x-netcdf")
     except Exception as e:
         print('/grid_saver:\n==============')
         traceback.print_exc()
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/grid_rechecker")
-async def grid_rechecker(request: Request, user=Depends(functions.basic_auth)):
+async def grid_rechecker(file: UploadFile = File(...)):
+    temp_path = None
     try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        grid_name = f"{body.get('gridName')}.nc"
-        grid_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "grids", grid_name))
-        if not os.path.exists(grid_path): 
-            return JSONResponse({'status': 'error', 'message': f"Grid not found: {grid_path.replace(PROJECT_ROOT, '...')}"})
-        with xr.open_dataset(grid_path) as grid_uds:
+        with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as temp_file:
+            temp_path = temp_file.name
+            while chunk := await file.read(1024 * 1024):
+                temp_file.write(chunk)
+        with xr.open_dataset(temp_path, engine='netcdf4') as grid_uds:
             grid = functions.unstructuredGridCreator(grid_uds)
             nodes = functions.nodes_from_grid(grid)
             nodes['Depth'] = 0

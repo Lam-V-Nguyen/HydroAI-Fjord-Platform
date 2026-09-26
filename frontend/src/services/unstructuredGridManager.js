@@ -13,7 +13,8 @@ const obj = {
     selectContainer: $("select-container"), municipalityName: $("municipality-name"), 
     municipalityList: $("municipality-list"), lakeSearcher: $("lake-search"), 
     sugesstionLake: $("lake-suggestions"), lakeLabel: $("lake-name-label"), 
-    lakeSelector: $("lake-name"), lakeTable: $("lake-table"), exportDepth: $("get-depth-btn"),
+    lakeSelector: $("lake-name"), lakeTable: $("lake-table"), 
+    depthGridCheckbox: $("depth-grid-checkbox"), exportDepth: $("get-depth-btn"),
     tableContent: $("table-of-contents"), menuContent: $("menu-container"),
     polygonCheckbox: $("polygon-checkbox"), depthCheckbox: $("depth-checkbox"),
     vertexesBtn: $("vertexes-btn"), refinementCheckbox: $("refinement-checkbox"),
@@ -26,13 +27,14 @@ const obj = {
     interpolateGrid: $("interpolate-grid"), interpolateMapBtn: $("interpolate-grid-pick-btn"),
     interpolateCSVBtn: $("interpolate-grid-csv-btn"), interpolateFile: $("interpolate-grid-csv"),
     iterationValue: $("iterations"), valueFrom: $("detail-level-from"), 
-    gridName: $("grid-name"), valueTo: $("detail-level-to"), optimizeBtn: $("optimize-grid"),
+    valueTo: $("detail-level-to"), optimizeBtn: $("optimize-grid"), reCheckGridFile: $("recheck-grid-file"),
     progressbarGrid: $("progressbar-grid"), progressTextGrid: $("progress-text-grid"),
-    baseMap: $("basemap-btn"), leafletMap: $("leaflet-map-lakes"),
+    baseMap: $("basemap-btn"), leafletMap: $("leaflet-map-lakes"), saveDepth: $("export-depth-btn"),
     leafletContainer: $("map-container"), plotContainer: $("plot-container"), 
     colorBarContainer: $("custom-colorbar-grid"), colorBarColor: $("colorbar-gradient"),
     colorBarTitle: $("colorbar-title"), colorBarLabel: $("colorbar-label"),
-    chartDiv: $("myChart-grid"), optimizeCloseBtn: $("optimization-close")
+    optimizeCloseBtn: $("optimization-close"), 
+
 };
 
 const row = ['Name', 'Municipality', 'Area', 'Perimeter', 
@@ -41,8 +43,8 @@ let currentProject = null, lakeMap = null, mapContainer = null,
     currentTileLayer = null, timeOut = null, lakesData = {}, 
     dataLake = null, dataDepth = null, timeCounter = null, gridPoints = null,
     drawSelection = false, drawChecked = false, entireNorway = false, 
-    interpolateCheked = null, interpolateDeleteChecked = false, 
-    interpolatedLayer = null, interpolatedPoints = [],
+    interpolateCheked = null, interpolateDeleteChecked = false, interpolatedPointLayer = null, 
+    interpolatedLayer = null, interpolatedPoints = [], depthPointLayer = null,
     depthLayer = null, lakeLayer = null, gridLayer = null, orthoLayer = null,
     refineChecked = false, pointContainer = [], html = null, tempLine = null,
     moveChecked = false, deleteChecked = false, levelValue = null, lakeList = [],
@@ -54,7 +56,7 @@ const hoverTooltip = L.tooltip({
 });
 
 setupTabs(document); await getProject(); await initMap(); lakeOptions(); 
-dataBaseOptions(); unGridManager();
+dataBaseOptions(); unGridManager(); existingGridManager();
 
 async function getProject() { 
     const user = await getUser();
@@ -160,8 +162,8 @@ async function initMap() {
                         style="width:100%; box-sizing:border-box;
                         margin-top:5px; margin-bottom:10px;"/>
                     <div style="display:flex; gap:8px; justify-content: -end;">
-                        <button id="saveDepth">Save</button>
-                        <button id="cancelDepth">Cancel</button>
+                        <button id="save-1">Save</button>
+                        <button id="cancel-1">Cancel</button>
                     </div>
                 </div>
             `;
@@ -170,7 +172,7 @@ async function initMap() {
             }).setLatLng(latlng).setContent(container).openOn(lakeMap);
             const input = container.querySelector('#depthInput'); input.focus();
             // Save
-            container.querySelector('#saveDepth').addEventListener('click', () => {
+            container.querySelector('#save-1').addEventListener('click', () => {
                 const value = input.value.trim();
                 if (value === '' || !Number.isFinite(Number(value))) {
                     alert('Please enter a valid depth value.'); input.focus(); return;
@@ -200,7 +202,7 @@ async function initMap() {
                 lakeMap.closePopup(popup);
             });
             // Cancel
-            container.querySelector('#cancelDepth').addEventListener('click', () => {
+            container.querySelector('#cancel-1').addEventListener('click', () => {
                 marker.remove(); lakeMap.closePopup(popup);
             });
             return;
@@ -217,6 +219,7 @@ async function initMap() {
             // Plot polygon
             await drawPolygon(pointContainer); drawChecked = false;
             pointContainer = []; mapContainer.style.cursor = "auto";
+            obj.menuContent.style.display = 'grid';
         }
         if (interpolateCheked) {
             interpolateCheked = false; mapContainer.style.cursor = "auto";
@@ -246,8 +249,8 @@ function editDepth(marker) {
                 style="width:100%; box-sizing:border-box;
                 margin-top:5px; margin-bottom:10px;"/>
             <div style="display:flex; gap:8px; justify-content: -end;">
-                <button id="saveDepth">Save</button>
-                <button id="cancelDepth">Cancel</button>
+                <button id="save-2">Save</button>
+                <button id="cancel-2">Cancel</button>
             </div>
         </div>
     `;
@@ -257,7 +260,7 @@ function editDepth(marker) {
     const input = container.querySelector('#depthInput');
     input.focus(); input.select(); input.value = currentDepth;
     // Save
-    container.querySelector('#saveDepth').addEventListener('click', () => {
+    container.querySelector('#save-2').addEventListener('click', () => {
         const value = input.value.trim();
         if (value === '' || !Number.isFinite(Number(value))) {
             alert('Please enter a valid depth value.');
@@ -283,7 +286,7 @@ function editDepth(marker) {
         lakeMap.closePopup(popup);
     });
     // Cancel
-    container.querySelector('#cancelDepth').addEventListener('click', () => {
+    container.querySelector('#cancel-2').addEventListener('click', () => {
         lakeMap.closePopup(popup);
     });
 }
@@ -447,26 +450,28 @@ function unGridManager() {
     // Change data source 
     document.querySelectorAll('input[type="radio"]').forEach(opt => { 
         opt.addEventListener('change', () => { 
-            if (opt.id === 'new-database') { 
-                obj.selectContainer.style.display = 'flex'; 
-                obj.municipalityName.value = ''; obj.lakeSearcher.value = ''; 
-                obj.lakeSelector.style.display = 'none'; 
-                obj.lakeSelector.value = ''; obj.lakeLabel.style.display = 'none';
-                obj.menuContent.style.display = 'none'; 
-                drawSelection = false; drawChecked = false; 
-            } else if (opt.id === 'new-map') { 
-                obj.selectContainer.style.display = 'none'; 
-                drawSelection = true; drawChecked = true;
-                obj.menuContent.style.display = 'grid';
-                obj.colorBarContainer.style.display = 'none';
-                interpolatedLayer = clearMap(interpolatedLayer, lakeMap);
-            }
+            interpolatedLayer = clearMap(interpolatedLayer, lakeMap);
+            interpolatedPointLayer = clearMap(interpolatedPointLayer, lakeMap);
+            obj.menuContent.style.display = 'none';
             deleteTable(obj.lakeTable); addRowToTable(obj.lakeTable, row); resetMap();
             moveChecked = false; obj.moveCheckbox.checked = false;
             refineChecked = false; obj.refinementCheckbox.checked = false;
             obj.refinementCheckbox.dispatchEvent(new Event('change'));
             obj.depthCheckbox.checked = false; obj.depthCheckbox.dispatchEvent(new Event('change'));
             obj.orthoCheckbox.checked = false; obj.orthoCheckbox.dispatchEvent(new Event('change'));
+            if (opt.id === 'new-database') { 
+                obj.selectContainer.style.display = 'flex';
+                obj.tableContent.style.display = 'block';
+                obj.municipalityName.value = ''; obj.lakeSearcher.value = ''; 
+                obj.lakeSelector.style.display = 'none'; 
+                obj.lakeSelector.value = ''; obj.lakeLabel.style.display = 'none';
+                drawSelection = false; drawChecked = false;
+            } else if (opt.id === 'new-map') { 
+                obj.selectContainer.style.display = 'none'; 
+                drawSelection = true; drawChecked = true;
+                obj.colorBarContainer.style.display = 'none';
+                obj.tableContent.style.display = 'block';
+            }
         });
     });
     // Hide suggestions
@@ -506,17 +511,27 @@ function unGridManager() {
         signalSender('showOverlay', 'Exporting depth data.\nPlease wait...');
         const contents = { depthData: depthLayer.toGeoJSON() };
         const response = await jsonLoader('export_depth', contents); signalSender('hideOverlay');
-        
-        
-        
-        alert(response.message);
-        // if (response.status === "error") { return; }
+        if (response.status === "error") { 
+            alert(response.message); return; 
+        }
+        depthPointLayer = clearMap(depthPointLayer, lakeMap);
+        depthPointLayer = addGridPoints(response.content, false);
+        obj.depthGridCheckbox.checked = true; 
+        obj.depthGridCheckbox.dispatchEvent(new Event('change'));
     });
-
-
-
+    obj.depthGridCheckbox.addEventListener('change', async (e) => {
+        if (e.target.checked) { 
+            if (depthPointLayer !== null) {
+                lakeMap.addLayer(depthPointLayer);
+            } else { e.target.checked = false; }
+        } else { lakeMap.removeLayer(depthPointLayer); }
+    });
+    obj.saveDepth.addEventListener('click', async () => {
+        if (depthPointLayer === null) { alert("No point layer found on the map."); return; }
+        const header = ['Lon', 'Lat', 'Depth(m)']; layerToCSV(depthPointLayer, header, 'Grid CSV');
+    });
     obj.vertexesBtn.addEventListener('click', async () => {
-        obj.colorBarContainer.style.display = 'none';
+        obj.colorBarContainer.style.display = 'none'; gridPoints = clearMap(gridPoints, lakeMap);
         if (lakeLayer === null) { alert('Please add/draw a polygon on the map first.'); return;}
         signalSender('showOverlay', 'Generating Vertexes.\nPlease wait...');
         const lakeContent = { projectName: currentProject, polygon: lakeLayer.toGeoJSON() };
@@ -620,14 +635,13 @@ function unGridManager() {
         const contents = { 
             projectName: currentProject, pointCollection: pointCollection, levelValue: levelValue 
         }
-        const response = await jsonLoader('grid_creator', contents);
-        signalSender('hideOverlay');
-        // pointLayer = clearMap(pointLayer, lakeMap); pointCollection = [];
+        const response = await jsonLoader('grid_creator', contents); signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); return; }
         gridLayer = clearMap(gridLayer, lakeMap); orthoLayer = clearMap(orthoLayer, lakeMap);
         gridLayer = await plotUnstructuredGrid(response.content.polygon, lakeMap);
+        interpolatedPointLayer = clearMap(interpolatedPointLayer, lakeMap);
         gridPoints = clearMap(gridPoints, lakeMap); 
-        gridPoints = await plotUnstructuredGrid(response.content.point, lakeMap);
+        gridPoints = await plotUnstructuredGrid(response.content.point, lakeMap, 'black');
         moveChecked = false; obj.moveCheckbox.checked = false;
         refineChecked = false; obj.refinementCheckbox.checked = false;
         obj.refinementCheckbox.dispatchEvent(new Event('change'));
@@ -766,8 +780,8 @@ function unGridManager() {
         const response = await jsonLoader('grid_interpolation', contents); 
         signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); return; }
-        gridPoints = clearMap(gridPoints, lakeMap); 
-        gridPoints = await plotUnstructuredGrid(response.content, lakeMap);
+        interpolatedPointLayer = clearMap(interpolatedPointLayer, lakeMap); 
+        interpolatedPointLayer = await plotUnstructuredGrid(response.content, lakeMap);
         obj.interpolateHide.checked = false; obj.interpolateHide.dispatchEvent(new Event('change'));
     });
     obj.interpolateHide.addEventListener('change', (e) => {
@@ -775,35 +789,88 @@ function unGridManager() {
         else { lakeMap.removeLayer(interpolatedLayer); }
     });
     obj.saveGrid.addEventListener('click', async() => {
-        if (gridPoints === null) { alert("No interpolated grid found. Please interpolate grid first."); return; }
-        let name = obj.gridName.value.trim();
-        if (name === "") { alert("Please enter a name."); return; }
-        if (nameChecker(name)) { alert('Grid name contains invalid characters.'); return; }
-        if (!name.toLowerCase().endsWith('.nc')) { name = name + '.nc'; }
-        signalSender('showOverlay', 'Checking grid existence.\nPlease wait...');
-        const contents = { projectName: currentProject, gridName: name, gridPoints: gridPoints.toGeoJSON() };
-        const check = await jsonLoader('grid_checker', contents); signalSender('hideOverlay');
-        if (check.status === "error") { 
-            if (!confirm(`File "${name}" already exists. Do you want to overwrite it?`)) return;
+        if (interpolatedPointLayer === null) { alert("No interpolated grid found. Please interpolate grid first."); return; }
+        signalSender('showOverlay', 'Saving interpolated grid data to a NetCDF file.\nPlease wait...');
+        // Check browser support
+        if (!window.showSaveFilePicker) {
+            alert(
+                "Your browser does not support choosing a save location.\n" +
+                "Please use a recent version of Chrome or Edge."
+            );
+            return;
         }
-        signalSender('showOverlay', 'Saving grid.\nPlease wait...');
-        const response = await jsonLoader('grid_saver', contents);
-        signalSender('hideOverlay'); alert(response.message);
-        if (response.status === "error") { return; }
-        obj.reCheckGrid.style.display = 'block';
+        try {
+            const fileHandle = await window.showSaveFilePicker({
+                suggestedName: "Grid.nc",
+                types: [
+                    { description: 'NetCDF files', accept: {'application/x-netcdf': ['.nc']}}
+                ]
+            });
+            const contents = { 
+                projectName: currentProject, gridPoints: interpolatedPointLayer.toGeoJSON() 
+            };
+            const response = await fetch('/grid_saver', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(contents)
+            });
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP ${response.status}`);
+            }
+            const blob = await response.blob();
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob); await writable.close();
+            alert(`Grid saved successfully.`);
+        } catch (error) {
+            // User cancelled the Save dialog
+            if (error.name === 'AbortError') { return; }
+            alert(`Error saving grid: ${error.message}`);
+        }
+        signalSender('hideOverlay');
     });
-    obj.reCheckGrid.addEventListener('click', async() => {
-        const gridName = obj.gridName.value.trim();
-        if (gridName === "") { alert("Please enter a name of the grid."); return; }
-        signalSender('showOverlay', 'Checking grid existence.\nPlease wait...');
-        const contents = { projectName: currentProject, gridName: gridName };
-        const check = await jsonLoader('grid_rechecker', contents); signalSender('hideOverlay');
-        if (check.status === "error") { alert(check.message); return; }
-        gridLayer = clearMap(gridLayer, lakeMap); gridPoints = clearMap(gridPoints, lakeMap);
-        pointLayer = clearMap(pointLayer, lakeMap);
-        gridLayer = await plotUnstructuredGrid(check.content.grid, lakeMap);
-        gridPoints = await plotUnstructuredGrid(check.content.nodes, lakeMap);
+    obj.reCheckGrid.addEventListener('click', () => obj.reCheckGridFile.click());
+    obj.reCheckGridFile.addEventListener('change', async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const formData = new FormData(); formData.append('file', file);
+        signalSender('showOverlay', 'Reading NetCDF file. Please wait...');
+        const response = await fetch('/grid_rechecker', { method: 'POST', body: formData });
+        const data = await response.json(); signalSender('hideOverlay'); e.target.value = '';
+        if (data.status === 'error') { 
+            alert(`Reading NetCDF failed: ${data.message}`); return; 
+        }
+        gridLayer = clearMap(gridLayer, lakeMap); pointLayer = clearMap(pointLayer, lakeMap);
+        interpolatedPointLayer = clearMap(interpolatedPointLayer, lakeMap);
+        gridLayer = await plotUnstructuredGrid(data.content.grid, lakeMap);
+        interpolatedPointLayer = await plotUnstructuredGrid(data.content.nodes, lakeMap);
     });
+}
+
+function layerToCSV(layer, header, title) {
+    if (!layer) return;
+    const geojson = layer.toGeoJSON();
+    const features = geojson.type === 'FeatureCollection'
+        ? geojson.features : [geojson];
+    const rows = features.map(feature => {
+        const center = turf.center(feature);
+        const [lon, lat] = center.geometry.coordinates;
+        const value = feature.properties?.Depth ?? '';
+        const depth = value === '' || value === null || value === undefined
+            ? '' : Number(value).toFixed(3);
+        return [Number(lon).toFixed(7), Number(lat).toFixed(7), depth].join(',');
+    });
+    const csv = [header.join(','),...rows].join('\n');
+    const html = `
+        <!DOCTYPE html><html><head>
+            <meta charset="UTF-8"><title>${title}</title>
+            <style>
+                body {font-family: monospace; white-space: pre; padding: 20px;}
+            </style>
+        </head>
+        <body>${csv.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body>
+        </html>
+    `;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob); window.open(url, '_blank');
 }
 
 async function addItems(currentProject, value) {
@@ -856,7 +923,7 @@ async function drawPolygon(pointList) {
     pointLayer = addPointLayer(point, lakeMap, true);
 }
 
-export function addGridPoints(points) {
+export function addGridPoints(points, editable=true) {
     const tempLayer = L.geoJSON(points, {
         pointToLayer: (_, latlng) => {
            return L.circleMarker(latlng, {
@@ -870,47 +937,50 @@ export function addGridPoints(points) {
                     .map(([name, value]) => `
                         <div><b>${name}:</b> ${value}</div>
                     `).join('');
+                if (!editable) return content;
                 return `${content}<hr><b>Click to adjust depth</b>`;
             };
             layer.bindTooltip(tooltip, {sticky: true, direction: 'top'});
-            layer.on('click', () => { 
-                const originalDepth = feature.properties.Depth;
-                const container = document.createElement('div');
-                container.innerHTML = `
-                    <div style="min-width: 200px;">
-                        <label><b>Depth Adjustment:</b></label>
-                        <input type="number" id="depthInput" step="any"
-                            style="
-                                width:100%; box-sizing:border-box;
-                                margin-top:5px; margin-bottom:10px;
-                            "
-                        />
-                        <div style="display:flex; gap:8px; justify-content:flex-end;">
-                            <button id="saveDepth" style="cursor:pointer;">Save</button>
-                            <button id="cancelDepth" style="cursor:pointer;">Cancel</button>
+            if (editable) {
+                layer.on('click', () => { 
+                    const originalDepth = feature.properties.Depth;
+                    const container = document.createElement('div');
+                    container.innerHTML = `
+                        <div style="min-width: 200px;">
+                            <label><b>Depth Adjustment:</b></label>
+                            <input type="number" id="depthInput" step="any"
+                                style="
+                                    width:100%; box-sizing:border-box;
+                                    margin-top:5px; margin-bottom:10px;
+                                "
+                            />
+                            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                                <button id="save-3" style="cursor:pointer;">Save</button>
+                                <button id="cancel-3" style="cursor:pointer;">Cancel</button>
+                            </div>
                         </div>
-                    </div>
-                `;
-                const input = container.querySelector('#depthInput');
-                input.value = originalDepth ?? '';
-                const popup = L.popup({
-                    closeOnClick: false, autoClose: false, maxWidth: 300
-                }).setLatLng(layer.getLatLng()).setContent(container).openOn(lakeMap);
-                // Save Depth
-                container.querySelector('#saveDepth').addEventListener('click', () => {
-                    const newDepth = input.value.trim();
-                    if (newDepth === '' || !Number.isFinite(Number(newDepth))) {
-                        alert('Please enter a valid depth value.'); return;
-                    }
-                    feature.properties.Depth = Number(newDepth); // Update Depth to GeoJSON feature
-                    layer.setTooltipContent(createTooltip()); // Update Tooltip
-                    layer.closePopup(popup);
+                    `;
+                    const input = container.querySelector('#depthInput');
+                    input.value = originalDepth ?? '';
+                    const popup = L.popup({
+                        closeOnClick: false, autoClose: false, maxWidth: 300
+                    }).setLatLng(layer.getLatLng()).setContent(container).openOn(lakeMap);
+                    // Save Depth
+                    container.querySelector('#save-3').addEventListener('click', () => {
+                        const newDepth = input.value.trim();
+                        if (newDepth === '' || !Number.isFinite(Number(newDepth))) {
+                            alert('Please enter a valid depth value.'); return;
+                        }
+                        feature.properties.Depth = Number(newDepth); // Update Depth to GeoJSON feature
+                        layer.setTooltipContent(createTooltip()); // Update Tooltip
+                        layer.closePopup(popup);
+                    });
+                    // Cancel Depth
+                    container.querySelector('#cancel-3').addEventListener('click', () => {
+                        layer.closePopup(popup);
+                    });
                 });
-                // Cancel Depth
-                container.querySelector('#cancelDepth').addEventListener('click', () => {
-                    layer.closePopup(popup);
-                });
-            });
+            }
         }
     }).addTo(lakeMap);
     return tempLayer;

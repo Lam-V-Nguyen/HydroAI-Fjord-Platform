@@ -120,7 +120,8 @@ export function updateColorbar(min, max, title, colorbarKey, bar_color, bar_titl
     bar_color.style.background = `linear-gradient(to top, ${colorStops.join(", ")})`;
 }
 
-export function gridPlotter(legend, polygon, points, map, colorBarObj, colorbarKey='depth') {
+export function gridPlotter(legend, polygon, points, map, 
+    colorBarObj, searchRadius=200, power=2, colorbarKey='depth') {
     if (points === null || points.features === null 
         || points.features.length === 0) { return null; }
     // Make grid points colored by depth
@@ -137,8 +138,12 @@ export function gridPlotter(legend, polygon, points, map, colorBarObj, colorbarK
         let num = 0, den = 0;
         points.features.forEach(p => {
             const d = turf.distance(center , p, {units: 'meters'});
-            const w = 1 / Math.max(d, 1);
-            num += w * p.properties.depth; den += w;
+            if (d > searchRadius) return;
+            const depth = Number(p.properties.depth);
+            if (!Number.isFinite(depth)) return;
+            if (d < 0.001) { num = depth; den = 1; return; }
+            const w = 1 / Math.pow(d, power);
+            num += w * depth; den += w;
         });
         if (den > 0) { cell.properties.value = num / den; }
     });
@@ -150,6 +155,10 @@ export function gridPlotter(legend, polygon, points, map, colorBarObj, colorbarK
             const { r, g, b, a } = getColorFromValue(value, vmin, vmax, colorbarKey);
             return { fill: true, fillColor: `rgb(${r},${g},${b})`, 
                 fillOpacity: a, weight: 0, opacity: 1, stroke: false };
+        },
+        onEachFeature: (feature, layer) => {
+            const depth = feature.properties.value;
+            layer.bindTooltip(`Depth: ${depth.toFixed(2)} m`, {sticky: true, direction: 'top'});
         }
     }).addTo(map);
     map.fitBounds(tempGrid.getBounds());
@@ -183,11 +192,11 @@ export function polygonPlotter(polygon, map, entireNorway=false, zoom = false) {
     return tempLayer;
 }
 
-export async function plotUnstructuredGrid(obj, map) {
+export async function plotUnstructuredGrid(obj, map, color='red') {
     const tempLayer = L.geoJSON(obj, {
         pointToLayer: (_, latlng) => {
             return L.circleMarker(latlng, {
-                radius: 3, color: 'white', weight: 1, fillColor: 'red', fillOpacity: 0.8
+                radius: 3, color: 'white', weight: 1, fillColor: color, fillOpacity: 0.8
             });
         },
         style: feature => {

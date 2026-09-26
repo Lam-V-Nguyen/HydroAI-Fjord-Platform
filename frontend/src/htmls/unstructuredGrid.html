@@ -13,7 +13,7 @@
     <body>
         <div class="data-source">
             <input type="radio" id="new-database" name="project" checked=true>
-            <label for="new-database">Use Database</label>
+            <label for="new-database">Use Pre-defined Database</label>
             <input type="radio" id="new-map" name="project" style="margin-left: 100px;">
             <label for="new-map">Draw on Map</label>
         </div>
@@ -78,6 +78,10 @@
                                 <input type="checkbox" id="depth-checkbox"><span>Show Depth</span>
                             </label>
                             <button id="get-depth-btn">Export Depth Data</button>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="depth-grid-checkbox"><span>Show Depth Grid</span>
+                            </label>
+                            <button id="export-depth-btn">Save Data</button>
                         </div>
                     </div>
                     <div class="tabpanel main-panel" data-panel="grid-edit-tab">
@@ -150,12 +154,9 @@
                     </div>
                     <div class="tabpanel main-panel" data-panel="grid-save-tab">
                         <div class="single-line">
-                            <label class="checkbox-item">
-                                <span>Grid Name (*.nc)</span>
-                                <input type="text" id="grid-name" placeholder="Enter grid name" style="width: 200px;;" value="Grid">
-                            </label>
                             <button class="save-grid" id="save-grid">Save Grid</button>
-                            <button class="save-grid" id="recheck-grid" style="display: none;">Recheck Grid</button>
+                            <button class="save-grid" id="recheck-grid">Recheck Grid</button>
+                            <input type="file" id="recheck-grid-file" accept=".nc" hidden>
                         </div>
                     </div>
                 </div>
