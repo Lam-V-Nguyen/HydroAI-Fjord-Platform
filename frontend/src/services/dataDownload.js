@@ -190,8 +190,12 @@ function updateManager() {
             for (const file of tableData.rows) {
                 const name = `${file[0]}_${startTime.replace(' ', '_')}-${endTime.replace(' ', '_')}`;
                 obj.downloadListArea.value += `Downloading: ${name} ...\n`;
-                const contents = { mode: downloadType, downloadInterval: interval, timeZone: getLastTimeZone(),
-                    startTime: startTime, endTime: endTime, id: [Number(file[1].trim())] };
+                const contents = { 
+                    mode: downloadType, downloadInterval: interval, timeZone: getLastTimeZone(),
+                    startTime: startTime, endTime: endTime, id: [Number(file[1].trim())],
+                    clientName: nameID, clientSecret: secret, 
+                    clientUserName: userName, clientPassword: password
+                };
                 const response = await jsonLoader('download_station', contents);
                 if (response.status === 'error') { 
                     alert(response.message);
@@ -556,7 +560,7 @@ async function loadStations(projectName, target, table, label, type, layer, filt
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);
         const contents = { 
-            projectName: projectName, key: type, clientID: nameID,
+            projectName: projectName, key: type, clientName: nameID,
             clientSecret: secret, clientUserName: userName, clientPassword: password
         };
         const response = await jsonLoader('init_station', contents);
@@ -608,7 +612,7 @@ async function pointPloter(points, pointType) {
                     const contents = { 
                         id: [id], name: name, mode: mode, timeZone: timeZone,
                         startTime: startTime, endTime: endTime, interval: interval,
-                        clientID: nameID, clientSecret: secret, clientUserName: userName, clientPassword: password
+                        clientName: nameID, clientSecret: secret, clientUserName: userName, clientPassword: password
                     };
                     const response = await jsonLoader('plot_station', contents);
                     signalSender('hideOverlay');

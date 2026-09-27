@@ -107,6 +107,7 @@ class Regnbyge():
                 print(f"Unexpected measurements type: {type(measurements)}")
                 continue
             df_value = pd.DataFrame(measurements)
+            if len(df_value) == 0: continue
             timestamp = pd.to_datetime(df_value['t'].values, utc=True)
             if variable=='flow': # Using Flow
                 df = pd.DataFrame(data={'timestamp': timestamp,

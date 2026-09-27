@@ -63,7 +63,7 @@ async def reset_station(request: Request, user=Depends(functions.basic_auth)):
 async def init_station(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key, client_name = body.get('key'), body.get('clientID', '')
+        key, client_name = body.get('key'), body.get('clientName', '')
         client_secret, client_username = body.get('clientSecret', ''), body.get('clientUserName', '')
         client_password = body.get('clientPassword', '')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
@@ -100,7 +100,7 @@ async def init_station(request: Request, user=Depends(functions.basic_auth)):
 async def plot_station(request: Request):
     try:
         body = await request.json()
-        id, mode, client_name = body.get('id'), body.get('mode'), body.get('clientID', '')
+        id, mode, client_name = body.get('id'), body.get('mode'), body.get('clientName', '')
         name, time_zone, client_password = body.get('name'), body.get('timeZone'), body.get('clientPassword', '')
         client_secret, client_username = body.get('clientSecret', ''), body.get('clientUserName', '')
         start, end, interval = body.get('startTime'), body.get('endTime'), body.get('interval')
@@ -129,12 +129,12 @@ async def download_station(request: Request):
         mode, download_interval = body.get('mode'), body.get('downloadInterval')
         start, end = body.get('startTime'), body.get('endTime')
         id, time_zone = body.get('id'), body.get('timeZone')
-        client_name, client_secret = body.get('clientID', ''), body.get('clientSecret', '')
+        client_name, client_secret = body.get('clientName', ''), body.get('clientSecret', '')
         client_username, client_password = body.get('clientUserName', ''), body.get('clientPassword', '')
         start_utc = functions.local_to_utc(start, time_zone)
         end_utc = functions.local_to_utc(end, time_zone)
         if start_utc >= end_utc:
-            return JSONResponse({'status': 'error', 'message': "Error: Start time is later than end time."})
+            return JSONResponse({'status': 'error', 'message': "Error: 'Start time' must be earlier than 'End time'"})
         obj = regnbyge(client_name, client_secret, client_username, client_password)
         df = obj.get_Values(mode, id, start_utc, end_utc, download_interval)
         if df.empty: 
