@@ -18,7 +18,6 @@ async def save_client(request: Request, user=Depends(functions.basic_auth)):
         source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
         if not os.path.exists(source_dir): os.makedirs(source_dir)
         path = os.path.join(source_dir, 'regnbyge.json')
-        print(client_name, client_secret, client_username, client_password)
         content = {'client_id': client_name, 'client_secret': client_secret,
             'client_username': client_username, 'client_password': client_password
         }

@@ -83,15 +83,15 @@ class Regnbyge():
     def get_Values(self, variable:str, ids:list, from_date, end_date, agg:str='Raw'):
         '''
         agg: Raw, Minute, FiveMinute, Hour, Day
-        fromDate, toDate: 'YYYY-mm-dd HH:MM:SS' in UTC
+        fromDate, toDate: time in UTC
         '''
         if not self.token: raise RuntimeError("No access token available. Call get_Token() first.")
         if not ids: return pd.DataFrame()
-        if from_date.tz is None:
+        if from_date.tzinfo is None:
             start = from_date.replace(tzinfo=timezone.utc).isoformat()
         else: start = from_date.isoformat()
-        if end_date.tz is None:
-            start = end_date.replace(tzinfo=timezone.utc).isoformat()
+        if end_date.tzinfo is None:
+            end = end_date.replace(tzinfo=timezone.utc).isoformat()
         else: end = end_date.isoformat()
         headers = {'accept': 'application/json', 'Authorization': f'Bearer {self.token}'}
         payload = {"ids": ids, "from": start, "to": end, "aggregation": agg}

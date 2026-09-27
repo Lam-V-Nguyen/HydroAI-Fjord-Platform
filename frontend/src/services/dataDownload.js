@@ -43,7 +43,7 @@ const obj = {
 let activeProject = null, plotChecked = true, waterFlowLayer = null, 
     waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
     weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false,
-    name = null, secret = null, userName = null, password = null;
+    nameID = null, secret = null, userName = null, password = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
@@ -69,12 +69,12 @@ function savePassword() {
         });
     });
     obj.clientRemember.addEventListener('click', async() => {
-        name = obj.clientId.value; secret = obj.clientSecret.value; 
+        nameID = obj.clientId.value; secret = obj.clientSecret.value; 
         userName = obj.clientUserName.value; password = obj.clientPassword.value;
-        if (name === '' || secret === '' || userName === '' || password=== '') {
+        if (nameID === '' || secret === '' || userName === '' || password=== '') {
             alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
         }
-        const content = { projectName: currentProject, clientName: name,
+        const content = { projectName: currentProject, clientName: nameID,
             clientSecret: secret, clientUsername: userName, clientPassword: password
         };
         const response = await jsonLoader('save_client', content);
@@ -85,11 +85,11 @@ function savePassword() {
 
 async function loadClient () {
     const response = await jsonLoader('load_client', { projectName: currentProject });
-    name = response.content.client_id;
+    nameID = response.content.client_id;
     secret = response.content.client_secret;
     userName = response.content.client_username;
     password = response.content.client_password;
-    obj.clientId.value = name; obj.clientSecret.value = secret;
+    obj.clientId.value = nameID; obj.clientSecret.value = secret;
     obj.clientUserName.value = userName; obj.clientPassword.value = password;
 }
 
@@ -247,7 +247,6 @@ function updateManager() {
     // Regnbyge upload GIS data
     obj.dataGISBtn.addEventListener('click', () => { obj.dataGISFile.click(); });
     obj.dataGISFile.addEventListener('change', async (event) => {
-        const value = event.target.value;
         const file = event.target.files[0]; if (!file) return;
         const filename = file?.name || "";
         signalSender('showOverlay', `Uploading GIS data '${filename}'. Please wait...`);
@@ -557,7 +556,7 @@ async function loadStations(projectName, target, table, label, type, layer, filt
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);
         const contents = { 
-            projectName: projectName, key: type, clientID: name,
+            projectName: projectName, key: type, clientID: nameID,
             clientSecret: secret, clientUserName: userName, clientPassword: password
         };
         const response = await jsonLoader('init_station', contents);
@@ -609,8 +608,7 @@ async function pointPloter(points, pointType) {
                     const contents = { 
                         id: [id], name: name, mode: mode, timeZone: timeZone,
                         startTime: startTime, endTime: endTime, interval: interval,
-                        clientID: name, clientSecret: secret, clientUserName: userName, 
-                        clientPassword: password
+                        clientID: nameID, clientSecret: secret, clientUserName: userName, clientPassword: password
                     };
                     const response = await jsonLoader('plot_station', contents);
                     signalSender('hideOverlay');
