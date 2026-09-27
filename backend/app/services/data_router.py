@@ -224,6 +224,7 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
         df['time'] = pd.to_datetime(df['index'], utc=True)
+        df = df.drop(columns=['index'])
         df['time'] = functions.utc_to_local(df['time'], time_zone)
         columns = [data_functions.var_revert[x] for x in df.columns]
         content = df.values.tolist()
