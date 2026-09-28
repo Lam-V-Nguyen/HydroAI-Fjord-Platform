@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from services import functions
 from config import PROJECT_ROOT, SOURCE_BACKEND
 import numpy as np, pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 router = APIRouter()
 
@@ -19,7 +19,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
         in_dir, data = os.path.normpath(os.path.join(project_dir, "input")), {}
         mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
         if os.path.exists(mdu_path):
-            start_sim, end_sim = None, None
+            ref_date, start_sim = end_sim = 0, None
             with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
                 for raw_line in f:
                     line = raw_line.split("#")[0].strip()
@@ -33,16 +33,21 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     elif line.startswith('Kmx'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2: data["nLayers"] = parts[1].strip()
+                    elif line.startswith('RefDate'):
+                        parts = [p.strip() for p in line.split("=") if p.strip()]
+                        if len(parts) == 2:
+                            ref_date = datetime.strptime(parts[1].strip(), "%Y%m%d").replace(tzinfo=timezone.utc)
+                        else: return JSONResponse({"status": 'error', "message": "No reference date detected. Please check the scenario again."})
                     elif line.startswith('TStart'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            start_sim = datetime.fromtimestamp(float(parts[1].strip()), tz=timezone.utc)
+                            start_sim = ref_date + timedelta(seconds=float(parts[1].strip()))
                             data["startDate"] = functions.utc_to_local(start_sim, time_zone)
                         else: return JSONResponse({"status": 'error', "message": "No start time detected. Please check the scenario again."})
                     elif line.startswith('TStop'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2:
-                            end_sim = datetime.fromtimestamp(float(parts[1].strip()), tz=timezone.utc)
+                            end_sim = ref_date + timedelta(seconds=float(parts[1].strip()))
                             data["stopDate"] = functions.utc_to_local(end_sim, time_zone)
                         else: return JSONResponse({"status": 'error', "message": "No end time detected. Please check the scenario again."})
                     elif line.startswith('ObsFile'):
@@ -102,14 +107,14 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["wqStop"] = functions.utc_to_local(end_sim, time_zone)
                             if len(temp_parts) == 2:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["wqStart"] = functions.utc_to_local(start, time_zone)
                             elif len(temp_parts) == 3:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["wqStart"] = functions.utc_to_local(start, time_zone)
                                 temp_stop = float(temp_parts[2].strip())
-                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                end = ref_date + timedelta(seconds=temp_stop)
                                 data["wqStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('HisInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
@@ -123,14 +128,14 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["hisStop"] = functions.utc_to_local(end_sim, time_zone)
                             if len(temp_parts) == 2:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["hisStart"] = functions.utc_to_local(start, time_zone)
                             elif len(temp_parts) == 3:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["hisStart"] = functions.utc_to_local(start, time_zone)
                                 temp_stop = float(temp_parts[2].strip())
-                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                end = ref_date + timedelta(temp_stop)
                                 data["hisStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('MapInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
@@ -144,14 +149,14 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["mapStop"] = functions.utc_to_local(end_sim, time_zone)
                             if len(temp_parts) == 2:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["mapStart"] = functions.utc_to_local(start, time_zone)
                             elif len(temp_parts) == 3:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["mapStart"] = functions.utc_to_local(start, time_zone)
                                 temp_stop = float(temp_parts[2].strip())
-                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                end = ref_date + timedelta(seconds=temp_stop)
                                 data["mapStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('StatsInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
@@ -165,14 +170,14 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                             data["statisticStop"] = functions.utc_to_local(end_sim, time_zone)
                             if len(temp_parts) == 2:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["statisticStart"] = functions.utc_to_local(start, time_zone)
                             elif len(temp_parts) == 3:
                                 temp_start = float(temp_parts[1].strip())
-                                start = datetime.fromtimestamp(temp_start, tz=timezone.utc)
+                                start = ref_date + timedelta(seconds=temp_start)
                                 data["statisticStart"] = functions.utc_to_local(start, time_zone)
                                 temp_stop = float(temp_parts[2].strip())
-                                end = datetime.fromtimestamp(temp_stop, tz=timezone.utc)
+                                end = ref_date + timedelta(seconds=temp_stop)
                                 data["statisticStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('TimingsInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
@@ -188,20 +193,44 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     elif line.startswith('Temperature'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
                         if len(parts) == 2: data["initTemperature"] = parts[1].strip()
-            data["meteoPath"], meteos, data["meteoName"] = '', [], "FlowFM_meteo.tim"
+            # Get weather files
+            weather_path = os.path.normpath(os.path.join(in_dir, "FlowFM.ext"))
+            if not os.path.exists(weather_path): 
+                return JSONResponse({"status": 'error', "message": "No weather data detected. Please check the scenario again."})
+            with open(weather_path, 'r', encoding=functions.encoding_detect(weather_path)) as f:
+                content = f.read()
+            blocks = content.strip().split('\n\n')
+            for block in blocks:
+                params = {}
+                for line in block.splitlines():
+                    if '=' not in line: continue
+                    key, value = line.split('=', 1)
+                    params[key.strip()] = value.strip()
+                if (params.get('FILETYPE') == '2' and params.get('OPERAND') == '+'):
+                    data["weatherName"] = params.get('FILENAME', '')
+                if (params.get('FILENAME') == 'FlowFM_meteo.tim'):
+                    data["meteoName"] = params.get('FILENAME', '')
+                    variables = params.get('QUANTITY', '')
+            if data["meteoName"] == '': 
+                return JSONResponse({"status": 'error', "message": "No meteorological parameter detected. Please check the scenario again."})
+            headers = [x.strip() for x in variables.split('_')]
+            data["meteoPath"], meteos = '', []
             meteo_path = os.path.normpath(os.path.join(in_dir, data["meteoName"]))
             if os.path.exists(meteo_path):
                 with open(meteo_path, 'r', encoding=functions.encoding_detect(meteo_path)) as f:
                     lines = f.readlines()
                 for line in lines:
                     line = line.replace("\n", "")
-                    if len(line.strip().split()) != 5: continue
                     temp = line.strip().split()
-                    val = datetime.fromtimestamp(float(temp[0].strip())*60.0, tz=timezone.utc)
+                    val = ref_date + timedelta(seconds=float(temp[0].strip())*60.0)
                     temp[0] = functions.utc_to_local(val, time_zone)
                     meteos.append(temp)
                 data["meteoPath"] = meteos
-            data["weatherPath"], weathers, data["weatherType"], data["weatherName"] = '', [], '', "windxy.tim"
+            headers.insert(0, 'Time')
+            data["meteoPath"].insert(0, headers)
+            if data["weatherName"] == '': 
+                return JSONResponse({"status": 'error', "message": "No weather parameter detected. Please check the scenario again."})
+            data["weatherPath"], weathers, data["weatherType"] = '', [], ''
             weather_path = os.path.normpath(os.path.join(in_dir, data["weatherName"]))
             if os.path.exists(weather_path):
                 with open(weather_path, 'r', encoding=functions.encoding_detect(weather_path)) as f:
@@ -210,7 +239,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     line = line.replace("\n", "")
                     if not line.strip(): continue
                     temp = line.strip().split()
-                    val = datetime.fromtimestamp(float(temp[0].strip())*60.0, tz=timezone.utc)
+                    val = ref_date + timedelta(seconds=float(temp[0].strip())*60.0)
                     temp[0] = functions.utc_to_local(val, time_zone)
                     weathers.append(temp)
                 if len(temp) == 3: data["weatherType"] = "wind-magnitude-direction"
@@ -358,10 +387,18 @@ async def get_boundary_params(request: Request, user=Depends(functions.basic_aut
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         boundary_name, boundary_type = body.get('boundaryName'), body.get('boundaryType')
-        time_zone = body.get('timeZone')
+        time_zone, ref_date = body.get('timeZone'), 0
         input_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         type_path = os.path.normpath(os.path.join(input_dir, f"{boundary_type}.bc"))
+        mdu_path = os.path.normpath(os.path.join(input_dir, "FlowFM.mdu"))
         if not os.path.exists(type_path): return JSONResponse({"status": 'new'})
+        with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
+            for raw_line in f:
+                line = raw_line.split("#")[0].strip()
+                if line.startswith('RefDate'):
+                    parts = [p.strip() for p in line.split("=") if p.strip()]
+                    if len(parts) == 2:
+                        ref_date = datetime.strptime(parts[1].strip(), "%Y%m%d").replace(tzinfo=timezone.utc)
         with open(type_path, 'r', encoding=functions.encoding_detect(type_path)) as f:
             lines = f.readlines()
         current_data, check, content = [], False, []
@@ -374,7 +411,7 @@ async def get_boundary_params(request: Request, user=Depends(functions.basic_aut
             if line.startswith("[forcing]"): check = False
         for line in current_data:
             temp = line.strip().split()
-            val = datetime.fromtimestamp(float(temp[0]), tz=timezone.utc)
+            val = ref_date + timedelta(seconds=float(temp[0].strip()))
             content.append([functions.utc_to_local(val, time_zone), temp[1]])
         if not content: return JSONResponse({"status": 'new'})
         return JSONResponse({"status": 'ok', "content": content})   

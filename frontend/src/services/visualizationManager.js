@@ -1,7 +1,6 @@
 import { L, getState, setState, initState } from "./constant.js";
 import { getUser, signalSender, jsonLoader, moveWindow, closeWindow, 
-    getVisualizationFiles
-} from "./commonFunctions.js";
+    getVisualizationFiles } from "./commonFunctions.js";
 import { locationFinder, initializeMenu, projectChecker } from "./visualization.js";
 import { initMap } from "./visualizationMap.js";
 

@@ -530,11 +530,19 @@ async function loadScenario(scenarioName){
     obj.initTemperature.value = data.content.initTemperature;
     // Get source data if exist
     updateTable(obj.sourceRemoveTable, obj.sourceSelectorRemove, scenarioName);
-    if (data.content.meteoPath !== '' || data.content.meteoPath.length > 0) { 
+    if (data.content.meteoPath !== '') { 
         obj.meteoUploadText.value = data.content.meteoName;
-        fillTable(data.content.meteoPath, obj.meteoTable);
+        const meteoPath = data.content.meteoPath;
+        const header = meteoPath[0], content = meteoPath.slice(1);
+        const thead = obj.meteoTable.querySelector('thead');
+        thead.innerHTML = ''; const tr = document.createElement('tr');
+        header.forEach(item => {
+            const th = document.createElement('th');
+            th.textContent = item; tr.appendChild(th);
+        }); thead.appendChild(tr);
+        fillTable(content, obj.meteoTable);
     }
-    if (data.content.weatherPath !== '' || data.content.weatherPath.length > 0) {
+    if (data.content.weatherPath !== '') {
         obj.weatherSelector.value = data.content.weatherType;
         obj.weatherCSVUploadText.value = data.content.weatherName;
         obj.weatherPanel.style.display = 'block'; obj.weatherTable.style.display = 'block';

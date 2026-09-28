@@ -75,7 +75,7 @@ export function locationFinder(input, suggestion, map) {
 export async function projectChecker(project, params, name, model, message, gisChanged=false) {
     currentProject = project; currentParams = params; waqName = name; waqModel = model;
     cachedMenus = {}; // Clear cache of menus for new project
-    signalSender('showOverlay', message); 
+    signalSender('showOverlay', message);
     const content = { 
         projectName: project, params: params, waqName: waqName,
         waqModel: waqModel, gisChanged: gisChanged 

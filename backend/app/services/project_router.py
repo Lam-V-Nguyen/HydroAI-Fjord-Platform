@@ -118,10 +118,13 @@ async def delete_project(request: Request, user=Depends(functions.basic_auth)):
 async def select_project(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key, folder_check, key_checker = body.get('key'), body.get('folder_check'), body.get('keyChecked')
-        project_name, _ = functions.project_definer(body.get('filename'), user)
+        key, folder_check = body.get('key'), body.get('folder_check')
+        key_checker, name = body.get('keyChecked'), body.get('filename')
+        if name == 'None' or name == 'undefined':
+            return {"status": "error", "message": f"Cannot find scenario '{name}'.\nConsider running the scenario again."}
+        project_name, _ = functions.project_definer(name, user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-        if key_checker == 'flows': 
+        if key_checker == 'flows':
             project_dir = os.path.normpath(os.path.join(project_dir, 'flows'))
             os.makedirs(project_dir, exist_ok=True)
         if key == 'getProjects':
@@ -156,7 +159,10 @@ async def select_project(request: Request, user=Depends(functions.basic_auth)):
 async def setup_database(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        name = body.get('projectName')
+        if name == 'None' or name == 'undefined':
+            return {"status": "error", "message": f"Cannot find scenario '{name}'.\nConsider running the scenario again."}
+        project_name, _ = functions.project_definer(name, user)
         redis, params = request.app.state.redis, body.get('params')
         model_type, gisChecked = body.get('waqModel'), body.get('gisChanged')
         extend_task, model_name = None, body.get('waqName')
@@ -186,6 +192,8 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
                 cache_root[project_name] = project_cache
             dm, waq_his, waq_map = request.app.state.dataset_manager, None, None
             # Assign datasets
+            if params[0] == '' or params[1] == '':
+                return {"status": "error", "message": "Cannot find simulation files.\nConsider running the scenario again."}
             if 'hyd_his' not in project_cache:
                 project_cache['hyd_his'] = dm.get(os.path.normpath(os.path.join(hyd_dir, params[0])))
             if 'hyd_map' not in project_cache:
@@ -200,7 +208,7 @@ async def setup_database(request: Request, user=Depends(functions.basic_auth)):
                     waq_map = dm.get(os.path.normpath(os.path.join(waq_dir, params[3])))
                     project_cache['waq_map'] = waq_map
             if hyd_map is None:
-                return {"status": "error", "message": "Cannot find hydrodynamic data (map file).\nConsider running the model again."}
+                return {"status": "error", "message": "Cannot find hydrodynamic data (map file).\nConsider running the scenario again."}
             if hyd_map is not None and 'grid' not in project_cache:
                 print('Creating grid for hydrodynamic simulation...')
                 project_cache['grid'] = functions.unstructuredGridCreator(hyd_map)
