@@ -396,15 +396,17 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
             with open(b1_path, 'r', encoding=functions.encoding_detect(b1_path)) as f:
                 params_INC['B1_sublist'] = f.read()
             # Prepare for the config file B7_processes
-            params_INC['B7_processes'], processes = [], ['Emersion', 'ResTim', 'HDisperVel', 'HDisperAdd', 'Evap_Conti',
-                'Age1', 'Decay1', 'Temperatur', 'MakOOC', 'Compos', 'Res_Buffer', 'S12TraIM1', 'Sed_IM1', 'AtmDep_IM1'
-                'Dfwast_IM1', 'Secchi', 'Dredge', 'IM_Floceq', 'TraSe2_IM1', 'MakOOCS1', 'S1_Comp', 'S2_Comp', 'Sed_Cd',
-                'S12TraCd', 'AtmDep_Cd', 'Dfwast_Cd', 'Sed_Cr', 'S12TraCr', 'AtmDep_Cr', 'Dfwast_Cr', 'Sed_Cu', 'S12TraCu',
-                'AtmDep_Cu', 'Dfwast_Cu', 'Sed_Ni', 'S12TraNi', 'AtmDep_Ni', 'Dfwast_Ni', 'Sed_Pb', 'S12TraPb', 'AtmDep_Pb',
-                'Dfwast_Pb', 'Sed_Zn', 'S12TraZn', 'AtmDep_Zn', 'Dfwast_Zn', 'DynDepth', 'TotDepth', 'Meteo', 'CalTau',
-                'S12TraIM2', 'S12TraIM3', 'Res_DM', 'Extinc_VLG', 'PartWK_Cd', 'PartS1_Cd', 'PartWK_Cr', 'PartS1_Cr',
-                'PartWK_Cu', 'PartS1_Cu', 'PartWK_Ni', 'PartS1_Ni', 'PartWK_Pb', 'PartS1_Pb', 'PartWK_Zn', 'PartS1_Zn',
-                'Veloc', 'Chezy', 'PROPSING', 'PROPTAGG', 'HTRAGG', 'SEDTYRE', 'SEDTAGG', 'SUMTRWP']
+            params_INC['B7_processes'], processes = [], [
+                # 'Emersion', 'ResTim', 'HDisperVel', 'HDisperAdd', 'Evap_Conti',
+                # 'Age1', 'Decay1', 'Temperatur', 'MakOOC', 'Compos', 'Res_Buffer', 'S12TraIM1', 'Sed_IM1', 'AtmDep_IM1',
+                # 'Dfwast_IM1', 'Secchi', 'Dredge', 'IM_Floceq', 'TraSe2_IM1', 'MakOOCS1', 'S1_Comp', 'S2_Comp', 'Sed_Cd',
+                # 'S12TraCd', 'AtmDep_Cd', 'Dfwast_Cd', 'Sed_Cr', 'S12TraCr', 'AtmDep_Cr', 'Dfwast_Cr', 'Sed_Cu', 'S12TraCu',
+                # 'AtmDep_Cu', 'Dfwast_Cu', 'Sed_Ni', 'S12TraNi', 'AtmDep_Ni', 'Dfwast_Ni', 'Sed_Pb', 'S12TraPb', 'AtmDep_Pb',
+                # 'Dfwast_Pb', 'Sed_Zn', 'S12TraZn', 'AtmDep_Zn', 'Dfwast_Zn', 'DynDepth', 'TotDepth', 'Meteo', 'CalTau',
+                # 'S12TraIM2', 'S12TraIM3', 'Res_DM', 'Extinc_VLG', 'PartWK_Cd', 'PartS1_Cd', 'PartWK_Cr', 'PartS1_Cr',
+                # 'PartWK_Cu', 'PartS1_Cu', 'PartWK_Ni', 'PartS1_Ni', 'PartWK_Pb', 'PartS1_Pb', 'PartWK_Zn', 'PartS1_Zn',
+                # 'Veloc', 'Chezy', 'PROPSING', 'PROPTAGG', 'HTRAGG', 'SEDTYRE', 'SEDTAGG', 'SUMTRWP'
+                ]
             for item in processes:
                 params_INC['B7_processes'].append(f"CONSTANTS 'ACTIVE_{item}' DATA 0")
             # Prepare for the config file B7_constants

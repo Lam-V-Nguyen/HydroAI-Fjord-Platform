@@ -242,7 +242,7 @@ async def run_waq_simulation(project_name, waq_name):
         srf_path = os.path.normpath(os.path.join(hyd_folder, body['srfPath']))
         vdf_path = os.path.normpath(os.path.join(hyd_folder, body['vdfPath']))
         tem_path = os.path.normpath(os.path.join(hyd_folder, body['temPath']))
-        wq_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "WAQ"))
+        wq_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "WAQ_run"))
         os.makedirs(wq_folder, exist_ok=True)
         # Clear data if exists
         output_folder = os.path.normpath(os.path.join(wq_folder, file_name))
@@ -303,16 +303,20 @@ async def run_waq_simulation(project_name, waq_name):
         def stream_logs():
             try:
                 for line in process.stdout:
-                    line = line.strip()
                     if not line: continue
-                    log_file.write(line + "\n")
+                    log_file.write(line)
+                    log_file.flush()
+                    clean_line = line.strip()
+                    if not clean_line: continue
                     if "ERROR in GMRES" in line:
-                        log_file.write(line + "\n")
+                        log_file.write("\nGMRES solver failed.\nConsider increasing the maximum number of iterations.\n")
+                        log_file.flush()
                         processes[process_key]["status"] = "error" 
-                        processes[process_key]["message"] = "GMRES solver failed.Consider increasing the maximum number of iterations."
+                        processes[process_key]["message"] = "GMRES solver failed. Consider increasing the maximum number of iterations."
                         res = functions.kill_process(process)
                         log_file.write(f'{res["message"]}\n')
                         log_file.write("\n\nGMRES solver failed.\nConsider increasing the maximum number of iterations.\n")
+                        log_file.flush()
                         break
                     # Check for progress
                     match_pct = progress_regex.search(line)
@@ -354,8 +358,6 @@ async def run_waq_simulation(project_name, waq_name):
                                 os.rename(tmp_path, zarr_path)                      
                             else: shutil.copy2(src, zarr_path)
                             functions.safe_remove(src)
-                    # Delete folder
-                    if os.path.exists(wq_folder): shutil.rmtree(wq_folder, onerror=functions.remove_readonly)
                     processes[process_key]["status"] = "finished"
                     processes[process_key]["message"] = f"Simulation completed."
                     log_file.write(f"\n=== Simulation {project_name} completed ===")
