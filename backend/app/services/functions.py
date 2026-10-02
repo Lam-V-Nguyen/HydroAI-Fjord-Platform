@@ -1049,3 +1049,15 @@ def meshProcess(is_hyd: bool, arr: np.ndarray, cache: dict) -> np.ndarray:
     frame[~mask_valid] = np.nan
     smoothed_transpose = frame.T[:max_row + 2, :]
     return smoothed_transpose
+
+def clean_json_value(value):
+    if isinstance(value, dict):
+        return {k: clean_json_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [clean_json_value(v) for v in value]
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if isinstance(value, np.floating):
+        return float(value) if np.isfinite(value) else None
+    if isinstance(value, np.integer): return int(value)
+    return value

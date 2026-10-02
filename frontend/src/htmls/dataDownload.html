@@ -27,15 +27,57 @@
                         The data is sourced through the official
                         <a href="https://api.met.no/" target="_blank" 
                             rel="noopener noreferrer" style="color: aqua;">
-                            Mete</a> platform
+                            MET Norway</a> platform
                     </h3>
+                    <div class="tab-header">
+                        <div class="tabs-list">
+                            <button class="tab-btn" data-tab="met-tab-1">Login</button>
+                            <button class="tab-btn" data-tab="met-tab-2">Map</button>
+                            <button class="tab-btn" data-tab="met-tab-3">Download Data</button>
+                        </div>
+                    </div>
+                    <div class="tabs-content">
+                        <div class="tabpanel" data-panel="met-tab-1">
+                            <div class="grid">
+                                <div class="tile"><h3>Registration</h3>
+                                    <div class="row">
+                                        <div class="field-inline" style="flex-direction: column;">
+                                            <div class="field-row">
+                                                <label for="met-client-id">Client Name:</label>
+                                                <div class="input-with-icon">
+                                                    <input type="password" id="met-client-id">
+                                                    <button type="button" data-target="met-client-id" class="toggle-password">👁️</button>
+                                                </div>
+                                                <label for="met-client-secret">Client Secret:</label>
+                                                <div class="input-with-icon">
+                                                    <input type="password" id="met-client-secret">
+                                                    <button type="button" data-target="met-client-secret" class="toggle-password">👁️</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button id="met-remember-btn">Remember me</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tabpanel" data-panel="met-tab-2">
+                            <div class="grid">
+                                <div class="tile" style="grid-column: span 3;"><h3>Observation Stations</h3>
+                                    <div class="row">
+                                        <button type="button" id="met-location-btn">Get Stations</button>
 
 
 
+                                    </div>
+                                </div>
+
+
+                            </div>
+                        </div>
 
 
 
-
+                    </div>
                 </div>
                 <!-- Regnbyge -->
                 <div class="tabpanel main-panel" data-panel="regnbyge-tab">
@@ -231,12 +273,31 @@
                         </h3>
                         <div class="tab-header">
                             <div class="tabs-list">
-                                <button class="tab-btn" data-tab="era5-tab-1">Download Settings</button>
-                                <button class="tab-btn" data-tab="era5-tab-2">Download Data</button>
+                                <button class="tab-btn" data-tab="era5-tab-1">Login</button>
+                                <button class="tab-btn" data-tab="era5-tab-2">Download Settings</button>
+                                <button class="tab-btn" data-tab="era5-tab-3">Download Data</button>
                             </div>
                         </div>
                         <div class="tabs-content">
                             <div class="tabpanel" data-panel="era5-tab-1">
+                                <div class="grid">
+                                    <div class="tile"><h3>Registration</h3>
+                                        <div class="row">
+                                            <div class="field-inline" style="flex-direction: column;">
+                                                <div class="field-row">
+                                                    <label for="era5-api-key">API Key:</label>
+                                                    <div class="input-with-icon">
+                                                        <input type="password" id="era5-api-key">
+                                                        <button type="button" data-target="era5-api-key" class="toggle-password">👁️</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button id="era5-remember-btn">Remember me</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tabpanel" data-panel="era5-tab-2">
                                 <div class="grid">
                                     <div class="tile" style="grid-column: span 3;"><h3>Location & Period</h3>
                                         <div class="row">
@@ -291,7 +352,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="tabpanel" data-panel="era5-tab-2">
+                            <div class="tabpanel" data-panel="era5-tab-3">
                                 <div class="grid">
                                     <div class="tile" style="grid-column: span 12;">
                                         <div class="row">

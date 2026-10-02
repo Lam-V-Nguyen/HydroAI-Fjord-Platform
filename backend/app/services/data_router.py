@@ -1,4 +1,4 @@
-import os, pickle, json, traceback, asyncio, threading
+import os, pickle, json, traceback, asyncio, threading, requests
 from fastapi import APIRouter, Request, Depends, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from services import functions, data_functions
@@ -13,14 +13,16 @@ async def save_client(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
+        path = os.path.join(PROJECT_ROOT, project_name, 'credentials.json')
+        if not os.path.exists(path):
+            with open(path, 'w', encoding='utf-8', errors='ignore') as f:
+                json.dump({}, f)
+        with open(path, 'r', encoding='utf-8') as f:
+            content = json.load(f)
         client_name, client_secret = body.get('clientName', ''), body.get('clientSecret', '')
         client_username, client_password = body.get('clientUsername', ''), body.get('clientPassword', '')
-        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
-        if not os.path.exists(source_dir): os.makedirs(source_dir)
-        path = os.path.join(source_dir, 'regnbyge.json')
-        content = {'client_id': client_name, 'client_secret': client_secret,
-            'client_username': client_username, 'client_password': client_password
-        }
+        content[body.get('key')] = {'client_id': client_name, 'client_secret': client_secret,
+            'client_username': client_username, 'client_password': client_password}
         with open(path, 'w', encoding='utf-8', errors='ignore') as f:
             json.dump(content, f)
         return JSONResponse({'message': 'Registration information is saved successfully.'})
@@ -33,14 +35,16 @@ async def save_client(request: Request, user=Depends(functions.basic_auth)):
 async def load_client(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
-    path = os.path.join(source_dir, 'regnbyge.json')
-    content = {'client_id': '', 'client_secret': '',
+    path = os.path.join(PROJECT_ROOT, project_name, 'credentials.json')
+    temp = {
+        'client_id': '', 'client_secret': '',
         'client_username': '', 'client_password': ''
     }
     if os.path.exists(path):
         with open(path, 'r', encoding='utf-8') as f:
             content = json.load(f)
+        content = content.get(body.get('key'), temp)
+    else: content = temp
     return JSONResponse({'content': content})
     
 @router.post("/reset_station")
@@ -48,7 +52,7 @@ async def reset_station(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
+        source_dir = os.path.join(PROJECT_ROOT, project_name, body.get('key'))
         flow_checked, level_checked, rain_checked = body.get('flow'), body.get('level'), body.get('rain')
         if flow_checked: functions.safe_remove(os.path.join(source_dir, 'flow.pkl'))
         if level_checked: functions.safe_remove(os.path.join(source_dir, 'level.pkl'))
@@ -67,7 +71,7 @@ async def init_station(request: Request, user=Depends(functions.basic_auth)):
         client_secret, client_username = body.get('clientSecret', ''), body.get('clientUserName', '')
         client_password = body.get('clientPassword', '')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        source_dir = os.path.join(PROJECT_ROOT, project_name, "Regnbyge")
+        source_dir = os.path.join(PROJECT_ROOT, project_name, body.get('keyType'))
         if not os.path.exists(source_dir): os.makedirs(source_dir)
         path = os.path.normpath(os.path.join(source_dir, f'{key}.pkl'))
         if not os.path.exists(path):
@@ -178,8 +182,6 @@ async def data_upload_gis(file: UploadFile = File(...)):
     finally: 
         await file.close()
 
-
-
 @router.post("/check_download_status_era5")
 async def check_download_status_era5(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
@@ -197,7 +199,7 @@ async def check_download_status_era5(request: Request, user=Depends(functions.ba
 async def download_era5(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir = os.path.join(PROJECT_ROOT, project_name)
+    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
     redis, key_process = request.app.state.redis, f"{project_name}:era5"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
@@ -209,7 +211,7 @@ async def download_era5(request: Request, user=Depends(functions.basic_auth)):
         processes[key_process] = {"status": "running", "message": "Preparing download..."}
         threading.Thread(
             target=data_functions.era5_downloader, 
-            args=(dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
+            args=(api_key, dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
@@ -223,14 +225,11 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
         if not os.path.exists(path): 
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
-        df = df.rename(columns={'index': 'time'})
-        df['time'] = pd.to_datetime(df['time'], utc=True)
-        df['time'] = functions.utc_to_local(df['time'], time_zone)
+        df['Time'] = pd.to_datetime(df['Time'], utc=True)
+        df['Time'] = functions.utc_to_local(df['Time'], time_zone)
         columns = [data_functions.var_revert[x] for x in df.columns]
-        content = df.values.tolist()
-        df = df.rename(columns={'time': 'Time'})
         functions.safe_remove(path)
-        return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
+        return JSONResponse({'status': 'ok', 'columns': columns, 'content': df.values.tolist()})
     except Exception as e:
         print('/upload_era5_csv:\n==============')
         traceback.print_exc()
@@ -250,3 +249,40 @@ async def save_era5(request: Request):
         print('/save_era5:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/stations_met")
+async def stations_met(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        key, client_name = body.get('key'), body.get('clientName', '')
+        # client_secret = body.get('clientSecret', '')
+        url = f"{os.getenv('MET_ProstAPI_URL')}/sources/v0.jsonld"
+        redis, key_process = request.app.state.redis, f"{project_name}:met_stations"
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            # Check if process already running
+            if key_process in processes and processes[key_process]["status"] == "running":
+                return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+            params = {"types": "SensorSystem"}
+            response = requests.get(url, params=params, auth=(client_name, ""))
+            response.raise_for_status()
+            data = response.json()
+            df = pd.DataFrame(data["data"]).drop(columns=['@type'])
+            df['geometry'] = df['geometry'].apply(lambda x: x['coordinates'] if isinstance(x, dict) and 'coordinates' in x else None)
+            gdf = gpd.GeoDataFrame(
+                df, geometry=gpd.points_from_xy(
+                    df['geometry'].apply(lambda x: x[0] if x else None), df['geometry'].apply(lambda x: x[1] if x else None)
+                ), crs='EPSG:4326'
+            )
+            gdf = gdf.dropna(subset=['geometry'])
+        if gdf.empty: return JSONResponse({'status': 'error', 'message': f"No '{key}' data available."})
+        content = functions.clean_json_value(json.loads(gdf.to_json()))
+        return JSONResponse({'status': 'ok', 'content': content})
+    except Exception as e:
+        print('/stations_met:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+

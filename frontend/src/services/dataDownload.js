@@ -24,14 +24,20 @@ const obj = {
     stationTable: $("station-table"), waterFlowCheckbox: $("water-flow-checkbox"),
     waterLevelCheckbox: $("water-level-checkbox"), rainfallCheckbox: $("rainfall-checkbox"),
     dataGISBtn: $("upload-gis-btn"), dataGISFile: $("data-gis-file"), dataGISContainer: $("data-gis-container"),
-    clientId: $("regnbyge-client-id"), clientSecret: $("regnbyge-client-secret"), 
-    clientRemember: $("regnbyge-remember-btn"), 
-    clientUserName: $("regnbyge-client-username"), clientPassword: $("regnbyge-client-password"),
+    // Met options
+    clientIdMet: $("met-client-id"), clientSecretMet: $("met-client-secret"),
+    clientRememberMet: $("met-remember-btn"), metLocationBtn: $("met-location-btn"),
+
+    // Regnbyge options
+    clientIdRegnbyge: $("regnbyge-client-id"), clientSecretRegnbyge: $("regnbyge-client-secret"), 
+    clientRememberRegnbyge: $("regnbyge-remember-btn"), clientUserNameRegnbyge: $("regnbyge-client-username"), 
+    clientPasswordRegnbyge: $("regnbyge-client-password"),
     // overFlowCheckbox: $("overflow-checkbox"), temperatureCheckbox: $("temperature-checkbox"),
     // evaporationCheckbox: $("evaporation-checkbox"), weirCheckbox: $("weir-checkbox"),
     stationSelectedLabel: $("station-selected-label"), resertStationBtn: $("reset-station-btn"),
     downloadListContainer: $("download-list-container"), downloadListArea: $("download-list"),
     // ERA5 options
+    apikeyEra5: $("era5-api-key"), clientRememberEra5: $("era5-remember-btn"), 
     era5LocationBtn: $("era5-location-btn"), era5Lat: $("era5-latitude"), 
     era5Lon: $("era5-longitude"), era5WindSpeed: $("wind-speed-checkbox"),
     era5WWindU: $("wind-u-checkbox"), era5WWindV: $("wind-v-checkbox"),
@@ -43,11 +49,12 @@ const obj = {
 let activeProject = null, plotChecked = true, waterFlowLayer = null, 
     waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
     weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false,
-    nameID = null, secret = null, userName = null, password = null;
+    nameID = null, secret = null, userName = null, password = null, key = 'met',
+    metLayer = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
-savePassword(); await loadClient(); updateManager();
+savePassword(); await loadClient(key); updateManager();
 
 
 async function getProject() { 
@@ -68,54 +75,83 @@ function savePassword() {
             }
         });
     });
-    obj.clientRemember.addEventListener('click', async() => {
-        nameID = obj.clientId.value; secret = obj.clientSecret.value; 
-        userName = obj.clientUserName.value; password = obj.clientPassword.value;
+    obj.clientRememberMet.addEventListener('click', async() => {
+        if (key === '') { key = 'met'; }
+        nameID = obj.clientIdMet.value; secret = obj.clientSecretMet.value;
+        if (nameID === '' || secret === '') {
+            alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
+        }
+        const content = { projectName: currentProject, key: key, 
+            clientName: nameID, clientSecret: secret
+        };
+        const response = await jsonLoader('save_client', content);
+        alert(response.message); if (response.status === "error") { return; }
+    });
+    obj.clientRememberRegnbyge.addEventListener('click', async() => {
+        if (key === '') { key = 'regnbyge'; }
+        nameID = obj.clientIdRegnbyge.value; secret = obj.clientSecretRegnbyge.value; 
+        userName = obj.clientUserNameRegnbyge.value; password = obj.clientPasswordRegnbyge.value;
         if (nameID === '' || secret === '' || userName === '' || password=== '') {
             alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
         }
-        const content = { projectName: currentProject, clientName: nameID,
+        const content = { projectName: currentProject, key: key, clientName: nameID,
             clientSecret: secret, clientUsername: userName, clientPassword: password
         };
         const response = await jsonLoader('save_client', content);
         alert(response.message); if (response.status === "error") { return; }
     });
-
+    obj.clientRememberEra5.addEventListener('click', async() => {
+        if (key === '') { key = 'era5'; }; nameID = obj.apikeyEra5.value;
+        if (nameID === '') {
+            alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
+        }
+        const content = { projectName: currentProject, key: key, clientName: nameID };
+        const response = await jsonLoader('save_client', content);
+        alert(response.message); if (response.status === "error") { return; }
+    });
 }
 
-async function loadClient () {
-    const response = await jsonLoader('load_client', { projectName: currentProject });
-    nameID = response.content.client_id;
-    secret = response.content.client_secret;
-    userName = response.content.client_username;
-    password = response.content.client_password;
-    obj.clientId.value = nameID; obj.clientSecret.value = secret;
-    obj.clientUserName.value = userName; obj.clientPassword.value = password;
+async function loadClient(key) {
+    const content = { projectName: currentProject, key: key };
+    const response = await jsonLoader('load_client', content);
+    nameID = response.content.client_id; secret = response.content.client_secret;
+    userName = response.content.client_username; password = response.content.client_password;
+    if (key === 'met') { 
+        obj.clientIdMet.value = nameID; obj.clientSecretMet.value = secret;
+    } else if (key === 'regnbyge') { 
+        obj.clientIdRegnbyge.value = nameID; obj.clientSecretRegnbyge.value = secret;
+        obj.clientUserNameRegnbyge.value = userName; obj.clientPasswordRegnbyge.value = password;
+    } else if (key === 'era5') { obj.apikeyEra5.value = nameID; }
 }
 
 
 function updateManager() {
-    const startOfDay = new Date(), now = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const start = new Date(now); start.setDate(start.getDate() - 15);
+    const end = new Date(now); end.setDate(end.getDate() - 2);
     moveWindow(obj.plotDataHeader, obj.plotDataContainer);
     closeWindow(obj.plotDataCloseBtn, obj.plotDataContainer);
     hightlightRows(obj.stationSelectedTable);
-    obj.plotStart.value = formatDate(startOfDay); obj.plotEnd.value = formatDate(now);
-    obj.downloadStart.value = formatDate(startOfDay); obj.downloadEnd.value = formatDate(now);
-    obj.era5Start.value = formatDate(startOfDay); obj.era5End.value = formatDate(now);
+    obj.plotStart.value = formatDate(start); obj.plotEnd.value = formatDate(end);
+    obj.downloadStart.value = formatDate(start); obj.downloadEnd.value = formatDate(end);
+    obj.era5Start.value = formatDate(start); obj.era5End.value = formatDate(end);
     obj.selectBox.addEventListener("click", () => { obj.checkboxList.style.display === 'block'; });
     document.addEventListener('click', (event) => {
         if (!obj.dropdown.contains(event.target)) obj.checkboxList.style.display = 'none';
     });
     // Toggle sub tabs
     document.querySelectorAll('[data-tab]').forEach(tab => {
-        tab.addEventListener('click', () => {
+        tab.addEventListener('click', async () => {
             const tabName = tab.getAttribute('data-tab');
-            if (tabName === 'regnbyge-tab-2') { 
+            if (tabName === 'regnbyge-tab') { 
+                key = 'regnbyge'; await loadClient(key);
+            } else if (tabName === 'eklima-tab') { 
+                key = 'met'; await loadClient(key);
+            } else if (tabName === 'regnbyge-tab-2') { 
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
-            }
-            else if (tabName === 'regnbyge-tab-3') { plotChecked = false; }
-            else if (tabName === 'era5-tab') {
+            } else if (tabName === 'regnbyge-tab-3') { plotChecked = false; 
+            } else if (tabName === 'era5-tab') {
+                key = 'era5'; await loadClient(key);
                 // Clear map
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
                 obj.waterFlowCheckbox.checked = false;
@@ -133,12 +169,30 @@ function updateManager() {
             updateLayerTooltips(weirLayer);
         });
     });
+    // Work on MET option
+    obj.metLocationBtn.addEventListener('click', async () => {
+        const key = 'met', apiKey = obj.clientIdMet.value, apiSecret = obj.clientSecretMet.value;
+        if (apiKey === '' || apiSecret === '') { alert('Please enter your MET API key and secret.'); return; }
+        signalSender('showOverlay', 'Getting stations from MET. Please wait...');
+        const content = { projectName: currentProject, key: key, clientName: apiKey, clientSecret: apiSecret };
+        const data = await jsonLoader('stations_met', content); signalSender('hideOverlay');
+        if (data.status === 'error') { alert(data.message); return; }
+        obj.waterFlowCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
+        obj.waterLevelCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
+        obj.rainfallCheckbox.checked = false; obj.rainfallCheckbox.dispatchEvent(new Event('change'));
+        metLayer = await pointPloter(data.content);
+
+
+
+
+
+    });
     // Work on Regnbyge option
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
-        const filter = ['flow'];
+        const filter = ['flow']; metLayer = clearMap(metLayer);
         if (e.target.checked === true) {
             waterFlowLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'water flow', 
+                currentProject, 'regnbyge', e.target, obj.stationTable, 'water flow', 
                 'flow', waterFlowLayer, filter
             );
         } else { 
@@ -147,10 +201,10 @@ function updateManager() {
         }
     });
     obj.waterLevelCheckbox.addEventListener('change', async (e) => {
-        const filter = ['overflow'];
+        const filter = ['overflow']; metLayer = clearMap(metLayer);
         if (e.target.checked === true) {
             waterLevelLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'water level', 
+                currentProject, 'regnbyge', e.target, obj.stationTable, 'water level', 
                 'level', waterLevelLayer, filter
             );
         } else { 
@@ -159,10 +213,10 @@ function updateManager() {
         }
     });
     obj.rainfallCheckbox.addEventListener('change', async (e) => {
-        const filter = ['permanent', 'permanentTemp'];
+        const filter = ['permanent', 'permanentTemp']; metLayer = clearMap(metLayer);
         if (e.target.checked === true) {
             preLayer = await loadStations(
-                currentProject, e.target, obj.stationTable, 'rainfall', 
+                currentProject, 'regnbyge', e.target, obj.stationTable, 'rainfall', 
                 'rain', preLayer, filter
             );
         } else { 
@@ -239,7 +293,7 @@ function updateManager() {
         if (!ok) return;
         signalSender('showOverlay', 'Deleting Station(s). Please wait...');
         const contents = { 
-            projectName: currentProject, flow: obj.waterFlowCheckbox.checked, 
+            projectName: currentProject, flow: obj.waterFlowCheckbox.checked, key: keyRegnbye,
             level: obj.waterLevelCheckbox.checked, rain: obj.rainfallCheckbox.checked
         };
         const response = await jsonLoader('reset_station', contents);
@@ -269,6 +323,8 @@ function updateManager() {
         }
     });
     obj.era5DownloadBtn.addEventListener('click', async () => {
+        const apiKey = obj.apikeyEra5.value;
+        if (apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
         const lat = obj.era5Lat.value, lon = obj.era5Lon.value;
         if (lat === '' || lon === '') { 
             alert('Please select a location.'); return; 
@@ -292,7 +348,7 @@ function updateManager() {
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
             obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none';
             const contents = { 
-                projectName: currentProject, lat: lat, lon: lon, 
+                projectName: currentProject, lat: lat, lon: lon, api_key: apiKey,
                 startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(), 
                 variables: selectedValues.map(v => v.value)
             };
@@ -554,20 +610,19 @@ function updateLayerTooltips(layerGroup) {
     });
 }
 
-async function loadStations(projectName, target, table, label, type, layer, filter) {
+async function loadStations(projectName, keyType, target, table, label, key, layer, filter) {
     const data = getDataFromTable(table, true);
     const filtered = data.rows.filter(row => !filter.includes(row[1])); layer = clearMap(layer);
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);
         const contents = { 
-            projectName: projectName, key: type, clientName: nameID,
+            projectName: projectName, key: key, clientName: nameID, keyType: keyType,
             clientSecret: secret, clientUserName: userName, clientPassword: password
         };
-        const response = await jsonLoader('init_station', contents);
-        signalSender('hideOverlay');
+        const response = await jsonLoader('init_station', contents); signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); target.checked = false; return; }
         const stationNames = response.content.name, stationLocations = response.content.point;
-        layer = await pointPloter(stationLocations, type);
+        layer = await pointPloter(stationLocations, key);
         stationNames.forEach(item => filtered.push(item));
     }
     deleteTable(table); fillTable(filtered, table, true);
@@ -583,7 +638,7 @@ function removeStationsByType(table, filter) {
     if (remaining.length > 0) { fillTable(remaining, table, true); }
 }
 
-async function pointPloter(points, pointType) {
+async function pointPloter(points, pointType='') {
     let iconUrl = `/src_frontend/images/station.png?v=${Date.now()}`, note = '';
     if (pointType === 'flow') { iconUrl = `/src_frontend/images/water_flow.png?v=${Date.now()}`; }
     else if (pointType === 'level') { iconUrl = `/src_frontend/images/water_level.png?v=${Date.now()}`; }
@@ -599,49 +654,51 @@ async function pointPloter(points, pointType) {
             return marker;
         },
         onEachFeature: (feature, layer) => {
-            layer.on('click', async () => { 
-                const id = feature.properties.id, name = feature.properties.name;
+            if (key === 'regnbyge') {
+                layer.on('click', async () => { 
+                    const id = feature.properties.id, name = feature.properties.name;
+                    if (plotChecked) {
+                        const mode = feature.properties.mode, interval = obj.plotInterval.value;
+                        const startTime = obj.plotStart.value, endTime = obj.plotEnd.value;
+                        if (startTime === '' || endTime === '') { alert('Please select a time range to plot.'); return; }
+                        const titleY = obj.plotInterval.selectedOptions[0].text;
+                        signalSender('showOverlay', 
+                            `Getting '${obj.plotInterval.selectedOptions[0].text}' for station '${name}'.\nThis takes a while. Please wait...`
+                        );
+                        const contents = { 
+                            id: [id], name: name, mode: mode, timeZone: timeZone,
+                            startTime: startTime, endTime: endTime, interval: interval,
+                            clientName: nameID, clientSecret: secret, clientUserName: userName, clientPassword: password
+                        };
+                        const response = await jsonLoader('plot_station', contents);
+                        signalSender('hideOverlay');
+                        if (response.status === "error") { alert(response.message); return; }
+                        const chartTitle = `Station: ${name}`, titleX = 'Time';
+                        await plotTimeSeries(
+                            obj.plotDataContainer, chartTitle, response.content, name, titleX, titleY
+                        );
+                    } else {
+                        const type = feature.properties.type;
+                        const data = [name, String(id), type];
+                        const tableData = getDataFromTable(obj.stationSelectedTable, true);
+                        const exitCheck = tableData.rows.some(row => row.length === data.length &&
+                            row.every((value, index) => value === data[index]));
+                        if (!exitCheck) { fillTable([data], obj.stationSelectedTable, false); }
+                        selectStations(obj.typeSelector.value, obj.stationSelectedTable, obj.stationSelectedLabel);
+                    }
+                });
                 if (plotChecked) {
-                    const mode = feature.properties.mode, interval = obj.plotInterval.value;
-                    const startTime = obj.plotStart.value, endTime = obj.plotEnd.value;
-                    if (startTime === '' || endTime === '') { alert('Please select a time range to plot.'); return; }
-                    const titleY = obj.plotInterval.selectedOptions[0].text;
-                    signalSender('showOverlay', 
-                        `Getting '${obj.plotInterval.selectedOptions[0].text}' for station '${name}'.\nThis takes a while. Please wait...`
-                    );
-                    const contents = { 
-                        id: [id], name: name, mode: mode, timeZone: timeZone,
-                        startTime: startTime, endTime: endTime, interval: interval,
-                        clientName: nameID, clientSecret: secret, clientUserName: userName, clientPassword: password
-                    };
-                    const response = await jsonLoader('plot_station', contents);
-                    signalSender('hideOverlay');
-                    if (response.status === "error") { alert(response.message); return; }
-                    const chartTitle = `Station: ${name}`, titleX = 'Time';
-                    await plotTimeSeries(
-                        obj.plotDataContainer, chartTitle, response.content, name, titleX, titleY
-                    );
-                } else {
-                    const type = feature.properties.type;
-                    const data = [name, String(id), type];
-                    const tableData = getDataFromTable(obj.stationSelectedTable, true);
-                    const exitCheck = tableData.rows.some(row => row.length === data.length &&
-                        row.every((value, index) => value === data[index]));
-                    if (!exitCheck) { fillTable([data], obj.stationSelectedTable, false); }
-                    selectStations(obj.typeSelector.value, obj.stationSelectedTable, obj.stationSelectedLabel);
-                }
-            });
-            if (plotChecked) {
-                note = `<hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
-                    <span style="display: block; font-weight: bold; text-align: center; line-height: 1.0;">Click to plot time-series data</span>`
-            } else { note = ''; }
-            const tooltip = `<div style="font-size: 14px; border-radius: 10px;">
-                <span style="display: block; text-align: center; font-weight: bold; line-height: 1.0;">${feature.properties.name || 'No name'}</span>
-                <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
-                ${Object.entries(feature.properties).filter(([key]) => key !== 'name' && key !== 'mode')
-                .map(([key, value]) => `<span>• ${key}: ${value}</span><br>`).join('')}${note}
-            </div>`;
-            layer.bindTooltip(tooltip, { sticky: true, permanent: false, direction: 'bottom', opacity: 1, offset: [0, 10] });
+                    note = `<hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
+                        <span style="display: block; font-weight: bold; text-align: center; line-height: 1.0;">Click to plot time-series data</span>`
+                } else { note = ''; }
+                const tooltip = `<div style="font-size: 14px; border-radius: 10px; max-height: 200px; overflow-y: auto;">
+                    <span style="display: block; text-align: center; font-weight: bold; line-height: 1.0;">${feature.properties.name || 'No name'}</span>
+                    <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
+                    ${Object.entries(feature.properties).filter(([key]) => key !== 'name' && key !== 'mode')
+                    .map(([key, value]) => `<span>• ${key}: ${value}</span><br>`).join('')}${note}
+                </div>`;
+                layer.bindTooltip(tooltip, { sticky: true, permanent: false, direction: 'bottom', opacity: 1, offset: [0, 10] });
+            }
         }
     }).addTo(mapObj);
     const bounds = tempLayer.getBounds();

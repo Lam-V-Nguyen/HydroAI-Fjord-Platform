@@ -22,7 +22,7 @@ var_revert = {
     'u10': 'Wind (u Component) (m/s)', 'v10': 'Wind (v Component) (m/s)',
     'sp': 'Surface Pressure (Pa)', 'tcc': 'Total Cloud Cover (%)',
     'ssrd': 'Shortwave Radiation (W/m^2)', 'strd': 'Longwave Radiation (W/m^2)',
-    'time': 'Time', 'wind_speed': 'Wind Speed (m/s)', 
+    'Time': 'Time', 'wind_speed': 'Wind Speed (m/s)',
     'wind_direction': 'Wind Direction (degrees)'
 }
 
@@ -136,7 +136,7 @@ class Regnbyge():
         data = data.replace(float("nan"), None) # Fill NaN values
         return data
 
-def era5_downloader(dir:str, processes:dict, key_process:str, vars:list, 
+def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:list, 
     lat:float, lon:float, start:str, end:str, time_zone:str, buffer:float=0.01):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
@@ -144,7 +144,7 @@ def era5_downloader(dir:str, processes:dict, key_process:str, vars:list,
     log_path = os.path.join(dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
     logger = flow_functions.setup_logger("cdsapi", log_path)
-    CDS_url, CDS_key = os.getenv('CDS_URL'), os.getenv('CDS_API_KEY')
+    CDS_url, CDS_key = os.getenv('CDS_URL'), api_key
     config_path = Path.home() / '.cdsapirc'
     if not config_path.exists():
         logger.info("Creating .cdsapirc ...")
@@ -240,7 +240,7 @@ def era5_downloader(dir:str, processes:dict, key_process:str, vars:list,
             for f in bad_files: logger.info(f" - {os.path.basename(f)}")
         logger.info("=========================================================")
         df_result.index = functions.utc_to_local(df_result.index, time_zone)
-        month_df.index.name = 'Time'
+        df_result.index.name = 'Time'
         columns = df_result.columns.tolist()
         if 'tp' in columns: df_result['tp'] *= 1000
         if 't2m' in columns: df_result['t2m'] -= 273.15
@@ -270,3 +270,7 @@ def era5_downloader(dir:str, processes:dict, key_process:str, vars:list,
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
+
+def met_dowloader():
+
+    pass
