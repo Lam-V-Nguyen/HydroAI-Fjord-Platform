@@ -1053,11 +1053,10 @@ def meshProcess(is_hyd: bool, arr: np.ndarray, cache: dict) -> np.ndarray:
 def clean_json_value(value):
     if isinstance(value, dict):
         return {k: clean_json_value(v) for k, v in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [clean_json_value(v) for v in value]
-    if isinstance(value, float):
-        return value if np.isfinite(value) else None
-    if isinstance(value, np.floating):
+    if isinstance(value, (float, np.floating)):
         return float(value) if np.isfinite(value) else None
-    if isinstance(value, np.integer): return int(value)
+    if isinstance(value, np.integer):
+        return int(value)
     return value

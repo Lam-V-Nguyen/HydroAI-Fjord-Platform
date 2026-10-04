@@ -1,6 +1,8 @@
 import os, pickle, json, traceback, asyncio, threading, requests
+from io import BytesIO, StringIO
+from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, Query, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions
 from config import PROJECT_ROOT
 import geopandas as gpd, pandas as pd, numpy as np
@@ -52,7 +54,7 @@ async def reset_station(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        source_dir = os.path.join(PROJECT_ROOT, project_name, body.get('key'))
+        source_dir = os.path.join(PROJECT_ROOT, project_name, body.get('keyType'))
         flow_checked, level_checked, rain_checked = body.get('flow'), body.get('level'), body.get('rain')
         if flow_checked: functions.safe_remove(os.path.join(source_dir, 'flow.pkl'))
         if level_checked: functions.safe_remove(os.path.join(source_dir, 'level.pkl'))
@@ -80,15 +82,20 @@ async def init_station(request: Request, user=Depends(functions.basic_auth)):
             token = obj.get_Token()
             if token is None: return JSONResponse({'status': 'error', 'message': f"Error: Could not get token."})
             df = obj.get_Station(key)
-            if not df.empty:
-                geometry = gpd.points_from_xy(df['x'], df['y'])
-                station = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:32633')
-                station = station.drop(columns=['x', 'y'])
-                station['mode'] = key
-                if 'geoX' in station.columns: station = station.drop(columns=['geoX'])
-                if 'geoY' in station.columns: station = station.drop(columns=['geoY'])
-                station = station.to_crs('EPSG:4326')
-                with open(path, 'wb') as f: pickle.dump(station, f)
+            if df.empty: return JSONResponse({'status': 'error', 'message': f"No '{key}' data available."})
+            geometry = gpd.points_from_xy(df['x'], df['y'])
+            station = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:32633')
+            station = station.drop(columns=['x', 'y'])
+            station['mode'] = key
+            if 'geoX' in station.columns: station = station.drop(columns=['geoX'])
+            if 'geoY' in station.columns: station = station.drop(columns=['geoY'])
+            station = station.to_crs('EPSG:4326')
+            station = station[
+                station['name'].notna() & station['type'].notna() &
+                (station['name'] != '') & (station['type'] != '')
+            ]
+            station = station.dropna(subset=['name', 'type'], how='any')
+            with open(path, 'wb') as f: pickle.dump(station, f)
         else:
             with open(path, 'rb') as f: station = pickle.load(f)
         if station.empty: return JSONResponse({'status': 'error', 'message': f"No '{key}' data available."})
@@ -182,11 +189,11 @@ async def data_upload_gis(file: UploadFile = File(...)):
     finally: 
         await file.close()
 
-@router.post("/check_download_status_era5")
-async def check_download_status_era5(request: Request, user=Depends(functions.basic_auth)):
+@router.post("/check_download_status")
+async def check_download_status(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    key = f"{project_name}:era5"
+    key = f"{project_name}:{body.get('key')}"
     info = processes.get(key)
     if info is None:
         return JSONResponse({"status": "idle", "message": "No download running."})
@@ -220,13 +227,11 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        time_zone = body.get('timeZone')
         path = os.path.join(PROJECT_ROOT, project_name, "era5_data.csv")
         if not os.path.exists(path): 
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
-        df['Time'] = pd.to_datetime(df['Time'], utc=True)
-        df['Time'] = functions.utc_to_local(df['Time'], time_zone)
+        df['Time'] = pd.to_datetime(df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
         columns = [data_functions.var_revert[x] for x in df.columns]
         functions.safe_remove(path)
         return JSONResponse({'status': 'ok', 'columns': columns, 'content': df.values.tolist()})
@@ -241,7 +246,7 @@ async def save_era5(request: Request):
         body = await request.json()
         data = body.get('data')
         df = pd.DataFrame(data['rows'], columns=data['columns'])
-        df = df.dropna(subset=['Time'], how='all')
+        df = df.dropna(subset=['Time'], how='any')
         df = df.replace([np.inf, -np.inf], np.nan)
         csv_string = df.to_csv(index=False)
         return JSONResponse({'status': 'ok', 'message': 'Saved successfully.', 'content': csv_string})
@@ -256,7 +261,6 @@ async def stations_met(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         key, client_name = body.get('key'), body.get('clientName', '')
-        # client_secret = body.get('clientSecret', '')
         url = f"{os.getenv('MET_ProstAPI_URL')}/sources/v0.jsonld"
         redis, key_process = request.app.state.redis, f"{project_name}:met_stations"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
@@ -275,14 +279,91 @@ async def stations_met(request: Request, user=Depends(functions.basic_auth)):
                     df['geometry'].apply(lambda x: x[0] if x else None), df['geometry'].apply(lambda x: x[1] if x else None)
                 ), crs='EPSG:4326'
             )
-            gdf = gdf.dropna(subset=['geometry'])
+            gdf = gdf.dropna(subset=['geometry'], how='any')
         if gdf.empty: return JSONResponse({'status': 'error', 'message': f"No '{key}' data available."})
-        content = functions.clean_json_value(json.loads(gdf.to_json()))
+        content = {'length': len(gdf), 'point': functions.clean_json_value(json.loads(gdf.to_json()))}
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/stations_met:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/download_met")
+async def download_met(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
+    start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
+    variables, interval = body.get('variables'), body.get('interval')
+    ids, columns = body.get('ids'), body.get('columns')
+    url = f"{os.getenv('MET_ProstAPI_URL')}/observations/v0.jsonld"
+    redis, key_process = request.app.state.redis, f"{project_name}:met"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if process already running
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=data_functions.met_downloader, 
+            args=(api_key, url, dir, processes, key_process, ids, 
+                columns, variables, interval, start, end, time_zone
+            ), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
+@router.post("/upload_met_csv")
+async def upload_met_csv(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        path = os.path.join(PROJECT_ROOT, project_name, "met_data.csv")
+        if not os.path.exists(path): 
+            return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
+        df = pd.read_csv(path)
+        df['Time'] = pd.to_datetime(df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.astype(object).where(pd.notna(df), None)
+        columns, content = df.columns.tolist(), df.values.tolist()
+        functions.safe_remove(path)
+        return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
+    except Exception as e:
+        print('/upload_met_csv:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/save_met")
+async def save_met(request: Request):
+    try:
+        body = await request.json()
+        data = body.get('data')
+        df = pd.DataFrame(data['rows'], columns=data['columns'])
+        df = df.dropna(subset=['Time'], how='any')
+        df = df.replace([np.inf, -np.inf], np.nan)
+        if 'sourceId' not in df.columns:
+            return JSONResponse({
+                'status': 'error', 'message': 'Column "sourceId" not found.'
+            })
+        df = df.dropna(subset=['sourceId'], how='any')
+        # Create ZIP in memory
+        zip_buffer = BytesIO()
+        with ZipFile(zip_buffer, mode='w', compression=ZIP_DEFLATED) as zip_file:
+            # Group by station
+            for station_id, station_df in df.groupby('sourceId', sort=True):
+                # Convert DataFrame -> CSV string
+                csv_string = station_df.to_csv(index=False)
+                
+                file_name = f"{station_id}.csv"
+                zip_file.writestr(file_name, csv_string)
+        # Move pointer to beginning
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer, media_type='application/zip',
+            headers={
+                'Content-Disposition': 'attachment; filename="met_data.zip"'
+            }
+        )
+    except Exception as e:
+        print('/save_met:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})

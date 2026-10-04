@@ -296,3 +296,13 @@ body {
 .field-row .input-with-icon .toggle-password:hover {
   color: #007bff;
 }
+
+.met-tooltip {
+  max-width: 300px !important; max-height: 220px !important;
+  pointer-events: auto !important;
+}
+
+.met-tooltip .met-tooltip-content {
+  max-height: 200px; overflow-y: auto;
+  overflow-x: hidden; padding-right: 8px;
+}

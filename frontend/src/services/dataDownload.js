@@ -25,8 +25,14 @@ const obj = {
     waterLevelCheckbox: $("water-level-checkbox"), rainfallCheckbox: $("rainfall-checkbox"),
     dataGISBtn: $("upload-gis-btn"), dataGISFile: $("data-gis-file"), dataGISContainer: $("data-gis-container"),
     // Met options
-    clientIdMet: $("met-client-id"), clientSecretMet: $("met-client-secret"),
-    clientRememberMet: $("met-remember-btn"), metLocationBtn: $("met-location-btn"),
+    clientIdMet: $("met-client-id"), clientRememberMet: $("met-remember-btn"), 
+    metLocationBtn: $("met-location-btn"), stationCheckboxMet: $("met-station-checkbox"),
+    metLabel: $("met-station-label"), metSelectedLabel: $("met-station-selected-label"),
+    metTable: $("met-station-table"), metDeleteBtn: $("met-delete-btn"), metStart: $("met-start"), 
+    metEnd: $("met-end"), metDownloadBtn: $("met-download-btn"), metSaveBtn: $("met-save-btn"), 
+    metDownloadTable: $("met-table"), metInterval: $("met-download-interval"),
+    metLogContainer: $("met-log-container"), metLogText: $("met-log-text"),
+    
 
     // Regnbyge options
     clientIdRegnbyge: $("regnbyge-client-id"), clientSecretRegnbyge: $("regnbyge-client-secret"), 
@@ -50,7 +56,7 @@ let activeProject = null, plotChecked = true, waterFlowLayer = null,
     waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
     weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false,
     nameID = null, secret = null, userName = null, password = null, key = 'met',
-    metLayer = null;
+    metLayer = null, metSelected = false, selectedMetLayer = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
@@ -77,8 +83,8 @@ function savePassword() {
     });
     obj.clientRememberMet.addEventListener('click', async() => {
         if (key === '') { key = 'met'; }
-        nameID = obj.clientIdMet.value; secret = obj.clientSecretMet.value;
-        if (nameID === '' || secret === '') {
+        nameID = obj.clientIdMet.value;
+        if (nameID === '') {
             alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
         }
         const content = { projectName: currentProject, key: key, 
@@ -116,8 +122,7 @@ async function loadClient(key) {
     const response = await jsonLoader('load_client', content);
     nameID = response.content.client_id; secret = response.content.client_secret;
     userName = response.content.client_username; password = response.content.client_password;
-    if (key === 'met') { 
-        obj.clientIdMet.value = nameID; obj.clientSecretMet.value = secret;
+    if (key === 'met') { obj.clientIdMet.value = nameID;
     } else if (key === 'regnbyge') { 
         obj.clientIdRegnbyge.value = nameID; obj.clientSecretRegnbyge.value = secret;
         obj.clientUserNameRegnbyge.value = userName; obj.clientPasswordRegnbyge.value = password;
@@ -131,10 +136,12 @@ function updateManager() {
     const end = new Date(now); end.setDate(end.getDate() - 2);
     moveWindow(obj.plotDataHeader, obj.plotDataContainer);
     closeWindow(obj.plotDataCloseBtn, obj.plotDataContainer);
-    hightlightRows(obj.stationSelectedTable);
+    hightlightRows(obj.stationSelectedTable, obj.stationSelectedLabel); 
+    hightlightRows(obj.metTable, obj.metSelectedLabel);
     obj.plotStart.value = formatDate(start); obj.plotEnd.value = formatDate(end);
     obj.downloadStart.value = formatDate(start); obj.downloadEnd.value = formatDate(end);
     obj.era5Start.value = formatDate(start); obj.era5End.value = formatDate(end);
+    obj.metStart.value = formatDate(start).split(' ')[0]; obj.metEnd.value = formatDate(end).split(' ')[0];
     obj.selectBox.addEventListener("click", () => { obj.checkboxList.style.display === 'block'; });
     document.addEventListener('click', (event) => {
         if (!obj.dropdown.contains(event.target)) obj.checkboxList.style.display = 'none';
@@ -171,21 +178,88 @@ function updateManager() {
     });
     // Work on MET option
     obj.metLocationBtn.addEventListener('click', async () => {
-        const key = 'met', apiKey = obj.clientIdMet.value, apiSecret = obj.clientSecretMet.value;
-        if (apiKey === '' || apiSecret === '') { alert('Please enter your MET API key and secret.'); return; }
+        const key = 'met', apiKey = obj.clientIdMet.value;
+        if (apiKey === '') { alert('Please enter your MET API key.'); return; }
         signalSender('showOverlay', 'Getting stations from MET. Please wait...');
-        const content = { projectName: currentProject, key: key, clientName: apiKey, clientSecret: apiSecret };
+        const content = { projectName: currentProject, key: key, clientName: apiKey };
         const data = await jsonLoader('stations_met', content); signalSender('hideOverlay');
         if (data.status === 'error') { alert(data.message); return; }
         obj.waterFlowCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
         obj.waterLevelCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
         obj.rainfallCheckbox.checked = false; obj.rainfallCheckbox.dispatchEvent(new Event('change'));
-        metLayer = await pointPloter(data.content);
-
-
-
-
-
+        metLayer = clearMap(metLayer); deleteTable(obj.metTable);
+        metLayer = await pointPloter(data.content.point);
+        obj.metLabel.textContent = `Number of Stations: ${data.content.length}`;
+    });
+    obj.stationCheckboxMet.addEventListener('change', async (e) => {
+        metSelected = e.target.checked;
+        if (metSelected) { 
+            if (!metLayer) { 
+                alert('Please click "Get Stations" first to load MET stations first.'); 
+                e.target.checked = false; metSelected = false; return; 
+            }
+        }
+    });
+    obj.metDeleteBtn.addEventListener('click', async () => {
+        const selectedRows = obj.metTable.querySelectorAll('tbody tr.selected');
+        if (selectedRows.length === 0) { alert('No station selected. Please select a station from the table first.'); return; }
+        selectedRows.forEach(row => row.remove());
+        const n = obj.metTable.querySelectorAll('tbody tr.selected').length;
+        obj.metSelectedLabel.textContent = `Selected Stations: ${n}`;
+    });
+    obj.metDownloadBtn.addEventListener('click', async () => {
+        const apiKey = obj.clientIdMet.value;
+        if (apiKey === '') { alert('Please enter your MET API key.'); return; }
+        const tableData = getDataFromTable(obj.metTable, true);
+        if (tableData.rows.length === 0) { alert('No station selected. Please select a station from the map first.'); return; }
+        const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
+        const startTime = obj.metStart.value, endTime = obj.metEnd.value;
+        if (startTime === '' || endTime === '') { alert('Please select start and end time to download.'); return; }
+        // Get variables selected
+        const selectedValues = [...document.querySelectorAll(
+            '#met-variables-grid input[type="checkbox"]:checked'
+        )].map(checkbox => ({
+            value: checkbox.value, label: checkbox.getAttribute('data-label'),
+            des: checkbox.parentElement.textContent.trim()
+        }));
+        if (selectedValues.length === 0) { 
+            alert('Please select at least one variable to download.'); return; 
+        }
+        try {
+            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject, key: 'met'});
+            if (statusRes.status === "running") { alert("Weather download is already running."); return; }
+            obj.metLogText.value = ''; obj.metLogContainer.style.display = 'flex';
+            obj.metSaveBtn.style.display = 'none'; obj.metDownloadTable.style.display = 'none';
+            const contents = { 
+                projectName: currentProject, api_key: apiKey, ids: ids, timeZone: getLastTimeZone(),
+                startTime: startTime, endTime: endTime, interval: obj.metInterval.value, 
+                variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.label)
+            };
+            const data = await jsonLoader('download_met', contents);
+            if (data.status === 'error') { alert(data.message); return; }
+            updateLog(currentProject, obj.metLogText, 2, 'met', async () => {
+                alert('Downloading weather completed.');
+                const content_csv = {projectName: currentProject};
+                const csv = await jsonLoader('upload_met_csv', content_csv);
+                if (csv.status === 'error') { alert(csv.message); return; }
+                addDataToTable(obj.metDownloadTable, csv.columns, csv.content);
+                obj.metSaveBtn.style.display = 'block';
+                obj.metLogContainer.style.display = 'none';
+                obj.metDownloadTable.style.display = 'table';
+            });
+        } catch (error) { 
+            alert(error.message || error); 
+            obj.metSaveBtn.style.display = 'none'; return;
+        }
+    });
+    obj.metSaveBtn.addEventListener('click', async () => {
+        const data = getDataFromTable(obj.metDownloadTable, true);
+        if (data.rows.length === 0) { alert('No data to save.'); return; }
+        const response = await jsonLoader('save_met', {data: data});
+        if (response.status === 'ok') { 
+            await saveCSVSmart(response.blob(), `met_data.zip`, true); 
+        }
+        alert(response.message);
     });
     // Work on Regnbyge option
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
@@ -293,7 +367,7 @@ function updateManager() {
         if (!ok) return;
         signalSender('showOverlay', 'Deleting Station(s). Please wait...');
         const contents = { 
-            projectName: currentProject, flow: obj.waterFlowCheckbox.checked, key: keyRegnbye,
+            projectName: currentProject, flow: obj.waterFlowCheckbox.checked, key: key, keyType: 'regnbyge',
             level: obj.waterLevelCheckbox.checked, rain: obj.rainfallCheckbox.checked
         };
         const response = await jsonLoader('reset_station', contents);
@@ -343,7 +417,7 @@ function updateManager() {
             alert('Please select at least one variable to download.'); return; 
         }
         try {
-            const statusRes = await jsonLoader('check_download_status_era5', {projectName: currentProject});
+            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject, key: 'era5'});
             if (statusRes.status === "running") { alert("Weather download is already running."); return; }
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
             obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none';
@@ -356,7 +430,7 @@ function updateManager() {
             if (data.status === 'error') { alert(data.message); return; }
             updateLog(currentProject, obj.era5LogText, 2, 'era5', async () => {
                 alert('Downloading weather completed.');
-                const content_csv = {projectName: currentProject, timeZone: getLastTimeZone()};
+                const content_csv = {projectName: currentProject};
                 const csv = await jsonLoader('upload_era5_csv', content_csv);
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.era5Table, csv.columns, csv.content);
@@ -481,7 +555,8 @@ export function updateLog(currentProject, info, seconds, key, onFinish, reloadLo
             const res = await fetch(
                 `/log_tail_download_era5/${currentProject}?offset=${lastOffset}&log_file=log.txt`
             );
-            const statusRes = await jsonLoader('check_download_status_era5', {projectName: currentProject});
+            const content = {projectName: currentProject, key: key};
+            const statusRes = await jsonLoader('check_download_status', content);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.lines)) {
@@ -503,24 +578,27 @@ export function updateLog(currentProject, info, seconds, key, onFinish, reloadLo
     loop();
 }
 
-async function saveCSVSmart(csvString, suggestedName) {
+async function saveCSVSmart(data, suggestedName, zip = false) {
+    // File type configuration
+    const fileType = zip
+        ? {description: 'ZIP archive', accept: {'application/zip': ['.zip']}}
+        : {description: 'CSV',accept: {'text/csv': ['.csv']}};
     // Try File System Access API
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
-                suggestedName,
-                types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
+                suggestedName, types: [fileType]
             });
             const writable = await handle.createWritable();
-            await writable.write(csvString);
+            await writable.write(data);
             await writable.close(); return true;
         } catch (err) {
             if (err.name === 'AbortError') return false; // user cancel
             alert('Picker failed, fallback to download:', err);
         }
     }
-    // Fallback: <a download>
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    // Fallback
+    const blob = zip ? data : new Blob([data], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = suggestedName;
@@ -548,6 +626,17 @@ function mapOptions(mapObject) {
             obj.era5Lat.value = lat; obj.era5Lon.value = lon; 
             mapObject.getContainer().style.cursor = ""; era5Checked = false;
         }
+        if (selectedMetLayer) {
+            selectedMetLayer.closeTooltip(); selectedMetLayer.unbindTooltip();
+            const layer = selectedMetLayer;
+            if (layer._hoverTooltip) {
+                layer.bindTooltip(layer._hoverTooltip, {
+                    sticky: true, permanent: false,
+                    direction: 'bottom', opacity: 1, offset: [0, 10]
+                });
+            }
+            selectedMetLayer = null;
+        }
     });
     mapObject.on('contextmenu', async function (e) { 
         e.originalEvent.preventDefault();
@@ -561,7 +650,7 @@ function mapOptions(mapObject) {
     });
 }
 
-function hightlightRows(table) {
+function hightlightRows(table, label = null) {
     const tbody = table.querySelector('tbody');
     const trList = Array.from(tbody.querySelectorAll('tr'));
     let lastSelectedIndex = null;
@@ -581,8 +670,11 @@ function hightlightRows(table) {
             else { tr.classList.add('selected'); }
         }
         lastSelectedIndex = index;
-        const n = obj.stationSelectedTable.querySelectorAll('tr.selected').length;
-        obj.stationSelectedLabel.innerHTML = `Station(s) selected: ${n}`;
+        if (label) {
+            const n = table.querySelectorAll('tr.selected').length;
+            const total = table.querySelectorAll('tbody tr').length;
+            label.innerHTML = `(Selected Station(s): ${n}/${total})`;
+        }
     });
 }
 
@@ -654,7 +746,76 @@ async function pointPloter(points, pointType='') {
             return marker;
         },
         onEachFeature: (feature, layer) => {
-            if (key === 'regnbyge') {
+            if (key === 'met') {
+                const properties = feature.properties || {};
+                const lat = feature.geometry.coordinates[1] || 'N/A';
+                const lon = feature.geometry.coordinates[0] || 'N/A';
+                const name = properties.name || 'No name', id = properties.id || 'N/A';
+                const country = properties.country || 'N/A';
+                const formatValue = (value) => {
+                    if (value === null || value === undefined || value === '') {
+                        return 'N/A';
+                    }
+                    if (Array.isArray(value)) {
+                        return value.length > 0 ? value.join(', ') : 'N/A';
+                    }
+                    return value;
+                };
+                const hoverTooltip = `
+                    <div style="font-size: 14px; border-radius: 10px; line-height: 1.4;">
+                        <span style=" display: block; text-align: center; font-weight: bold; line-height: 1.2;">
+                            ${formatValue(properties.id)}
+                        </span>
+                        <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0;">
+                        <span>• Country: ${formatValue(properties.country)}</span><br>
+                        <span>• County: ${formatValue(properties.county)}</span><br>
+                        <span>• Municipality: ${formatValue(properties.municipality)}</span><br>
+                        <span>• Elevation: ${formatValue(properties.masl)} m</span>
+                    </div>
+                `;
+                const fullTooltip = `
+                    <div class="met-tooltip-content" style="
+                        font-size: 14px; border-radius: 10px; line-height: 1.4;">
+                        <span style="display: block; text-align: center;
+                            font-weight: bold; line-height: 1.2;">
+                            ${formatValue(properties.id)}
+                        </span>
+                        <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0;">
+                        ${Object.entries(properties)
+                            .filter(([propertyKey]) => propertyKey !== 'id')
+                            .map(([propertyKey, value]) => `
+                                <div>• <b>${propertyKey}:</b> ${formatValue(value)}</div>
+                            `).join('')}
+                    </div>
+                `;
+                layer._hoverTooltip = hoverTooltip; layer._fullTooltip = fullTooltip;
+                layer.bindTooltip(hoverTooltip, {
+                    sticky: true, permanent: false, direction: 'bottom', opacity: 1, offset: [0, 10]
+                });
+                layer.on('click', () => {
+                    if (selectedMetLayer && selectedMetLayer !== layer) {
+                        selectedMetLayer.closeTooltip(); selectedMetLayer.unbindTooltip();
+                        if (selectedMetLayer._hoverTooltip) {
+                            selectedMetLayer.bindTooltip(selectedMetLayer._hoverTooltip, {
+                                sticky: true, permanent: false,
+                                direction: 'bottom', opacity: 1, offset: [0, 10]
+                            });
+                        }
+                    }
+                    selectedMetLayer = layer; layer.unbindTooltip();
+                    layer.bindTooltip(fullTooltip, {
+                        permanent: true, direction: 'bottom',
+                        opacity: 1, offset: [0, 10], className: 'met-tooltip'
+                    }).openTooltip();
+                    if (metSelected) {
+                        const data = [String(id), name, country, lat, lon];
+                        fillTable([data], obj.metTable, false);
+                        const n = obj.metTable.querySelectorAll('tbody tr.selected').length;
+                        const m = obj.metTable.querySelectorAll('tbody tr').length;
+                        obj.metSelectedLabel.innerHTML = `(Selected Station(s): ${n}/${m})`;
+                    }
+                });
+            } else if (key === 'regnbyge') {
                 layer.on('click', async () => { 
                     const id = feature.properties.id, name = feature.properties.name;
                     if (plotChecked) {
@@ -691,7 +852,7 @@ async function pointPloter(points, pointType='') {
                     note = `<hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
                         <span style="display: block; font-weight: bold; text-align: center; line-height: 1.0;">Click to plot time-series data</span>`
                 } else { note = ''; }
-                const tooltip = `<div style="font-size: 14px; border-radius: 10px; max-height: 200px; overflow-y: auto;">
+                const tooltip = `<div style="font-size: 14px; border-radius: 10px;">
                     <span style="display: block; text-align: center; font-weight: bold; line-height: 1.0;">${feature.properties.name || 'No name'}</span>
                     <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0 5px 0;">
                     ${Object.entries(feature.properties).filter(([key]) => key !== 'name' && key !== 'mode')
