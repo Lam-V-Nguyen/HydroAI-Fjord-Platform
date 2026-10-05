@@ -30,8 +30,14 @@ const obj = {
     metLabel: $("met-station-label"), metSelectedLabel: $("met-station-selected-label"),
     metTable: $("met-station-table"), metDeleteBtn: $("met-delete-btn"), metStart: $("met-start"), 
     metEnd: $("met-end"), metDownloadBtn: $("met-download-btn"), metSaveBtn: $("met-save-btn"), 
-    metDownloadTable: $("met-table"), metInterval: $("met-download-interval"),
-    metLogContainer: $("met-log-container"), metLogText: $("met-log-text"),
+    metDownloadTable: $("met-table"), metLogContainer: $("met-log-container"), metLogText: $("met-log-text"),
+    // NVE options
+    clientIdNVE: $("nve-client-id"), clientRememberNVE: $("nve-remember-btn"),
+    nveLocationBtn: $("nve-location-btn"), stationCheckboxNVE: $("nve-station-checkbox"),
+    nveTable: $("nve-station-table"), nveDeleteBtn: $("nve-delete-btn"), 
+    nveLabel: $("nve-station-label"), nveSelectedLabel: $("nve-station-selected-label"), 
+
+
     
 
     // Regnbyge options
@@ -56,7 +62,8 @@ let activeProject = null, plotChecked = true, waterFlowLayer = null,
     waterLevelLayer = null, overFlowLayer = null, tempLayer = null, preLayer = null,
     weirLayer = null, evaLayer = null, currentProject = null, era5Checked = false,
     nameID = null, secret = null, userName = null, password = null, key = 'met',
-    metLayer = null, metSelected = false, selectedMetLayer = null;
+    metLayer = null, metSelected = false, selectedMetLayer = null, nveLayer = null,
+    nveSelected = false, selectedNVELayer = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data');
@@ -84,6 +91,18 @@ function savePassword() {
     obj.clientRememberMet.addEventListener('click', async() => {
         if (key === '') { key = 'met'; }
         nameID = obj.clientIdMet.value;
+        if (nameID === '') {
+            alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
+        }
+        const content = { projectName: currentProject, key: key, 
+            clientName: nameID, clientSecret: secret
+        };
+        const response = await jsonLoader('save_client', content);
+        alert(response.message); if (response.status === "error") { return; }
+    });
+    obj.clientRememberNVE.addEventListener('click', async() => {
+        if (key === '') { key = 'nve'; }
+        nameID = obj.clientIdNVE.value;
         if (nameID === '') {
             alert('Please check registration information and try again.\nInformation is NOT saved.'); return;
         }
@@ -123,6 +142,7 @@ async function loadClient(key) {
     nameID = response.content.client_id; secret = response.content.client_secret;
     userName = response.content.client_username; password = response.content.client_password;
     if (key === 'met') { obj.clientIdMet.value = nameID;
+    } else if (key === 'nve') { obj.clientIdNVE.value = nameID;
     } else if (key === 'regnbyge') { 
         obj.clientIdRegnbyge.value = nameID; obj.clientSecretRegnbyge.value = secret;
         obj.clientUserNameRegnbyge.value = userName; obj.clientPasswordRegnbyge.value = password;
@@ -138,6 +158,7 @@ function updateManager() {
     closeWindow(obj.plotDataCloseBtn, obj.plotDataContainer);
     hightlightRows(obj.stationSelectedTable, obj.stationSelectedLabel); 
     hightlightRows(obj.metTable, obj.metSelectedLabel);
+    hightlightRows(obj.nveTable, obj.nveSelectedLabel);
     obj.plotStart.value = formatDate(start); obj.plotEnd.value = formatDate(end);
     obj.downloadStart.value = formatDate(start); obj.downloadEnd.value = formatDate(end);
     obj.era5Start.value = formatDate(start); obj.era5End.value = formatDate(end);
@@ -154,6 +175,8 @@ function updateManager() {
                 key = 'regnbyge'; await loadClient(key);
             } else if (tabName === 'eklima-tab') { 
                 key = 'met'; await loadClient(key);
+             } else if (tabName === 'nve-tab') { 
+                key = 'nve'; await loadClient(key);
             } else if (tabName === 'regnbyge-tab-2') { 
                 plotChecked = true; deleteTable(obj.stationSelectedTable); 
             } else if (tabName === 'regnbyge-tab-3') { plotChecked = false; 
@@ -188,7 +211,7 @@ function updateManager() {
         obj.waterLevelCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
         obj.rainfallCheckbox.checked = false; obj.rainfallCheckbox.dispatchEvent(new Event('change'));
         metLayer = clearMap(metLayer); deleteTable(obj.metTable);
-        metLayer = await pointPloter(data.content.point);
+        metLayer = await pointPloter(data.content.point, 'met');
         obj.metLabel.textContent = `Number of Stations: ${data.content.length}`;
     });
     obj.stationCheckboxMet.addEventListener('change', async (e) => {
@@ -211,7 +234,9 @@ function updateManager() {
         const apiKey = obj.clientIdMet.value;
         if (apiKey === '') { alert('Please enter your MET API key.'); return; }
         const tableData = getDataFromTable(obj.metTable, true);
-        if (tableData.rows.length === 0) { alert('No station selected. Please select a station from the map first.'); return; }
+        if (tableData.rows.length === 0) { 
+            alert('No station selected. Please select a station from the map first.'); return; 
+        }
         const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
         const startTime = obj.metStart.value, endTime = obj.metEnd.value;
         if (startTime === '' || endTime === '') { alert('Please select start and end time to download.'); return; }
@@ -231,8 +256,8 @@ function updateManager() {
             obj.metLogText.value = ''; obj.metLogContainer.style.display = 'flex';
             obj.metSaveBtn.style.display = 'none'; obj.metDownloadTable.style.display = 'none';
             const contents = { 
-                projectName: currentProject, api_key: apiKey, ids: ids, timeZone: getLastTimeZone(),
-                startTime: startTime, endTime: endTime, interval: obj.metInterval.value, 
+                projectName: currentProject, api_key: apiKey, ids: ids,
+                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
                 variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.label)
             };
             const data = await jsonLoader('download_met', contents);
@@ -253,14 +278,62 @@ function updateManager() {
         }
     });
     obj.metSaveBtn.addEventListener('click', async () => {
+        const tableData = getDataFromTable(obj.metTable, true);
+        if (tableData.rows.length === 0) { 
+            alert('No station selected. Please select a station from the map first.'); return; 
+        }
+        const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
         const data = getDataFromTable(obj.metDownloadTable, true);
         if (data.rows.length === 0) { alert('No data to save.'); return; }
-        const response = await jsonLoader('save_met', {data: data});
-        if (response.status === 'ok') { 
-            await saveCSVSmart(response.blob(), `met_data.zip`, true); 
+        try {
+            const response = await fetch('/save_met', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids: ids, data: data})
+            });
+            if (response.ok) { 
+                const blob = await response.blob();
+                await saveFileSmart(blob, `met_data.zip`, true);
+                alert('Save ZIP file completed.')
+            }
+        } catch (error) {
+            alert(`Failed to save MET data:\n${error.message}`);
         }
-        alert(response.message);
     });
+    // Work on NVE option
+    obj.nveLocationBtn.addEventListener('click', async () => {
+        const key = 'nve', apiKey = obj.clientIdNVE.value;
+        if (apiKey === '') { alert('Please enter your NVE API key.'); return; }
+        signalSender('showOverlay', 'Getting stations from NVE. Please wait...');
+        const content = { projectName: currentProject, key: key, clientName: apiKey };
+        const data = await jsonLoader('stations_nve', content); signalSender('hideOverlay');
+        if (data.status === 'error') { alert(data.message); return; }
+        obj.waterFlowCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
+        obj.waterLevelCheckbox.checked = false; obj.waterLevelCheckbox.dispatchEvent(new Event('change'));
+        obj.rainfallCheckbox.checked = false; obj.rainfallCheckbox.dispatchEvent(new Event('change'));
+        nveLayer = clearMap(nveLayer); deleteTable(obj.nveTable);
+        nveLayer = await pointPloter(data.content.point, 'nve');
+        obj.nveLabel.textContent = `Number of Stations: ${data.content.length}`;
+    });
+    obj.stationCheckboxNVE.addEventListener('change', async (e) => {
+        nveSelected = e.target.checked;
+        if (nveSelected) { 
+            if (!nveLayer) { 
+                alert('Please click "Get Stations" first to load MET stations first.'); 
+                e.target.checked = false; nveSelected = false; return; 
+            }
+        }
+    });
+    obj.nveDeleteBtn.addEventListener('click', async () => {
+        const selectedRows = obj.nveTable.querySelectorAll('tbody tr.selected');
+        if (selectedRows.length === 0) { alert('No station selected. Please select a station from the table first.'); return; }
+        selectedRows.forEach(row => row.remove());
+        const n = obj.nveTable.querySelectorAll('tbody tr.selected').length;
+        obj.nveSelectedLabel.textContent = `Selected Stations: ${n}`;
+    });
+
+
+
+
     // Work on Regnbyge option
     obj.waterFlowCheckbox.addEventListener('change', async (e) => { 
         const filter = ['flow']; metLayer = clearMap(metLayer);
@@ -448,7 +521,7 @@ function updateManager() {
         if (data.rows.length === 0) { alert('No data to save.'); return; }
         const response = await jsonLoader('save_era5', {data: data});
         if (response.status === 'ok') { 
-            await saveCSVSmart(response.content, `era5_${Date.now()}.csv`); 
+            await saveFileSmart(response.content, `era5_${Date.now()}.csv`); 
         }
         alert(response.message);
     });
@@ -578,7 +651,7 @@ export function updateLog(currentProject, info, seconds, key, onFinish, reloadLo
     loop();
 }
 
-async function saveCSVSmart(data, suggestedName, zip = false) {
+async function saveFileSmart(data, suggestedName, zip = false) {
     // File type configuration
     const fileType = zip
         ? {description: 'ZIP archive', accept: {'application/zip': ['.zip']}}
@@ -636,6 +709,17 @@ function mapOptions(mapObject) {
                 });
             }
             selectedMetLayer = null;
+        }
+        if (selectedNVELayer) {
+            selectedNVELayer.closeTooltip(); selectedNVELayer.unbindTooltip();
+            const layer = selectedNVELayer;
+            if (layer._hoverTooltip) {
+                layer.bindTooltip(layer._hoverTooltip, {
+                    sticky: true, permanent: false,
+                    direction: 'bottom', opacity: 1, offset: [0, 10]
+                });
+            }
+            selectedNVELayer = null;
         }
     });
     mapObject.on('contextmenu', async function (e) { 
@@ -735,6 +819,8 @@ async function pointPloter(points, pointType='') {
     if (pointType === 'flow') { iconUrl = `/src_frontend/images/water_flow.png?v=${Date.now()}`; }
     else if (pointType === 'level') { iconUrl = `/src_frontend/images/water_level.png?v=${Date.now()}`; }
     else if (pointType === 'rain') { iconUrl = `/src_frontend/images/rain.png?v=${Date.now()}`; }
+    else if (pointType === 'met') { iconUrl = `/src_frontend/images/met.png?v=${Date.now()}`; }
+    else if (pointType === 'nve') { iconUrl = `/src_frontend/images/nve.png?v=${Date.now()}`; }
     const timeZone = getLastTimeZone();
     const tempLayer = L.geoJSON(points, {
         pointToLayer: (_, latlng) => {
@@ -764,10 +850,10 @@ async function pointPloter(points, pointType='') {
                 const hoverTooltip = `
                     <div style="font-size: 14px; border-radius: 10px; line-height: 1.4;">
                         <span style=" display: block; text-align: center; font-weight: bold; line-height: 1.2;">
-                            ${formatValue(properties.id)}
+                            ${formatValue(id)}
                         </span>
                         <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0;">
-                        <span>• Country: ${formatValue(properties.country)}</span><br>
+                        <span>• Country: ${formatValue(country)}</span><br>
                         <span>• County: ${formatValue(properties.county)}</span><br>
                         <span>• Municipality: ${formatValue(properties.municipality)}</span><br>
                         <span>• Elevation: ${formatValue(properties.masl)} m</span>
@@ -813,6 +899,72 @@ async function pointPloter(points, pointType='') {
                         const n = obj.metTable.querySelectorAll('tbody tr.selected').length;
                         const m = obj.metTable.querySelectorAll('tbody tr').length;
                         obj.metSelectedLabel.innerHTML = `(Selected Station(s): ${n}/${m})`;
+                    }
+                });
+            } else if (key === 'nve') {
+                const properties = feature.properties || {};
+                const lat = properties.latitude || 'N/A', lon = properties.longitude || 'N/A';
+                const name = properties.stationName || 'No name', id = properties.stationId || 'N/A';
+                const river = properties.riverName || 'N/A', council = properties.councilName || 'N/A';
+                const formatValue = (value) => {
+                    if (value === null || value === undefined || value === '') {
+                        return 'N/A';
+                    }
+                    if (Array.isArray(value)) {
+                        return value.length > 0 ? value.join(', ') : 'N/A';
+                    }
+                    return value;
+                };
+                const hoverTooltip = `
+                    <div style="font-size: 14px; border-radius: 10px; line-height: 1.4;">
+                        <span style=" display: block; text-align: center; font-weight: bold; line-height: 1.2;">
+                            ${formatValue(id)}
+                        </span>
+                        <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0;">
+                        <span>• Station Name: ${name}</span><br><span>• River Name: ${river}</span><br>
+                        <span>• Council Name: ${council} m</span>
+                    </div>
+                `;
+                const fullTooltip = `
+                    <div class="met-tooltip-content" style="
+                        font-size: 14px; border-radius: 10px; line-height: 1.4;">
+                        <span style="display: block; text-align: center;
+                            font-weight: bold; line-height: 1.2;">
+                            ${formatValue(id)}
+                        </span>
+                        <hr style="border-top: 1px solid #5d5d61ff; margin: 5px 0;">
+                        ${Object.entries(properties)
+                            .filter(([propertyKey]) => propertyKey !== 'id')
+                            .map(([propertyKey, value]) => `
+                                <div>• <b>${propertyKey}:</b> ${formatValue(value)}</div>
+                            `).join('')}
+                    </div>
+                `;
+                layer._hoverTooltip = hoverTooltip; layer._fullTooltip = fullTooltip;
+                layer.bindTooltip(hoverTooltip, {
+                    sticky: true, permanent: false, direction: 'bottom', opacity: 1, offset: [0, 10]
+                });
+                layer.on('click', () => {
+                    if (selectedNVELayer && selectedNVELayer !== layer) {
+                        selectedNVELayer.closeTooltip(); selectedNVELayer.unbindTooltip();
+                        if (selectedNVELayer._hoverTooltip) {
+                            selectedNVELayer.bindTooltip(selectedNVELayer._hoverTooltip, {
+                                sticky: true, permanent: false,
+                                direction: 'bottom', opacity: 1, offset: [0, 10]
+                            });
+                        }
+                    }
+                    selectedNVELayer = layer; layer.unbindTooltip();
+                    layer.bindTooltip(fullTooltip, {
+                        permanent: true, direction: 'bottom',
+                        opacity: 1, offset: [0, 10], className: 'met-tooltip'
+                    }).openTooltip();
+                    if (nveSelected) {
+                        const data = [String(id), name, river, council, lat, lon];
+                        fillTable([data], obj.nveTable, false);
+                        const n = obj.nveTable.querySelectorAll('tbody tr.selected').length;
+                        const m = obj.nveTable.querySelectorAll('tbody tr').length;
+                        obj.nveSelectedLabel.innerHTML = `(Selected Station(s): ${n}/${m})`;
                     }
                 });
             } else if (key === 'regnbyge') {

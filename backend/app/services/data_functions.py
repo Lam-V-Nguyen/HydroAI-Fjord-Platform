@@ -273,7 +273,7 @@ def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:
             logger.removeHandler(h)
 
 def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:str, 
-    ids:list, columns:list, vars:list, interval:str, start:str, end:str, time_zone:str):
+    ids:list, columns:list, vars:list, start:str, end:str, time_zone:str):
     log_path = os.path.join(dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
     logger = flow_functions.setup_logger("met", log_path)
@@ -282,7 +282,6 @@ def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
     start_local = pd.Timestamp(start).tz_localize(time_zone)
     end_local = pd.Timestamp(end).tz_localize(time_zone) + pd.Timedelta(days=1)
     start_time, end_time = start_local.tz_convert('UTC'), end_local.tz_convert('UTC')
-    vars_new = [v.replace('PT1H', interval) for v in vars]
     try:
         logger.info("Weather downloader started.")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
@@ -291,8 +290,8 @@ def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
         for station in ids:
             station_id = station[0]
             logger.info(f"Downloading data for station: {station_id}")
-            for i in range(len(vars_new)):
-                element = vars_new[i]
+            for i in range(len(vars)):
+                element = vars[i]
                 logger.info(f"Station: {station_id}, Element: {element}")
                 params = {
                     "sources": station_id, "elements": element, 
@@ -321,7 +320,7 @@ def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
                     ], axis=1)
                     result['Time'] = pd.to_datetime(stations['referenceTime'], utc=True)
                     result['sourceId'], result['elementId'] = station_id, columns[i]
-                    result = result[result["timeResolution"] == interval].copy()
+                    result = result[result["timeResolution"] == "PT1H"].copy()
                     all_observations.append(result)
                 except requests.exceptions.RequestException as e:
                     logger.exception(f"Request failed for {station_id} | {element}: {e}")

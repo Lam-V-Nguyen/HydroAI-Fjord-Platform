@@ -294,8 +294,7 @@ async def download_met(request: Request, user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
     start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
-    variables, interval = body.get('variables'), body.get('interval')
-    ids, columns = body.get('ids'), body.get('columns')
+    variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
     url = f"{os.getenv('MET_ProstAPI_URL')}/observations/v0.jsonld"
     redis, key_process = request.app.state.redis, f"{project_name}:met"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
@@ -307,7 +306,7 @@ async def download_met(request: Request, user=Depends(functions.basic_auth)):
         threading.Thread(
             target=data_functions.met_downloader, 
             args=(api_key, url, dir, processes, key_process, ids, 
-                columns, variables, interval, start, end, time_zone
+                columns, variables, start, end, time_zone
             ), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
@@ -336,7 +335,7 @@ async def upload_met_csv(request: Request, user=Depends(functions.basic_auth)):
 async def save_met(request: Request):
     try:
         body = await request.json()
-        data = body.get('data')
+        ids, data = body.get('ids'), body.get('data')
         df = pd.DataFrame(data['rows'], columns=data['columns'])
         df = df.dropna(subset=['Time'], how='any')
         df = df.replace([np.inf, -np.inf], np.nan)
@@ -345,25 +344,64 @@ async def save_met(request: Request):
                 'status': 'error', 'message': 'Column "sourceId" not found.'
             })
         df = df.dropna(subset=['sourceId'], how='any')
+        stations = {x[0]: (x[1], x[2]) for x in ids}
         # Create ZIP in memory
         zip_buffer = BytesIO()
         with ZipFile(zip_buffer, mode='w', compression=ZIP_DEFLATED) as zip_file:
             # Group by station
             for station_id, station_df in df.groupby('sourceId', sort=True):
                 # Convert DataFrame -> CSV string
+                station_df = station_df.drop(columns=['sourceId'])
                 csv_string = station_df.to_csv(index=False)
-                
+                station_info = stations.get(station_id)
+                if station_info is None: continue
+                csv_string = f"{station_id},{station_info[0]},{station_info[1]}\n{csv_string}"
                 file_name = f"{station_id}.csv"
                 zip_file.writestr(file_name, csv_string)
         # Move pointer to beginning
         zip_buffer.seek(0)
         return StreamingResponse(
             zip_buffer, media_type='application/zip',
-            headers={
-                'Content-Disposition': 'attachment; filename="met_data.zip"'
-            }
+            headers={'Content-Disposition': 'attachment; filename="met_data.zip"'}
         )
     except Exception as e:
         print('/save_met:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/stations_nve")
+async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        key, client_name = body.get('key'), body.get('clientName', '')
+        url = f"{os.getenv('NVE_URL')}/Stations"
+        redis, key_process = request.app.state.redis, f"{project_name}:nve_stations"
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            # Check if process already running
+            if key_process in processes and processes[key_process]["status"] == "running":
+                return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+            headers = {"X-API-Key": client_name}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            df = pd.DataFrame(data["data"])
+            gdf = gpd.GeoDataFrame(
+                df, geometry=gpd.points_from_xy(x=df['longitude'], y=df['latitude']), crs='EPSG:4326'
+            )
+            gdf = gdf.dropna(subset=['geometry'], how='any')
+        if gdf.empty: return JSONResponse({'status': 'error', 'message': f"No '{key}' data available."})
+        content = {'length': len(gdf), 'point': functions.clean_json_value(json.loads(gdf.to_json()))}
+        return JSONResponse({'status': 'ok', 'content': content})
+    except Exception as e:
+        print('/stations_nve:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
+
+
+
+
