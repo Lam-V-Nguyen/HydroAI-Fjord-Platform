@@ -122,7 +122,7 @@
                                     </div>
                                 </div>
                                 <div class="tile" style="grid-column: span 5;"><h3>Variables</h3>
-                                    <div class="variables-grid" id="met-variables-grid">
+                                    <div class="variables-grid" style="max-height: 150px; overflow-y: auto; overflow-x: hidden; padding-right: 8px;" id="met-variables-grid">
                                         <label class="checkbox-right">
                                             <input type="checkbox" value="air_temperature" data-label="Temperature (degC)">Temperature (at 2m)
                                         </label>
@@ -256,9 +256,76 @@
                                 </div>
                             </div>
                         </div>
-
-
-
+                        <div class="tabpanel" data-panel="nve-tab-3">
+                            <div class="grid">
+                                <div class="tile" style="grid-column: span 3;"><h3>Download Period</h3>
+                                    <div class="row">
+                                        <div class="field-inline">
+                                            <label for="nve-start">Start Time:</label>
+                                            <input type="text" class="date" id="nve-start" placeholder="YYYY-mm-dd">
+                                        </div>
+                                        <div class="field-inline">
+                                            <label for="nve-end">End Time:</label>
+                                            <input type="text" class="date" id="nve-end" placeholder="YYYY-mm-dd">
+                                        </div>
+                                        <!-- <div class="field-inline">
+                                            <label for="nve-download-interval">Interval:</label>
+                                            <select id="nve-download-interval">
+                                                <option value="PT1H">Hourly Data</option>
+                                            </select>
+                                        </div> -->
+                                    </div>
+                                </div>
+                                <div class="tile" style="grid-column: span 5;"><h3>Variables</h3>
+                                    <div class="variables-grid" style="max-height: 100px; overflow-y: auto; overflow-x: hidden; padding-right: 8px;" id="nve-variables-grid">
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="air_temperature" data-label="Temperature (degC)">Temperature (at 2m)
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="sum(precipitation_amount PT1H)" data-label="Precipitation (mm)">Precipitation
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="mean(wind_from_direction PT1H)" data-label="Mean Wind Direction (deg)">Mean Wind Direction
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="mean(wind_speed PT1H)" data-label="Mean Wind Speed (m/s)">Mean Wind Speed
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="mean(surface_downwelling_shortwave_flux_in_air PT1H)" data-label="Shortwave Radiation (W/m^2)">Shortwave Radiation
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="mean(surface_downwelling_longwave_flux_in_air PT1H)" data-label="Mean Longwave Radiation (W/m^2)">Mean Longwave Radiation
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="air_pressure" data-label="Air Pressure (Pa)">Atmospheric Pressure (Sensor Height)
+                                        </label>
+                                        <label class="checkbox-right">
+                                            <input type="checkbox" value="cloud_area_fraction" data-label="Cloud cover (%)">Cloud Cover
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tabpanel" data-panel="nve-tab-4">
+                            <div class="grid">
+                                <div class="tile" style="grid-column: span 12;">
+                                    <div class="row">
+                                        <div class="field-inline">
+                                            <button type="button" id="nve-download-btn"
+                                                style="margin-top: -20px; max-width: 150px;">Download</button>
+                                            <button type="button" id="nve-save-btn"
+                                                style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
+                                        </div>
+                                        <table class="attributes-table" id="nve-table" style="display: none;">
+                                            <thead></thead><tbody></tbody>
+                                        </table>
+                                        <div class="log-container" id="nve-log-container">
+                                            <textarea wrap="off" class="log-text" id="nve-log-text" placeholder="Logs..." readonly></textarea>
+                                        </div>
+                                    </div>
+                                </div>    
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <!-- Regnbyge -->

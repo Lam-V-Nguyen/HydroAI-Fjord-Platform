@@ -4,7 +4,7 @@ import pandas as pd, xarray as xr, numpy as np
 from services import functions, flow_functions
 from pathlib import Path
 from services.flow_functions import StreamToLogger
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 
 variables = {
@@ -371,3 +371,88 @@ def cloud_cover_to_percent(series):
     values = values.where(values.between(0, 8), np.nan)
     # Convert 0-8 -> 0-100%
     return values / 8 * 100
+
+def nve_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:str, 
+    ids:list, columns:list, vars:list, start:str, end:str, time_zone:str):
+    log_path = os.path.join(dir, "log.txt")
+    if os.path.exists(log_path): os.remove(log_path)
+    logger = flow_functions.setup_logger("met", log_path)
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
+    # start_local = pd.Timestamp(start).tz_localize(time_zone)
+    # end_local = pd.Timestamp(end).tz_localize(time_zone) + pd.Timedelta(days=1)
+    # start_time, end_time = start_local.tz_convert('UTC'), end_local.tz_convert('UTC')
+    try:
+        logger.info("Weather downloader started.")
+        logger.info(f"Starting time: {start}   --   Ending time: {end}")
+        logger.info("="*60)
+    #     all_observations = []
+    #     for station in ids:
+    #         station_id = station[0]
+    #         logger.info(f"Downloading data for station: {station_id}")
+    #         for i in range(len(vars)):
+    #             element = vars[i]
+    #             logger.info(f"Station: {station_id}, Element: {element}")
+    #             params = {
+    #                 "sources": station_id, "elements": element, 
+    #                 "referencetime": f"{start_time.strftime('%Y-%m-%d')}/{end_time.strftime('%Y-%m-%d')}"
+    #             }
+    #             try:
+    #                 response = requests.get(url, params=params, auth=(api_key, ''), timeout=60)
+    #                 if response.status_code != 200:
+    #                     logger.info(f"Request failed for {station_id} | {element}: {response.status_code}")
+    #                     continue
+    #                 response.raise_for_status()
+    #                 data = response.json()
+    #                 records = data.get('data', [])
+    #                 if not records: 
+    #                     logger.info(f"  {element}: empty -> NaN")
+    #                     continue
+    #                 stations = pd.DataFrame(records)
+    #                 stations = stations.explode('observations', ignore_index=True)
+    #                 obs = pd.json_normalize(stations['observations'])
+    #                 if obs.empty: 
+    #                     logger.info(f"  {element}: empty -> NaN")
+    #                     continue
+    #                 result = pd.concat([
+    #                     stations[['sourceId', 'referenceTime']].reset_index(drop=True),
+    #                     obs.reset_index(drop=True)
+    #                 ], axis=1)
+    #                 result['Time'] = pd.to_datetime(stations['referenceTime'], utc=True)
+    #                 result['sourceId'], result['elementId'] = station_id, columns[i]
+    #                 result = result[result["timeResolution"] == "PT1H"].copy()
+    #                 all_observations.append(result)
+    #             except requests.exceptions.RequestException as e:
+    #                 logger.exception(f"Request failed for {station_id} | {element}: {e}")
+    #         logger.info("*"*40)
+    #     df = pd.concat(all_observations, ignore_index=True) if all_observations else pd.DataFrame()
+    #     if df.empty:
+    #         logger.error("No data downloaded")
+    #         processes[key_process] = {"status": "failed", "message": "No data downloaded"}
+    #         return
+    #     df = df[['Time', 'sourceId', 'elementId', 'value']]
+    #     df = df.pivot_table(
+    #         index=["Time", "sourceId"], columns="elementId", values="value", aggfunc="first"
+    #     ).reset_index()
+    #     df.columns.name = None
+    #     df["Time"] = pd.to_datetime(df["Time"], utc=True)
+    #     df = df[(df["Time"] >= start_time) & (df["Time"] < end_time)].copy()
+    #     df['Time'] = functions.utc_to_local(df['Time'], time_zone)
+    #     if "Air Pressure (Pa)" in df.columns: df["Air Pressure (Pa)"] *= 100
+    #     if "Cloud cover (%)" in df.columns: df["Cloud cover (%)"] = cloud_cover_to_percent(df["Cloud cover (%)"])
+    #     csv_path = os.path.normpath(os.path.join(dir, 'met_data.csv'))
+    #     df.to_csv(csv_path, index=False)
+    #     logger.info(f"Saved CSV to: {csv_path}")
+    #     logger.info(f"Saved weather file successfully.")
+    #     logger.handlers[0].flush()
+    #     processes[key_process] = {"status": "finished", "message": "Weather download completed successfully.\n\n"}
+    except Exception as e:
+        print('/met_downloader:\n==============')
+        traceback.print_exc()
+        logger.exception("Weather download failed.")
+        processes[key_process] = {"status": "failed", "message": str(e)}
+    finally:
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+        for h in logger.handlers[:]:
+            h.close()
+            logger.removeHandler(h)

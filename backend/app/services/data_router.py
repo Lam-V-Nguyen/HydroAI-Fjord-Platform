@@ -399,7 +399,28 @@ async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-
+@router.post("/download_nve")
+async def download_nve(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
+    start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
+    variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
+    url = f"{os.getenv('NVE_URL')}/Stations"
+    redis, key_process = request.app.state.redis, f"{project_name}:nve"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if process already running
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=data_functions.nve_downloader, 
+            args=(api_key, url, dir, processes, key_process, ids, 
+                columns, variables, start, end, time_zone
+            ), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
 
 

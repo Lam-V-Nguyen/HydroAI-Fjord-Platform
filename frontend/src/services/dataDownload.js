@@ -34,12 +34,10 @@ const obj = {
     // NVE options
     clientIdNVE: $("nve-client-id"), clientRememberNVE: $("nve-remember-btn"),
     nveLocationBtn: $("nve-location-btn"), stationCheckboxNVE: $("nve-station-checkbox"),
-    nveTable: $("nve-station-table"), nveDeleteBtn: $("nve-delete-btn"), 
-    nveLabel: $("nve-station-label"), nveSelectedLabel: $("nve-station-selected-label"), 
-
-
-    
-
+    nveTable: $("nve-station-table"), nveDeleteBtn: $("nve-delete-btn"), nveLabel: $("nve-station-label"), 
+    nveSelectedLabel: $("nve-station-selected-label"), nveStart: $("nve-start"), nveEnd: $("nve-end"), 
+    nveDownloadBtn: $("nve-download-btn"), nveSaveBtn: $("nve-save-btn"),
+    nveDownloadTable: $("nve-table"), nveLogContainer: $("nve-log-container"), nveLogText: $("nve-log-text"),
     // Regnbyge options
     clientIdRegnbyge: $("regnbyge-client-id"), clientSecretRegnbyge: $("regnbyge-client-secret"), 
     clientRememberRegnbyge: $("regnbyge-remember-btn"), clientUserNameRegnbyge: $("regnbyge-client-username"), 
@@ -330,7 +328,75 @@ function updateManager() {
         const n = obj.nveTable.querySelectorAll('tbody tr.selected').length;
         obj.nveSelectedLabel.textContent = `Selected Stations: ${n}`;
     });
-
+    obj.nveDownloadBtn.addEventListener('click', async () => {
+        const apiKey = obj.clientIdNVE.value;
+        if (apiKey === '') { alert('Please enter your NVE API key.'); return; }
+        const tableData = getDataFromTable(obj.nveTable, true);
+        if (tableData.rows.length === 0) { 
+            alert('No station selected. Please select a station from the map first.'); return; 
+        }
+        const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
+        const startTime = obj.nveStart.value, endTime = obj.nveEnd.value;
+        if (startTime === '' || endTime === '') { alert('Please select start and end time to download.'); return; }
+        // Get variables selected
+        const selectedValues = [...document.querySelectorAll(
+            '#nve-variables-grid input[type="checkbox"]:checked'
+        )].map(checkbox => ({
+            value: checkbox.value, label: checkbox.getAttribute('data-label'),
+            des: checkbox.parentElement.textContent.trim()
+        }));
+        if (selectedValues.length === 0) { 
+            alert('Please select at least one variable to download.'); return; 
+        }
+        try {
+            const statusRes = await jsonLoader('check_download_status', {projectName: currentProject, key: 'nve'});
+            if (statusRes.status === "running") { alert("Weather download is already running."); return; }
+            obj.nveLogText.value = ''; obj.nveLogContainer.style.display = 'flex';
+            obj.nveSaveBtn.style.display = 'none'; obj.nveDownloadTable.style.display = 'none';
+            const contents = { 
+                projectName: currentProject, api_key: apiKey, ids: ids,
+                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
+                variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.label)
+            };
+            const data = await jsonLoader('download_nve', contents);
+        //     if (data.status === 'error') { alert(data.message); return; }
+        //     updateLog(currentProject, obj.nveLogText, 2, 'nve', async () => {
+        //         alert('Downloading weather completed.');
+        //         const content_csv = {projectName: currentProject};
+        //         const csv = await jsonLoader('upload_nve_csv', content_csv);
+        //         if (csv.status === 'error') { alert(csv.message); return; }
+        //         addDataToTable(obj.nveDownloadTable, csv.columns, csv.content);
+        //         obj.nveSaveBtn.style.display = 'block';
+        //         obj.nveLogContainer.style.display = 'none';
+        //         obj.nveDownloadTable.style.display = 'table';
+        //     });
+        } catch (error) { 
+            alert(error.message || error); 
+            obj.nveSaveBtn.style.display = 'none'; return;
+        }
+    });
+    // obj.nveSaveBtn.addEventListener('click', async () => {
+    //     const tableData = getDataFromTable(obj.nveTable, true);
+    //     if (tableData.rows.length === 0) { 
+    //         alert('No station selected. Please select a station from the map first.'); return; 
+    //     }
+    //     const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
+    //     const data = getDataFromTable(obj.nveDownloadTable, true);
+    //     if (data.rows.length === 0) { alert('No data to save.'); return; }
+    //     try {
+    //         const response = await fetch('/save_nve', {
+    //             method: 'POST', headers: {'Content-Type': 'application/json'},
+    //             body: JSON.stringify({ids: ids, data: data})
+    //         });
+    //         if (response.ok) { 
+    //             const blob = await response.blob();
+    //             await saveFileSmart(blob, `nve_data.zip`, true);
+    //             alert('Save ZIP file completed.')
+    //         }
+    //     } catch (error) {
+    //         alert(`Failed to save NVE data:\n${error.message}`);
+    //     }
+    // });
 
 
 
