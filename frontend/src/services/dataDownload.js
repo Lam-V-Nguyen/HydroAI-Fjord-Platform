@@ -291,7 +291,7 @@ function updateManager() {
             const contents = {
                 projectName: currentProject, api_key: apiKey, ids: ids,
                 startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
-                variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.label)
+                variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.des)
             };
             const data = await jsonLoader('download_met', contents);
             if (data.status === 'error') { alert(data.message); return; }

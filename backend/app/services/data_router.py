@@ -304,8 +304,10 @@ async def met_parameters(request: Request):
             for i in df['elementId'].values:
                 vars.add(i)
         if df.empty: return JSONResponse({'status': 'ok', 'content': []})
-        # df = df.loc[df['parameter'].isin(vars)]
-        return JSONResponse({'status': 'ok', 'content': df.values.tolist()})
+        df = df.loc[df['elementId'].isin(vars)]
+        df = df[['elementId', 'unit']].dropna()
+        content = df.values.tolist()
+        return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/met_parameters:\n==============')
         traceback.print_exc()
