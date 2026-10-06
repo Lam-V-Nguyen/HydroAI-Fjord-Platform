@@ -36,7 +36,7 @@ const obj = {
     nveLocationBtn: $("nve-location-btn"), stationCheckboxNVE: $("nve-station-checkbox"),
     nveTable: $("nve-station-table"), nveDeleteBtn: $("nve-delete-btn"), nveLabel: $("nve-station-label"), 
     nveSelectedLabel: $("nve-station-selected-label"), nveStart: $("nve-start"), nveEnd: $("nve-end"), 
-    nveDownloadBtn: $("nve-download-btn"), nveSaveBtn: $("nve-save-btn"),
+    nveDownloadBtn: $("nve-download-btn"), nveSaveBtn: $("nve-save-btn"), nveVariablesBtn: $("nve-variable-btn"), 
     nveDownloadTable: $("nve-table"), nveLogContainer: $("nve-log-container"), nveLogText: $("nve-log-text"),
     // Regnbyge options
     clientIdRegnbyge: $("regnbyge-client-id"), clientSecretRegnbyge: $("regnbyge-client-secret"), 
@@ -147,7 +147,6 @@ async function loadClient(key) {
     } else if (key === 'era5') { obj.apikeyEra5.value = nameID; }
 }
 
-
 function updateManager() {
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const start = new Date(now); start.setDate(start.getDate() - 15);
@@ -200,7 +199,7 @@ function updateManager() {
     // Work on MET option
     obj.metLocationBtn.addEventListener('click', async () => {
         const key = 'met', apiKey = obj.clientIdMet.value;
-        if (apiKey === '') { alert('Please enter your MET API key.'); return; }
+        if (!apiKey || apiKey === '') { alert('Please enter your MET API key.'); return; }
         signalSender('showOverlay', 'Getting stations from MET. Please wait...');
         const content = { projectName: currentProject, key: key, clientName: apiKey };
         const data = await jsonLoader('stations_met', content); signalSender('hideOverlay');
@@ -230,7 +229,7 @@ function updateManager() {
     });
     obj.metDownloadBtn.addEventListener('click', async () => {
         const apiKey = obj.clientIdMet.value;
-        if (apiKey === '') { alert('Please enter your MET API key.'); return; }
+        if (!apiKey || apiKey === '') { alert('Please enter your MET API key.'); return; }
         const tableData = getDataFromTable(obj.metTable, true);
         if (tableData.rows.length === 0) { 
             alert('No station selected. Please select a station from the map first.'); return; 
@@ -328,16 +327,44 @@ function updateManager() {
         const n = obj.nveTable.querySelectorAll('tbody tr.selected').length;
         obj.nveSelectedLabel.textContent = `Selected Stations: ${n}`;
     });
+    obj.nveVariablesBtn.addEventListener('click', async() => {
+        const nveGrid = document.getElementById("nve-variables-grid");
+        if (!nveGrid) { alert ('Cannot find Variable container. Please recheck frontend components.'); return; }
+        const apiKey = obj.clientIdNVE.value; nveGrid.innerHTML = '';
+        if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
+        signalSender('showOverlay', 'Getting Variables from NVE Database Please wait...');
+        const response = await jsonLoader('nve_parameters', {apiKey: apiKey}); signalSender('hideOverlay');
+        if (response.status === 'error') { alert(response.message); return; }
+        if (response.content.length === 0) {
+            nveGrid.innerHTML = `<strong 
+                style="display: flex; text-align: center; color: red; font-size: 20px; padding: 20px;">
+                No Variables found</strong>
+            `
+        }
+        response.content.forEach(item => {
+            const label = document.createElement('label');
+            label.className = 'checkbox-right';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = item[0]; checkbox.dataset.label = item[2];
+            label.appendChild(checkbox);
+            const content = `${item[2]} (${item[3]})`;
+            label.appendChild(document.createTextNode(content));
+            nveGrid.appendChild(label);
+        });
+    });
     obj.nveDownloadBtn.addEventListener('click', async () => {
         const apiKey = obj.clientIdNVE.value;
-        if (apiKey === '') { alert('Please enter your NVE API key.'); return; }
+        if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
         const tableData = getDataFromTable(obj.nveTable, true);
         if (tableData.rows.length === 0) { 
             alert('No station selected. Please select a station from the map first.'); return; 
         }
         const ids = tableData.rows.map(row => [row[0], row[3], row[4]]);
         const startTime = obj.nveStart.value, endTime = obj.nveEnd.value;
-        if (startTime === '' || endTime === '') { alert('Please select start and end time to download.'); return; }
+        if (startTime === '' || endTime === '') { 
+            alert('Please select start and end time to download.'); return; 
+        }
         // Get variables selected
         const selectedValues = [...document.querySelectorAll(
             '#nve-variables-grid input[type="checkbox"]:checked'
@@ -441,6 +468,9 @@ function updateManager() {
         selectStations(obj.typeSelector.value, obj.stationSelectedTable, obj.stationSelectedLabel);
     });
     obj.downloadBtn.addEventListener('click', async () => { 
+        if (nameID === '' || secret === '' || userName === '' || password=== '') {
+            alert('Please check registration information and try again.'); return;
+        }
         const tableData = getDataFromTable(obj.stationSelectedTable, true);
         const n = obj.stationSelectedTable.querySelectorAll('tr.selected').length;
         if (tableData.rows.length === 0 || n === 0) { 
@@ -537,7 +567,7 @@ function updateManager() {
     });
     obj.era5DownloadBtn.addEventListener('click', async () => {
         const apiKey = obj.apikeyEra5.value;
-        if (apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
+        if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
         const lat = obj.era5Lat.value, lon = obj.era5Lon.value;
         if (lat === '' || lon === '') { 
             alert('Please select a location.'); return; 
@@ -854,6 +884,7 @@ function updateLayerTooltips(layerGroup) {
 
 async function loadStations(projectName, keyType, target, table, label, key, layer, filter) {
     const data = getDataFromTable(table, true);
+    if (data.rows.length === 0) { alert('No station selected. Please select a station from the map first.'); return; }
     const filtered = data.rows.filter(row => !filter.includes(row[1])); layer = clearMap(layer);
     if (target.checked) {
         signalSender('showOverlay', `Getting ${label} stations from Regnbyge.no.\nThis takes a while (especially the first time).\nPlease wait ...`);

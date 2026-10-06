@@ -369,6 +369,26 @@ async def save_met(request: Request):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/nve_parameters")
+async def nve_parameters(request: Request):
+    try:
+        body = await request.json()
+        url = f"{os.getenv('NVE_URL')}/Parameters"
+        redis, key_process = request.app.state.redis, f"nve_parameters"
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            headers = {"X-API-Key": body.get('apiKey'), "Accept": "application/json"}
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            df = pd.DataFrame(data["data"])
+        if df.empty: return JSONResponse({'status': 'ok', 'content': []})
+        return JSONResponse({'status': 'ok', 'content': df.values.tolist()})
+    except Exception as e:
+        print('/nve_parameters:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 @router.post("/stations_nve")
 async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
     try:
@@ -382,7 +402,7 @@ async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
             # Check if process already running
             if key_process in processes and processes[key_process]["status"] == "running":
                 return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-            headers = {"X-API-Key": client_name}
+            headers = {"X-API-Key": client_name, "Accept": "application/json"}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
