@@ -1,0 +1,297 @@
+import { menuManager } from "./menuManager.js";
+import { pdfOpener } from "./projectManager.js";
+import { initGrid, addWidget, loadWidget, saveWidget, hasWidget } from "./widgetFunctions.js";
+import { startLoading, stopLoading, htmlLoader, jsonLoader } from "./commonFunctions.js";
+import { setPendingRequest, clearPendingRequest, origin, getLastProject, 
+    getLastTimeZone, setLastTimeZone } from "./constant.js";
+import { renderPreview } from "./mapManager.js";
+
+
+const widgetMenu = document.getElementById("widgetMenu"); 
+const menuContainer = document.getElementById('menu-container');
+
+const githubCache = {}, pendingRequests = new Map();
+let isLoaded = false, userName = null, prevSource = null, 
+    currentTimeZone = null, selectedTimeZone = null;
+
+await login(); loadWidget(); widgetMenuManager(); updateComponent();
+showGitHubLastUpdate('Lam-V-Nguyen', 'HydroAI-Fjord-Platform', 'dev');
+
+
+async function login() {
+    currentTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (getLastTimeZone() === '') {setLastTimeZone(currentTimeZone);}
+    const data = await jsonLoader('auth_check', {});
+    if (data.user === 'admin') { userName = ''; } else { userName = data.user; }
+    const project = getLastProject(); showNotes(`${userName}/${project}`);
+    selectedTimeZone = getLastTimeZone(); showTimeZone(currentTimeZone, selectedTimeZone);
+}
+
+async function bindTimezoneSearchOnce() {
+    const searchInput = document.getElementById("tz-search");
+    const resultsBox  = document.getElementById("tz-results");
+    if (!searchInput || !resultsBox) return;
+    if (searchInput.dataset.bound === "1") return;
+    searchInput.dataset.bound = "1"; let timer = null;
+    searchInput.addEventListener("input", () => {
+        clearTimeout(timer);
+        const q = searchInput.value.trim();
+        timer = setTimeout(() => { renderTimezoneList(resultsBox, q); }, 150);
+    });
+    searchInput.addEventListener("click", (e) => e.stopPropagation());
+    if (resultsBox.dataset.bound !== "1") {
+        resultsBox.dataset.bound = "1";
+        resultsBox.addEventListener("click", (e) => {
+            const item = e.target.closest(".tz-result-item");
+            if (!item?.dataset.tz) return;
+            e.stopPropagation(); e.preventDefault();
+            setLastTimeZone(item.dataset.tz);
+            showTimeZone(currentTimeZone, item.dataset.tz);
+            closeMenuAndSubmenu();
+        });
+    }
+}
+
+function closeMenuAndSubmenu() {
+    const menuItem = document.getElementById("timezone-menu")?.closest(".menu-item");
+    if (menuItem) menuItem.classList.remove("active");
+    const menuContainer = document.getElementById("menu-container")
+        || document.querySelector(".menu-container");
+    if (menuContainer) menuContainer.style.display = "none";
+    if (typeof isLoaded !== "undefined") isLoaded = false;
+}
+
+function widgetMenuManager() {
+    widgetMenu.addEventListener("mouseenter", (e) => { 
+        e.target.dispatchEvent(new Event('click')); 
+    });
+    widgetMenu.addEventListener("click", async () => { 
+        if (!isLoaded) { 
+            const res = await htmlLoader('getWidgetMenu'); 
+            if (!res) { alert('Could not load menu.'); return; }
+            menuManager(menuContainer, res); isLoaded = true;
+            menuContainer.style.display = 'flex';
+            await bindTimezoneSearchOnce();
+        } else { 
+            isLoaded = false; menuContainer.style.display = 'none';
+        }
+    }); 
+    // Menu click handler
+    menuContainer.addEventListener("click", async (e) => { 
+        const item = e.target.closest(".submenu-item") || e.target.closest(".menu-link"); 
+        if (!item) return;
+        const id = item.id; if (!id) return;
+        const url = item.dataset?.url;
+        let w = 6, h = 7, title = item.textContent.replace(/▸|◂/g, '').trim();
+        const closeMenu = () => { menuContainer.style.display = 'none'; };
+        if (hasWidget(id)) { alert('Widget already exists.'); closeMenu(); return; }
+        // Selections
+        if (id === 'timezone-menu') {
+            const searchInput = document.getElementById("tz-search");
+            const resultsBox = document.getElementById("tz-results");
+            const menuItem = document.getElementById("timezone-menu")?.closest(".menu-item");
+            if (menuItem) { menuItem.classList.toggle("active"); }
+            if (menuItem?.classList.contains("active") && searchInput) {
+                searchInput.value = ""; requestAnimationFrame(() => searchInput.focus());
+                await renderTimezoneList(resultsBox, "");
+            }
+            return; 
+        } else if (id === 'data-download') { w = 9; h = 12; }
+        else if (id === 'preparation-hyd') { w = 12; h = 7; 
+            title = 'Data Preparation for HYD Scenario'; }
+        else if (id === 'grid-generation') { w = 12; h = 10; }
+        else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
+        else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
+        else if (id === 'visualization') { w = 12; h = 9; }
+        else if (id === 'flow-preparation') { 
+            w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
+        else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 11; }
+        else if (id === 'calibration' || id === 'calibration') { w = 12; h = 12; }
+        else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
+        else if (id === 'about') { w = 8; h = 5; }
+        addWidget(w, h, title, id, url); closeMenu();
+    });
+    document.addEventListener("click", (e) => { 
+        // Close button handler 
+        if (e.target.classList.contains("remove-btn")) { 
+            const widget = e.target.closest(".grid-stack-item");
+            if (widget) {
+                const widgetId = widget.getAttribute("gs-id");
+                saveWidget();  // Save grid layout before removing
+                const mapEl = document.querySelector(`[gs-id=${widgetId}-map]`);
+                if (mapEl !== null) {
+                    const mapEL_btn = mapEl.querySelector('.remove-btn');
+                    if (mapEL_btn !== null) mapEL_btn.click();
+                }
+                // Remove map if it exists
+                const grid = initGrid();
+                if (grid) {
+                    const widgetNode = document.querySelector(`[gs-id="${widgetId}"]`);
+                    if (widgetNode) {
+                        grid.removeWidget(widgetNode, true);
+                        setTimeout(() => { grid.update(); saveWidget(); }, 100);
+                    }
+                }
+            } 
+        } 
+        // Edit title handler 
+        if (e.target.classList.contains("widget-title")) { 
+            const newTitle = prompt("Enter new title:", e.target.textContent); 
+            if (newTitle) { 
+                e.target.textContent = newTitle; saveWidget();
+            } 
+        }
+    });
+}
+
+function updateComponent() {
+    clearPendingRequest();
+    // Listen for state change
+    window.addEventListener('message', async (event) => {
+        if (event.data.type === 'GET_USER') { // Get project destination
+            const project = document.querySelector(".project-note");
+            if (!project) return;
+            const content = project.textContent.split(':').pop();
+            event.source.postMessage({ type: 'USER', content: content }, origin);
+        } else if (event.data.type === 'addMapWidget') { // Add map
+            const id = event.data.content.id;
+            if (!hasWidget(id)) addWidget(12, 5, event.data.content.title, id);
+        } else if (event.data.id === 'hyd-waq') {
+            const req = { 
+                source: event.source, lineType: event.data.lineType,
+                requestId: event.data.requestId, content: event.data.content
+            };
+            setPendingRequest(req); renderPreview(req);
+        } else if (event.data.type === 'showOverlay') { 
+            startLoading(event.data.content);
+            await new Promise(requestAnimationFrame);
+        } else if (event.data.type === 'hideOverlay') { 
+            stopLoading(); await new Promise(requestAnimationFrame);
+        } else if (event.data.type === 'updateObsPoint') { 
+            const req = { 
+                source: event.source, requestId: event.data.type, 
+                content: event.data.content.content
+            };
+            setPendingRequest(req); renderPreview(req);
+        } else if (event.data.type === 'clearCrossSection') { 
+            renderPreview({ requestId: event.data.type });
+        } else if (event.data.type === 'clearBoundary') { 
+            renderPreview({ requestId: event.data.type });
+        } else if (event.data.type === 'waqPoint' || event.data.type === 'loadsPoint') { 
+            renderPreview({ requestId: event.data.type, content: event.data.content });
+//         } else if (event.data.type === 'clearGridMap') { 
+//             renderPreview({ source: event.source, requestId: event.data.type });
+//         } else if (event.data.type === 'colorbarOption') { 
+//             renderPreview({ 
+//                 source: event.source, content: event.data.content,
+//                 requestId: event.data.type 
+//             });
+        } else if (event.data.id === 'gridPlot') { 
+            renderPreview({ 
+                source: event.source, requestId: event.data.requestId, 
+                content: event.data.content
+            });
+        } else if (event.data.type === 'flowOptions') { 
+            const { requestId } = event.data.content;
+            pendingRequests.set(requestId, { source: event.source });
+            const req = { 
+                source: event.source, requestId: requestId,
+                content: event.data.content, type: event.data.type
+            };
+            renderPreview(req); setPendingRequest(req);
+        } else if (event.data.type === 'showNote') {
+            showNotes(event.data.content);
+        } else if (event.data.type === 'updateUIState') {
+            const { requestId } = event.data.content;
+            if (requestId && pendingRequests.has(requestId)) {
+                const { source } = pendingRequests.get(requestId);
+                prevSource = source;
+                source.postMessage({ type: 'updateReturn', 
+                    content: event.data.content, requestId: requestId
+                }, origin);
+                pendingRequests.delete(requestId);
+            } else {
+                prevSource.postMessage({ type: 'updateUIDelay', 
+                    content: event.data.content,
+                }, origin);
+            }
+        }
+    });
+}
+
+async function showGitHubLastUpdate(username, repo, branch = 'main', duration=30*60*1000) {
+    const url = `https://api.github.com/repos/${username}/${repo}/commits?sha=${branch}&per_page=1`;
+    const key = `${username}/${repo}/${branch}`;
+    const displayDiv = document.querySelector('.github-last-update');
+    if (!displayDiv) return;
+    // Check cache in localStorage
+    const cacheData = localStorage.getItem(key);
+    if (cacheData) {
+        try {
+            const parsed = JSON.parse(cacheData);
+            const now = Date.now();
+            if (now - parsed.timestamp < duration) {
+                displayDiv.textContent = parsed.data; return;
+            }
+        } catch (e) {}
+    }
+    try {
+        const header = { "Accept": "application/vnd.github+json", "User-Agent": repo }
+        const response = await fetch(url, { headers: header });
+        if (!response.ok) throw new Error('GitHub API error');
+        const data = await response.json();
+        if (data.length > 0) {
+            const date = new Date(data[0].commit.committer.date);
+            const formatted = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            const text = `Branch: ${branch} | Last update: ${formatted}`;
+            githubCache[key] = text; displayDiv.textContent = text;
+            // Save to local storage
+            localStorage.setItem(key, JSON.stringify({data: text, timestamp: Date.now()}));
+            displayDiv.textContent = text;
+        } else { displayDiv.textContent = 'Last update: unknown'; }
+    } catch (err) { alert(err); displayDiv.textContent = 'Last update: error'; }
+}
+
+export function showNotes(note) {
+    const noteDiv = document.querySelector('.project-note');
+    if (!noteDiv) return;
+    noteDiv.textContent = `Project: ${note}`;
+}
+function showTimeZone(curentTimeZone, selectedTimeZone) {
+    const noteDiv = document.querySelector('.time-zone');
+    if (!noteDiv) return;
+    noteDiv.textContent = `Timezone (Current: ${curentTimeZone} - Selected: ${selectedTimeZone})`;
+}
+
+async function renderTimezoneList(resultsBox, query='') {
+    if (!resultsBox) return; resultsBox.innerHTML = ""; let list = [];
+    try { list = await jsonLoader('get_timezone', {query: query, n: 20});
+    } catch (e) { alert(`Error: ${e}`); list = []; }
+    if (!list || !list.length) {
+        const empty = document.createElement("div");
+        empty.className = "tz-result-item";
+        empty.textContent = "Couldn't find timezone.";
+        resultsBox.appendChild(empty); return;
+    }
+    const frag = document.createDocumentFragment();
+    list.forEach(tz => {
+        const item = document.createElement("div");
+        item.className = "tz-result-item";
+        if (tz === selectedTimeZone) item.classList.add("active");
+        item.dataset.tz = tz;
+        item.innerHTML =
+            `<span>${tz}</span><span class="tz-offset">${getOffsetLabel(tz)}</span>`;
+        frag.appendChild(item);
+    });
+    resultsBox.appendChild(frag);
+}
+
+function getOffsetLabel(tzName) {
+    try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: tzName, timeZoneName: "shortOffset",
+        }).formatToParts(new Date());
+        const tzPart = parts.find(p => p.type === "timeZoneName");
+        return tzPart ? tzPart.value : "";
+    } catch (e) { return ""; }
+}
