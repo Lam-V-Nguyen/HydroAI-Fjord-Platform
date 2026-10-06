@@ -1,5 +1,5 @@
 import os, pickle, json, traceback, asyncio, threading, requests
-from io import BytesIO, StringIO
+from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, Query, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -288,6 +288,29 @@ async def stations_met(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/met_parameters")
+async def met_parameters(request: Request):
+    try:
+        body = await request.json()
+        url = f"{os.getenv('MET_ProstAPI_URL')}/observations/availableTimeSeries/v0.jsonld"
+        params, api_key = {"sources": ",".join(body.get('ids')) }, body.get('apiKey')
+        redis, key_process = request.app.state.redis, f"met_parameters"
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            response = requests.get(url, params=params, auth=(api_key, ""), timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            df, vars = pd.DataFrame(data["data"]), set()
+            for i in df['elementId'].values:
+                vars.add(i)
+        if df.empty: return JSONResponse({'status': 'ok', 'content': []})
+        # df = df.loc[df['parameter'].isin(vars)]
+        return JSONResponse({'status': 'ok', 'content': df.values.tolist()})
+    except Exception as e:
+        print('/met_parameters:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 @router.post("/download_met")
 async def download_met(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
@@ -311,12 +334,12 @@ async def download_met(request: Request, user=Depends(functions.basic_auth)):
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
-@router.post("/upload_met_csv")
-async def upload_met_csv(request: Request, user=Depends(functions.basic_auth)):
+@router.post("/upload_weather_csv")
+async def upload_weather_csv(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        path = os.path.join(PROJECT_ROOT, project_name, "met_data.csv")
+        path = os.path.join(PROJECT_ROOT, project_name, body.get('fileName'))
         if not os.path.exists(path): 
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
@@ -327,31 +350,31 @@ async def upload_met_csv(request: Request, user=Depends(functions.basic_auth)):
         functions.safe_remove(path)
         return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
     except Exception as e:
-        print('/upload_met_csv:\n==============')
+        print('/upload_weather_csv:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/save_met")
-async def save_met(request: Request):
+@router.post("/save_weather_csv")
+async def save_weather_csv(request: Request):
     try:
         body = await request.json()
         ids, data = body.get('ids'), body.get('data')
         df = pd.DataFrame(data['rows'], columns=data['columns'])
         df = df.dropna(subset=['Time'], how='any')
         df = df.replace([np.inf, -np.inf], np.nan)
-        if 'sourceId' not in df.columns:
+        if 'stationId' not in df.columns:
             return JSONResponse({
-                'status': 'error', 'message': 'Column "sourceId" not found.'
+                'status': 'error', 'message': 'Column "stationId" not found.'
             })
-        df = df.dropna(subset=['sourceId'], how='any')
+        df = df.dropna(subset=['stationId'], how='any')
         stations = {x[0]: (x[1], x[2]) for x in ids}
         # Create ZIP in memory
         zip_buffer = BytesIO()
         with ZipFile(zip_buffer, mode='w', compression=ZIP_DEFLATED) as zip_file:
             # Group by station
-            for station_id, station_df in df.groupby('sourceId', sort=True):
+            for station_id, station_df in df.groupby('stationId', sort=True):
                 # Convert DataFrame -> CSV string
-                station_df = station_df.drop(columns=['sourceId'])
+                station_df = station_df.drop(columns=['stationId'])
                 csv_string = station_df.to_csv(index=False)
                 station_info = stations.get(station_id)
                 if station_info is None: continue
@@ -362,10 +385,10 @@ async def save_met(request: Request):
         zip_buffer.seek(0)
         return StreamingResponse(
             zip_buffer, media_type='application/zip',
-            headers={'Content-Disposition': 'attachment; filename="met_data.zip"'}
+            headers={'Content-Disposition': 'attachment; filename="weather_data.zip"'}
         )
     except Exception as e:
-        print('/save_met:\n==============')
+        print('/save_weather_csv:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
@@ -373,16 +396,27 @@ async def save_met(request: Request):
 async def nve_parameters(request: Request):
     try:
         body = await request.json()
-        url = f"{os.getenv('NVE_URL')}/Parameters"
+        url_param, ids = f"{os.getenv('NVE_URL')}/Parameters", body.get('ids')
+        headers = {"X-API-Key": body.get('apiKey'), "Accept": "application/json"}
         redis, key_process = request.app.state.redis, f"nve_parameters"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
-            headers = {"X-API-Key": body.get('apiKey'), "Accept": "application/json"}
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.get(url_param, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
-            df = pd.DataFrame(data["data"])
+            df, vars = pd.DataFrame(data["data"]), set()
+            url_series = f"{os.getenv('NVE_URL')}/Series"
+            for id in ids:
+                params = {'StationId': id}
+                response = requests.get(url_series, headers=headers, params=params, timeout=30)
+                response.raise_for_status()
+                data_series = response.json()
+                records = data_series.get('data', [])
+                df_series = pd.DataFrame(records)
+                for i in df_series['parameter'].values:
+                    vars.add(i)
         if df.empty: return JSONResponse({'status': 'ok', 'content': []})
+        df = df.loc[df['parameter'].isin(vars)]
         return JSONResponse({'status': 'ok', 'content': df.values.tolist()})
     except Exception as e:
         print('/nve_parameters:\n==============')
@@ -426,7 +460,7 @@ async def download_nve(request: Request, user=Depends(functions.basic_auth)):
     dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
     start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
     variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
-    url = f"{os.getenv('NVE_URL')}/Stations"
+    url, interval = f"{os.getenv('NVE_URL')}/Observations", int(body.get('interval'))
     redis, key_process = request.app.state.redis, f"{project_name}:nve"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
@@ -437,12 +471,7 @@ async def download_nve(request: Request, user=Depends(functions.basic_auth)):
         threading.Thread(
             target=data_functions.nve_downloader, 
             args=(api_key, url, dir, processes, key_process, ids, 
-                columns, variables, start, end, time_zone
+                columns, variables, interval, start, end, time_zone
             ), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
-
-
-
-
-
