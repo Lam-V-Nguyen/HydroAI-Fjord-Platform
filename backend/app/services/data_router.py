@@ -1,7 +1,7 @@
 import os, pickle, json, traceback, asyncio, threading, requests
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
-from fastapi import APIRouter, Request, Depends, Query, UploadFile, File
+from fastapi import APIRouter, Request, Depends, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions
 from config import PROJECT_ROOT
@@ -159,22 +159,6 @@ async def download_station(request: Request):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.get("/log_tail_download_era5/{project_name}")
-async def log_tail_download_era5(project_name: str, offset: int = Query(0),
-    log_file: str = Query(""), user=Depends(functions.basic_auth)):
-    project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.join(PROJECT_ROOT, project_name, log_file), []
-    log_path = os.path.normpath(log_path)
-    if not os.path.exists(log_path): return {"lines": lines, "offset": 0, "reset": False}
-    file_size = os.path.getsize(log_path)
-    reset = offset > file_size
-    if reset: offset = 0
-    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
-        f.seek(offset)
-        data = f.read()
-        new_offset = f.tell()
-    return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
-
 @router.post("/data_upload_gis")
 async def data_upload_gis(file: UploadFile = File(...)):
     try:
@@ -305,7 +289,7 @@ async def met_parameters(request: Request):
                 vars.add(i)
         if df.empty: return JSONResponse({'status': 'ok', 'content': []})
         df = df.loc[df['elementId'].isin(vars)]
-        df = df[['elementId', 'unit']].dropna()
+        df = df[['elementId', 'unit']].dropna().drop_duplicates()
         content = df.values.tolist()
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:

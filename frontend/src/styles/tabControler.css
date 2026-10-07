@@ -100,11 +100,11 @@
 }
 .attributes-table tr { display: table; width: 100%; table-layout: fixed; }
 .attributes-table th, .attributes-table td {
-  border: 1px solid var(--border); padding: 6px 8px;
+  border: 1px solid var(--border); padding: 8px 10px;
   text-align: center; color: var(--text);
-  font-weight: 500; font-size: 14px;
+  font-weight: 500; font-size: 14px; font-weight: bold;
 }
-.attributes-table th { background: rgba(255,255,255,0.05); }
+.attributes-table th { background: #4b4747; }
 .attributes-table td input {
   width: 100%; padding: 6px 8px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--card);

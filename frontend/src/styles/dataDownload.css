@@ -98,16 +98,16 @@ body {
 }
 .attributes-table thead { position: sticky; top: 0; z-index: 2; }
 .attributes-table tbody {
-  display: block; max-height: 110px; overflow-y: auto; width: 100%;
+  display: block; max-height: 150px; overflow-y: auto; width: 100%;
 }
 .attributes-table thead tr, .attributes-table tbody tr {
   display: table; width: 100%; table-layout: fixed;
 }
 .attributes-table th, .attributes-table td {
-  border: 1px solid var(--border); padding: 2px 4px; text-align: center;
-  color: var(--text); font-size: 12px;
+  border: 1px solid var(--border); padding: 8px 10px; text-align: center;
+  color: var(--text); font-size: 14px; font-weight: bold;
 }
-.attributes-table th { background: rgba(255,255,255,0.05); }
+.attributes-table th { background: #4b4747; }
 .attributes-table td input {
   width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--card); color: var(--text); outline: none; text-align: center;

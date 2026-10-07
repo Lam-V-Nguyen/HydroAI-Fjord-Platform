@@ -65,7 +65,7 @@ async function hydComponents() {
         // Check if HYD simulation is running
         if (HYDRunning) { alert("Detected an HYD simulation is running. Please wait until it finishes."); return; }
         const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: currentProject});
-        if (statusRes.status === "running") { alert("HYD simulation is already running."); return; }
+        if (statusRes.status === "running") { alert("HYD simulation is running."); return; }
         const res = await jsonLoader('check_folder', {projectName: currentProject, folder: 'output', key: 'hyd'});
         if (res.status === "ok") { if (!confirm("Output exists. Re-run will overwrite it. Continue?")) return; }
         const start = await jsonLoader('start_sim_hyd', {projectName: currentProject});

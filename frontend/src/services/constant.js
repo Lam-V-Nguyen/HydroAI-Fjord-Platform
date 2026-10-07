@@ -11,8 +11,7 @@ arrowShape.moveTo(1, 0);
 arrowShape.lineTo(0.8, -0.1);     // Right branch
 
 export const gridId = 'grid-generation-map', flowId = 'flow-preparation-map',
-    hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map',
-    hydPrepareMapId = 'preparation-hyd-map';
+    hydMapId = 'new-hyd-map', waqMapId = 'new-waq-map';
 
 let state = {}, currentProjectId = null, pendingRequest = null, mapInstance = null;
 

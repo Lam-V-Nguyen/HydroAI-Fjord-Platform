@@ -5,7 +5,7 @@ import { getColorFromValue } from "./unstructuredGrid.js";
 
 const pendingRequests = new Map();
 
-let zIndex = 3000, activeProject = null, logInterval = null;
+let zIndex = 3000, activeProject = null;
 
 export function startLoading(str = '') {
     const loadingContainer = document.querySelector('.loading-container');
@@ -280,40 +280,34 @@ export async function saveCSV(filename, headers, rows) {
 
 export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
     const new_key = `${currentProject}_${key}`; let lastOffset = 0; activeProject = new_key;
-    const pollStatus = async () => {
+    async function loop() {
         if (activeProject !== new_key) return;
         try {
             const res = await fetch(
                 `/log_tail_download/${currentProject}?offset=${lastOffset}&log_file=log.txt`
             );
-            const content = {projectName: currentProject, key: key};
+            const content = { projectName: currentProject, key: key };
             const statusRes = await jsonLoader('check_download_status', content);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.lines)) {
-                    if (reloadLog) { info.value = data.lines.join("\n");
+                    if (reloadLog) {
+                        info.value = data.lines.join("\n");
                     } else {
                         for (const line of data.lines) { info.value += line + "\n"; }
-                        lastOffset = data.offset; 
                     }
                 }
+                if (!reloadLog) { lastOffset = data.offset; }
             }
             if (statusRes.status !== "running") {
-                if (statusRes.message) { 
-                    let message = "\n" + statusRes.message;
-                    if (statusRes.status === "failed" || statusRes.status === 'error') {
-                        message = "\n" + "=".repeat(150) + "\n" 
-                            + '|| ERROR FOUND: ' + statusRes.message + "\n" + "=".repeat(150)
-                    }
-                    info.value += message + "\n";
-                }
-                if (statusRes.status === 'finished' && onFinish) { 
-                    clearInterval(logInterval); logInterval = null; await onFinish();
-                }
+                if (statusRes.message) { info.value += "\n" + statusRes.message + "\n"; }
+                if (statusRes.status === 'finished' && onFinish) { await onFinish(); }
+                return;
             }
-        } catch (error) { clearInterval(logInterval); logInterval = null; }
-    };
-    pollStatus(); logInterval = setInterval(pollStatus, seconds * 1000); 
+        } catch (error) { alert(error); return; }
+        setTimeout(loop, seconds * 1000);
+    }
+    loop();
 }
 
 export function addRowToTable(table, list, fillValue=false){
@@ -331,6 +325,28 @@ export function addRowToTable(table, list, fillValue=false){
         td.appendChild(input); tr.appendChild(td);
     });
     tbody.appendChild(tr);
+}
+
+export function addDataToTable(table, header, data) {
+    table.querySelector('thead')?.remove();
+    table.querySelector('tbody')?.remove();
+    const thead = document.createElement('thead');
+    const trHead = document.createElement('tr');
+    header.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col; 
+        Object.assign(th.style, {
+            fontSize: '14px', fontWeight: 'bold',
+            textAlign: 'center', verticalAlign: 'middle',
+            padding: '8px 10px',
+            backgroundColor: '#4b4747', color: '#f7f4f4'
+        });
+        trHead.appendChild(th);
+    });
+    thead.appendChild(trHead); table.prepend(thead);
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    fillTable(data, table, true);
 }
 
 export function nameChecker(name) { 

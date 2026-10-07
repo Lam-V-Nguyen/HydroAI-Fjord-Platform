@@ -121,7 +121,7 @@ function calibrationManager() {
             const start = await jsonLoader('start_calibration_iteration', content);
             if (start.status === "running") {
                 obj.progressBar.value = start.progress || 0;
-                obj.progressText.innerText = start.message || 'Iteration is already running.';
+                obj.progressText.innerText = start.message || 'Iteration is running.';
             }
             if (start.status === "failed") { 
                 isRunning = false; obj.progressBar.value = 0;
@@ -155,7 +155,7 @@ function calibrationManager() {
                 currentProject, key, obj.calibrationLog, obj.progressBar, obj.progressText, 5, logFile
             );
             obj.progressText.innerText = statusRes.message; obj.progressBar.value = statusRes.progress;
-            alert("HYD simulation is already running."); return; 
+            alert("HYD simulation is running."); return; 
         } else { isRunning = false; }
         const content = { projectName: currentProject, key: key, samplingName: samplingName };
         const start = await jsonLoader('start_sim_calibration', content);

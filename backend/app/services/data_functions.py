@@ -157,13 +157,16 @@ def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:
     dataset, df_result = 'reanalysis-era5-single-levels', pd.DataFrame()
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
+    start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+    end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+    if (start_time >= end_time):
+        logger.info("Start time must be before end time.")
+        processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
     try:
         logger.info("ERA5 downloader started")
         logger.info(f"Location: lat={lat}, lon={lon}")
         logger.info("="*70)
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-        end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
         # Download ERA5 data
         logger.info("Downloading ERA5 data...")
         client = cdsapi.Client(quiet=False, debug=False)
@@ -282,6 +285,9 @@ def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
     start_local = pd.Timestamp(start).tz_localize(time_zone)
     end_local = pd.Timestamp(end).tz_localize(time_zone) + pd.Timedelta(days=1)
     start_time, end_time = start_local.tz_convert('UTC'), end_local.tz_convert('UTC')
+    if (start_time >= end_time): 
+        logger.info("Start time must be before end time.")
+        processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
     start_date, end_date = start_time.strftime('%Y-%m-%d'), end_time.strftime('%Y-%m-%d')
     try:
         logger.info("MET downloader started.")
@@ -382,6 +388,9 @@ def nve_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
     start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
     end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+    if (start_time >= end_time): 
+        logger.info("Start time must be before end time.")
+        processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
     headers = { "X-API-Key": api_key, "Accept": "application/json" }
     start_date = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
     end_date = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')

@@ -123,12 +123,6 @@
                                             <label for="met-end">End Time:</label>
                                             <input type="text" class="date" id="met-end" placeholder="YYYY-mm-dd">
                                         </div>
-                                        <div class="field-inline">
-                                            <label for="met-download-interval">Interval:</label>
-                                            <select id="met-download-interval">
-                                                <option value="PT1H">Hourly Data</option>
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
                                 <div class="tile" style="grid-column: span 5;">
@@ -193,8 +187,7 @@
                                     <div class="row">
                                         <div class="field-inline" style="flex-direction: column;">
                                             <div class="field-row">
-                                                <label for="nve-client-id" style="min-width: 150px;">NVE API
-                                                    Key:</label>
+                                                <label for="nve-client-id" style="min-width: 150px;">NVE API Key:</label>
                                                 <div class="input-with-icon">
                                                     <input type="password" id="nve-client-id">
                                                     <button type="button" data-target="nve-client-id"
@@ -227,9 +220,9 @@
                                             <input type="checkbox" id="nve-station-checkbox">Select Station(s)
                                         </label>
                                     </div>
-                                    <div class="row">
-                                        <a style="margin-top: 0; font-size: 15px;">References:</a>
-                                        <a class="data-link" style="font-size: 15px; color: aqua;"
+                                    <div class="field-inline">
+                                        <a style="margin-top: 0; font-size: 14px;">References:</a>
+                                        <a class="data-link" style="font-size: 14px; color: aqua;"
                                             href="https://api.nve.no/doc/hydrologiske-data/"
                                             target="_blank">Hydrologiske data
                                         </a>
@@ -731,7 +724,7 @@
             defaultHour: 0, defaultMinute: 0, defaultSecond: 0
         });
     </script>
-    <script type="module" src="/src_frontend/services/dataDownload.js?v=1"></script>
+    <script type="module" src="/src_frontend/services/dataDownload.js"></script>
 </body>
 
 </html>

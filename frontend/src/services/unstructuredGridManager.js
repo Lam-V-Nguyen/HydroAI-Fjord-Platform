@@ -689,7 +689,7 @@ function unGridManager() {
     obj.optimizeBtn.addEventListener('click', async () => {
         obj.progressbarGrid.value = 0; obj.progressTextGrid.innerText = ''; 
         gridLayer = clearMap(gridLayer, lakeMap);
-        if (isRunning) { alert("Grid optimization is already running."); return; }
+        if (isRunning) { alert("Grid optimization is running."); return; }
         if (pointLayer === null) { alert("Please generate grid first."); return; }
         const iterations = Number(obj.iterationValue.value);
         if (isNaN(iterations)) { alert("Please enter a valid number of iterations."); return; }

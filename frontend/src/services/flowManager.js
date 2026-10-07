@@ -650,7 +650,7 @@ function weatherManager() {
             const keyChecker = 'weather';
             const contentChecker = {projectName: currentProject, key: keyChecker};
             const statusRes = await jsonLoader('check_download_status', contentChecker);
-            if (statusRes.status === "running") { alert("Weather download is already running."); return; }
+            if (statusRes.status === "running") { alert("Weather download is running."); return; }
             obj.weatherLog.value = '';
             const content = { 
                 projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),

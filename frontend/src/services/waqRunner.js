@@ -62,7 +62,7 @@ async function waqComponents() {
         // Check if WAQ simulation is running
         if (WAQRunning) { alert("Detected a WAQ simulation is running. Please wait until it finishes."); return; }
         const statusRes = await jsonLoader('check_sim_status_waq', {projectName: currentProject, waqName: obj.waqSelector.value});
-        if (statusRes.status === "running") { alert("WAQ simulation is already running."); return; }
+        if (statusRes.status === "running") { alert("WAQ simulation is running."); return; }
         const res = await jsonLoader('check_folder', {projectName: currentProject, folder: obj.waqSelector.value, key: 'waq'});
         if (res.status === "ok") { if (!confirm("Output exists. Re-run will overwrite it. Continue?")) return; }
         obj.progressText.innerText = 'Preparing data for the WAQ simulation...';
