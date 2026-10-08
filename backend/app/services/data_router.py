@@ -1,14 +1,26 @@
-import os, pickle, json, traceback, asyncio, threading, requests
+import os, pickle, json, traceback, threading, requests, shutil, rasterio
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse
-from services import functions, data_functions
-from config import PROJECT_ROOT
+from services import functions, data_functions, hyd_functions, flow_functions
+from config import PROJECT_ROOT, SOURCE_BACKEND
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
 
 router, processes = APIRouter(), {}
+
+# Check if download is running
+@router.post("/check_download_status")
+async def check_download_status(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    process_key = f"{project_name}:{body.get('key')}"
+    info = processes.get(process_key)
+    if info is None: return JSONResponse({"status": "idle", "message": "No download running."})
+    status, message = info["status"], info.get("message", "")
+    return JSONResponse({"status": status, "message": message})
+
 
 @router.post("/save_client")
 async def save_client(request: Request, user=Depends(functions.basic_auth)):
@@ -173,25 +185,12 @@ async def data_upload_gis(file: UploadFile = File(...)):
     finally: 
         await file.close()
 
-@router.post("/check_download_status")
-async def check_download_status(request: Request, user=Depends(functions.basic_auth)):
-    body = await request.json()
-    project_name, _ = functions.project_definer(body.get('projectName'), user)
-    key = f"{project_name}:{body.get('key')}"
-    info = processes.get(key)
-    if info is None:
-        return JSONResponse({"status": "idle", "message": "No download running."})
-    status, message = info["status"], info.get("message", "")
-    if status in ("finished", "failed", "error"):
-        asyncio.create_task(functions.delete_process(processes, key, 1))
-    return JSONResponse({"status": status, "message": message})
-
 @router.post("/download_era5")
 async def download_era5(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
-    redis, key_process = request.app.state.redis, f"{project_name}:era5"
+    dir, api_key, key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key'), body.get('key')
+    redis, key_process = request.app.state.redis, f"{project_name}:{key}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
         # Check if process already running
@@ -202,7 +201,7 @@ async def download_era5(request: Request, user=Depends(functions.basic_auth)):
         processes[key_process] = {"status": "running", "message": "Preparing download..."}
         threading.Thread(
             target=data_functions.era5_downloader, 
-            args=(api_key, dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
+            args=(key, api_key, dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
@@ -211,7 +210,7 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        path = os.path.join(PROJECT_ROOT, project_name, "era5_data.csv")
+        path = os.path.join(PROJECT_ROOT, project_name, body.get('fileName'))
         if not os.path.exists(path): 
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
@@ -296,29 +295,6 @@ async def met_parameters(request: Request):
         print('/met_parameters:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.post("/download_met")
-async def download_met(request: Request, user=Depends(functions.basic_auth)):
-    body = await request.json()
-    project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
-    start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
-    variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
-    url = f"{os.getenv('MET_ProstAPI_URL')}/observations/v0.jsonld"
-    redis, key_process = request.app.state.redis, f"{project_name}:met"
-    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
-    async with lock:
-        # Check if process already running
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing download..."}
-        threading.Thread(
-            target=data_functions.met_downloader, 
-            args=(api_key, url, dir, processes, key_process, ids, 
-                columns, variables, start, end, time_zone
-            ), daemon=True
-        ).start()
-    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
 @router.post("/upload_weather_csv")
 async def upload_weather_csv(request: Request, user=Depends(functions.basic_auth)):
@@ -444,11 +420,11 @@ async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
 async def download_nve(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
+    dir, api_key, key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key'), body.get('key')
     start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
     variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
     url, interval = f"{os.getenv('NVE_URL')}/Observations", int(body.get('interval'))
-    redis, key_process = request.app.state.redis, f"{project_name}:nve"
+    redis, key_process = request.app.state.redis, f"{project_name}:{key}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
         # Check if process already running
@@ -457,8 +433,166 @@ async def download_nve(request: Request, user=Depends(functions.basic_auth)):
         processes[key_process] = {"status": "running", "message": "Preparing download..."}
         threading.Thread(
             target=data_functions.nve_downloader, 
-            args=(api_key, url, dir, processes, key_process, ids, 
+            args=(key, api_key, url, dir, processes, key_process, ids, 
                 columns, variables, interval, start, end, time_zone
             ), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+
+@router.post("/download_met")
+async def download_met(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    dir, api_key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key')
+    start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
+    variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
+    url, key = f"{os.getenv('MET_ProstAPI_URL')}/observations/v0.jsonld", body.get('key')
+    redis, key_process = request.app.state.redis, f"{project_name}:{key}"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if process already running
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=data_functions.met_downloader, 
+            args=(key, api_key, url, dir, processes, key_process, ids, columns, variables, start, end, time_zone
+            ), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+
+@router.post("/start_meteo")
+async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
+        lat, lon = body.get('lat'), body.get('lon')
+        key, data_source = body.get('key'), body.get('dataService')
+        key_process, time_zone = f"{project_name}:{key}", body.get('timeZone')
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            # Check if process already running
+            if key_process in processes and processes[key_process]["status"] == "running":
+                return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+            processes[key_process] = {"status": "running", "message": "Preparing download meteo..."}
+            if key == 'meteo': target = hyd_functions.meteo_downloader
+            elif key == 'wind': target = hyd_functions.wind_downloader
+            threading.Thread(
+                target=target, args=(
+                    project_name, data_source, processes, key_process, lat, lon, start, end, time_zone, key
+                ), daemon=True
+            ).start()
+        return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+    except Exception as e:
+        print('/start_meteo:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
+
+@router.post("/wflow_model")
+async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+        key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
+        flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+        redis, model_folder = request.app.state.redis, 'wflow_model'
+        process_key, up_area = f"{project_name}:{body.get('keyChecker')}", float(body.get('upArea'))
+        lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
+        async with lock:
+            info = processes.get(process_key)
+            if key == "check":
+                if info and info["status"] == "running":
+                    return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
+                processes[process_key] = {"status": "running", "message": "Checking inputs for Wflow..."}
+                threading.Thread(
+                    target=flow_functions.wflow_check, 
+                    args=(project_name, processes, process_key, flow_name, up_area), daemon=True
+                ).start()
+                outlet_path = os.path.normpath(os.path.join(flow_dir, "outlet", "outlet.shp"))
+                if os.path.exists(outlet_path):
+                    snapped = gpd.read_file(outlet_path)
+                    if snapped.crs != "EPSG:4326": snapped = snapped.to_crs("EPSG:4326")
+                    lat, lon = snapped.geometry[0].y, snapped.geometry[0].x
+                else: lat, lon = '', ''
+                return JSONResponse({"status": "ok", 'content': {'lat': lat, 'lon': lon}})
+            elif key == "run":
+                if info and info["status"] == "running":
+                    return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
+                processes[process_key] = {"status": "running", "message": "Running Wflow model..."}
+                point = pd.DataFrame(data=body.get('points'), columns=['id','lat','lon','dis'])
+                point = point[['id','lat','lon']]
+                points = gpd.GeoDataFrame(point, 
+                    geometry=gpd.points_from_xy(x=point['lon'], y=point['lat']), crs='EPSG:4326'
+                )
+                step, start, end = int(body.get('step')), body.get('start'), body.get('end')
+                pourpoint_lat, pourpoint_lon = float(body.get('lat')), float(body.get('lon'))
+                df = points[['id','lat','lon']]
+                df['id'] = df['id'].astype(str)
+                new_row = pd.DataFrame({'id': ['pourpoint'], 'lat': [pourpoint_lat], 'lon': [pourpoint_lon]})
+                df = pd.concat([new_row, df], ignore_index=True)
+                lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
+                des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
+                shutil.copy(lib_path, des_path)
+                data_lib = [os.path.normpath(des_path)]
+                params_input, params_output = body.get('params_input'), body.get('params_output')
+                lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
+                # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
+                strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
+                with rasterio.open(strord_path) as strord_src:
+                    resolution, src_crs = strord_src.transform.a, strord_src.crs
+                soil_layers = [50, 100, 150, 300, 400, 600]
+                threading.Thread( target=flow_functions.wflow_run,
+                    args=(project_name, processes, process_key, flow_name, model_folder, df, src_crs, 
+                        start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
+                        params_input, params_output, lulc_fn, lulc_mapping, lai_fn
+                    ), daemon=False
+                ).start()
+                return JSONResponse({"status": "ok", "message": "Model run started."})
+    except Exception as e:
+        print('/wflow_model:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/start_download_soil")
+async def start_download_soil(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    flow_name, data, water_area = body.get('flowName'), body.get('data'), body.get('waterArea')
+    terrain_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'raw', 'dtm_raw.tif'))
+    if not os.path.exists(terrain_path):
+        return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Process terrain data in the tab 'Topography' first."})
+    redis, process_key = request.app.state.redis, f"{project_name}:{body.get('key')}"
+    lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if simulation already running
+        if project_name in processes and processes[project_name]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
+        processes[project_name] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=flow_functions.soil_downloader, 
+            args=(project_name, processes, process_key, flow_name, catchment_WGS84, water_area, terrain_path), daemon=True
+        ).start()
+    return JSONResponse({'status': 'ok', 'message': "Soil downloading started"})
+
+@router.post("/start_download_weather")
+async def start_download_weather(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    redis, flow_name, data = request.app.state.redis, body.get('flowName'), body.get('data')
+    process_key = f"{project_name}:{body.get('keyChecker')}"
+    lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if process already running
+        if project_name in processes and processes[project_name]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+        catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
+        start, end, time_zone = body.get('start'), body.get('end'), body.get('timeZone')
+        processes[project_name] = {"status": "running", "message": "Preparing download..."}
+        threading.Thread(
+            target=flow_functions.weather_downloader, 
+            args=(project_name, processes, process_key, flow_name, start, end, time_zone, catchment_WGS84), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})

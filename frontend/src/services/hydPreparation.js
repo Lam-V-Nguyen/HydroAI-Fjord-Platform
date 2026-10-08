@@ -41,7 +41,7 @@ const obj = {
     weatherLog: $('weather-text'), weatherTable: $('weather-table'), weatherSave: $('weather-save-btn')
 }
 
-let currentProject, nveLayer = null, nveSelected = false, picker = '';
+let currentProject, nveLayer = null, nveSelected = false, picker = '', mapContainer = null;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-hyd-preparation');
@@ -172,44 +172,46 @@ async function sourceManagement() {
 }
 
 function meteoManagement() {
-    // Update location
-    iframeConnector(obj.meteoLocation, [obj.meteoLat, obj.meteoLon], 'pickLatLon');
-    obj.meteoDownload.addEventListener('click', async () => {
-        const lat = obj.meteoLat.value, lon = obj.meteoLon.value, key = 'meteo';
-        if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
-        const start = obj.meteoStart.value, end = obj.meteoEnd.value;
-        if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-        const keyChecker = 'meteo_log'; 
-        const contentChecker = {projectName: currentProject, key: keyChecker};
-        const statusRes = await jsonLoader('check_download_status', contentChecker);
-        if (statusRes.status === "running") { alert("Meteo download is running."); return; }
-        obj.meteoLog.value = '';
-        const content = { 
-            projectName: currentProject, lat: lat, lon: lon,
-            start: start, end: end, key: key, timeZone: getLastTimeZone()
-        };
-        const request = await jsonLoader('start_meteo', content);
-        if (request.status === 'error') { alert(request.message); return; }
-        updateLog(currentProject, obj.meteoLog, 2, keyChecker, async () => {
-            const res =  { projectName: currentProject, fileName: `${key}.csv` };
-            const weather = await jsonLoader('get_result', res);
-            if (weather.status === 'error') { alert(weather.message); return; }
-            fillTable(weather.content, obj.meteoTable);
-            alert('Downloading meteo data completed.');
-        });
-    });
-    obj.meteoSave.addEventListener('click', async () => {
-        const data = getDataFromTable(obj.meteoTable, true);
-        if (data.rows.length === 0) {alert('No meteo observation found.'); return;}
-        try {
-            const header = [
-                'Time [yyyy/MM/dd HH:mm:ss]','Humidity [%]','Air temperature [°C]',
-                'Cloud coverage [%]','Solar radiation [W/m2]'
-            ];
-            await saveCSV('meteo.csv', header, data.rows);
-            alert(`Save file successfully.`);
-        } catch (e) { alert(e);}
-    });
+    // // Update location
+    // iframeConnector(obj.meteoLocation, [obj.meteoLat, obj.meteoLon], 'pickLatLon');
+    // obj.meteoDownload.addEventListener('click', async () => {
+    //     const lat = obj.meteoLat.value, lon = obj.meteoLon.value, key = 'meteo';
+    //     if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
+    //     const start = obj.meteoStart.value, end = obj.meteoEnd.value;
+    //     if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
+    //     const keyChecker = 'meteo_log'; 
+    //     const contentChecker = {projectName: currentProject, key: keyChecker};
+    //     const statusRes = await jsonLoader('check_download_status', contentChecker);
+    //     if (statusRes.status === "running") { alert("Meteo download is running."); return; }
+    //     obj.meteoLog.value = '';
+    //     const content = { 
+    //         projectName: currentProject, lat: lat, lon: lon,
+    //         start: start, end: end, key: key, timeZone: getLastTimeZone()
+    //     };
+    //     const request = await jsonLoader('start_meteo', content);
+    //     if (request.status === 'error') { alert(request.message); return; }
+    //     updateLog(currentProject, obj.meteoLog, 2, keyChecker, async () => {
+    //         const res =  { projectName: currentProject, fileName: `${key}.csv` };
+            // signalSender('showOverlay', 'Uploading meteological data to table. Please wait...');
+    //         const weather = await jsonLoader('get_result', res);
+            // signalSender('hideOverlay');
+    //         if (weather.status === 'error') { alert(weather.message); return; }
+    //         fillTable(weather.content, obj.meteoTable);
+    //         alert('Downloading meteo data completed.');
+    //     });
+    // });
+    // obj.meteoSave.addEventListener('click', async () => {
+    //     const data = getDataFromTable(obj.meteoTable, true);
+    //     if (data.rows.length === 0) {alert('No meteo observation found.'); return;}
+    //     try {
+    //         const header = [
+    //             'Time [yyyy/MM/dd HH:mm:ss]','Humidity [%]','Air temperature [°C]',
+    //             'Cloud coverage [%]','Solar radiation [W/m2]'
+    //         ];
+    //         await saveCSV('meteo.csv', header, data.rows);
+    //         alert(`Save file successfully.`);
+    //     } catch (e) { alert(e);}
+    // });
 }
 
 function weatherManagement() {
@@ -220,42 +222,47 @@ function weatherManagement() {
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
         const start = obj.sourceStart.value, end = obj.sourceEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-        const keyChecker = 'wind_log';
-        const contentChecker = {projectName: currentProject, key: keyChecker};
-        const statusRes = await jsonLoader('check_download_status', contentChecker);
-        if (statusRes.status === "running") { alert("Wind download is running."); return; }
-        obj.weatherLog.value = '';
-        const content = { 
-            projectName: currentProject, lat: lat, lon: lon, keyChecker: keyChecker, fileName: key,
-            dataService: dataService, start: start, end: end, key: key, timeZone: getLastTimeZone()
-        };
-        const request = await jsonLoader('start_meteo', content);
-        if (request.status === 'error') { alert(request.message); return; }
-        updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
-            alert('Downloading wind data completed.');
-            const res = { projectName: currentProject, fileName: `${key}.csv` };
-            const wind = await jsonLoader('upload_weather_csv', res);
-            if (wind.status === 'error') { alert(wind.message); return; }
-            addDataToTable(obj.weatherTable, wind.columns, wind.content);
-        });
+        try {
+            const contentChecker = {projectName: currentProject, key: key};
+            const statusRes = await jsonLoader('check_download_status', contentChecker);
+            if (statusRes.status === "running") { alert("Wind download is running."); return; }
+            obj.weatherLog.value = '';
+            const content = { 
+                projectName: currentProject, lat: lat, lon: lon, dataService: dataService, 
+                start: start, end: end, key: key, timeZone: getLastTimeZone()
+            };
+            const request = await jsonLoader('start_meteo', content);
+            if (request.status === 'error') { alert(request.message); return; }
+            updateLog(currentProject, obj.weatherLog, 2, key, async () => {
+                alert('Downloading wind data completed.');
+                const res = { projectName: currentProject, fileName: `${key}.csv` };
+                signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
+                const wind = await jsonLoader('upload_weather_csv', res);
+                signalSender('hideOverlay');
+                if (wind.status === 'error') { alert(wind.message); return; }
+                addDataToTable(obj.weatherTable, wind.columns, wind.content);
+            });
+        } catch (error) {
+            alert(error.message || error); return;
+        }
     });
     obj.weatherSave.addEventListener('click', async () => {
-        // const data = getDataFromTable(obj.weatherTable, true);
-        // if (data.rows.length === 0) {alert('No wind observation found.'); return;}
-        // try {
-        //     const header = ['Time [yyyy/MM/dd HH:mm:ss]','Magnitude [m/s]','Angle [deg]'];
-        //     await saveCSV('wind.csv', header, data.rows);
-        //     alert(`Save file successfully.`);
-        // } catch (e) { alert(e);}
+        const data = getDataFromTable(obj.weatherTable, true);
+        if (data.rows.length === 0) {alert('No wind observation found.'); return;}
+        try {
+            await saveCSV('wind.csv', data.columns, data.rows);
+            alert(`Save file successfully.`);
+        } catch (e) { alert(`Failed to save wind data:\n${e.message}`);}
     });
 }
 
 function mapOptions(map) {
+    mapContainer = map.getContainer();
     map.on('mousemove', function (e) {
         if (picker === 'weather') {
             const html = `Click on map to select location.`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
-            map.openTooltip(hoverTooltip);
+            map.openTooltip(hoverTooltip); mapContainer.style.cursor = "crosshair";
     //     } else if (era5Checked) {
     //         map.getContainer().style.cursor = "crosshair";
     //         const html = `Select average location.`;
@@ -278,8 +285,9 @@ function mapOptions(map) {
         }
         if (picker === 'weather') {
             obj.weatherLat.value = e.latlng.lat; obj.weatherLon.value = e.latlng.lng;
-            picker = ''; hoverTooltip.closeTooltip();
+            picker = ''; hoverTooltip.closeTooltip(); 
         }
+        mapContainer.style.cursor = "";
     });
     // map.on('contextmenu', async function (e) {
     //     e.originalEvent.preventDefault();

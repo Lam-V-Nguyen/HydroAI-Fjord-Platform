@@ -136,7 +136,7 @@ class Regnbyge():
         data = data.replace(float("nan"), None) # Fill NaN values
         return data
 
-def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:list, 
+def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:str, vars:list, 
     lat:float, lon:float, start:str, end:str, time_zone:str, buffer:float=0.01):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
@@ -186,12 +186,12 @@ def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:
             # Days to download
             days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
             month_data = {}
-            vals = {key: variables[key] for key in vars if key in variables.keys()}
-            for key, var in vals.items():
+            vals = {item: variables[item] for item in vars if item in variables.keys()}
+            for idx, var in vals.items():
                 logger.info("="*35)
                 logger.info(f"Downloading variable: {var}")
                 request = {
-                    'product_type': 'reanalysis', 'variable': [key],
+                    'product_type': 'reanalysis', 'variable': [idx],
                     'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
                     'time': [f"{h:02d}:00" for h in range(24)], 'area': area,
                     'data_format': 'netcdf', 'download_format': 'unarchived'
@@ -254,11 +254,11 @@ def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:
         if 'wind_speed' in vars:
             df_result['wind_speed'] = np.sqrt(df_result['u10']**2 + df_result['v10']**2)
             df_result['wind_direction'] = np.arctan2(df_result['v10'], df_result['u10'])
-        csv_path = os.path.join(dir, 'era5_data.csv')
+        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df_result = df_result.reset_index()
         df_result.to_csv(csv_path, index=False)
         logger.info(f"Saved CSV to: {csv_path}")
-        logger.info(f"Saved forcing file successfully")
+        logger.info(f"Saved forcing file successfully.")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
         logger.info("Temporary monthly files removed")
         logger.handlers[0].flush()
@@ -275,7 +275,7 @@ def era5_downloader(api_key:str, dir:str, processes:dict, key_process:str, vars:
             h.close()
             logger.removeHandler(h)
 
-def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:str, 
+def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
     ids:list, columns:list, vars:list, start:str, end:str, time_zone:str):
     log_path = os.path.join(dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
@@ -347,7 +347,7 @@ def met_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
         df['Time'] = functions.utc_to_local(df['Time'], time_zone)
         if "Air Pressure (Pa)" in df.columns: df["Air Pressure (Pa)"] *= 100
         if "Cloud cover (%)" in df.columns: df["Cloud cover (%)"] = cloud_cover_to_percent(df["Cloud cover (%)"])
-        csv_path = os.path.normpath(os.path.join(dir, 'met_data.csv'))
+        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df.to_csv(csv_path, index=False)
         logger.info(f"Saved CSV to: {csv_path}")
         logger.info(f"Saved weather file successfully.")
@@ -379,7 +379,7 @@ def cloud_cover_to_percent(series):
     # Convert 0-8 -> 0-100%
     return values / 8 * 100
 
-def nve_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:str, 
+def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
     ids:list, columns:list, vars:list, interval:int, start:str, end:str, time_zone:str):
     log_path = os.path.join(dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
@@ -440,7 +440,7 @@ def nve_downloader(api_key:str, url:str, dir:str, processes:dict, key_process:st
             processes[key_process] = {"status": "failed", "message": "No data downloaded"}
             return
         df['Time'] = functions.utc_to_local(df['Time'], time_zone)
-        csv_path = os.path.normpath(os.path.join(dir, 'nve_data.csv'))
+        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df.to_csv(csv_path, index=False)
         logger.info(f"Saved CSV to: {csv_path}")
         logger.info(f"Saved weather file successfully.")

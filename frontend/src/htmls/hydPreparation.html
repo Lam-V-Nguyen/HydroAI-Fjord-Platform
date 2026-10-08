@@ -240,7 +240,6 @@
                                 </div>
                             </div>
                         </div>
-                        
                         <div class="tile model-container" style="grid-column: span 3;"><h3>Process Log</h3>
                             <textarea wrap="off" id="weather-text" placeholder="Logs..." readonly></textarea>
                         </div>
@@ -248,19 +247,15 @@
                             <div class="row">
                                 <h3>Attribute Table</h3>
                                 <button type="button" id="weather-save-btn"
-                                    style="margin-top: -20px; max-width: 200px;">Save Weather Data</button>
+                                    style="margin-top: -20px; max-width: 180px;">Save Weather Data</button>
                             </div>
                             <table class="attributes-table" id="weather-table">
-                                <thead>
-                                    <tr><th>Time</th><th>Wind Speed (m/s)</th><th>Wind Direction (°)</th></tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
-                                        <td><input type="text" placeholder="Wind Speed"></td>
-                                        <td><input type="text" placeholder="Wind Direction"></td>
-                                    </tr>
-                                </tbody>
+                                <thead><tr><th>Time</th><th>Wind Speed (m/s)</th><th>Wind Direction (°)</th></tr></thead>
+                                <tbody><tr>
+                                    <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                    <td><input type="text" placeholder="Wind Speed"></td>
+                                    <td><input type="text" placeholder="Wind Direction"></td>
+                                </tr></tbody>
                             </table>
                         </div>
                     </div>

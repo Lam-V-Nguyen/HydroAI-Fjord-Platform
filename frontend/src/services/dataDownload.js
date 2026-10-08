@@ -269,7 +269,7 @@ function updateManager() {
         });
     });
     obj.metDownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.clientIdMet.value;
+        const apiKey = obj.clientIdMet.value, key = 'met';
         if (!apiKey || apiKey === '') { alert('Please enter your MET API key.'); return; }
         const tableData = getDataFromTable(obj.metTable, true);
         if (tableData.rows.length === 0) {
@@ -288,21 +288,23 @@ function updateManager() {
             alert('Please select at least one variable to download.'); return;
         }
         try {
-            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: 'met' });
+            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
             if (statusRes.status === "running") { alert("Weather download is running."); return; }
             obj.metLogText.value = ''; obj.metLogContainer.style.display = 'flex';
             obj.metSaveBtn.style.display = 'none'; obj.metDownloadTable.style.display = 'none';
             const contents = {
-                projectName: currentProject, api_key: apiKey, ids: ids,
+                projectName: currentProject, api_key: apiKey, ids: ids, key: key,
                 startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
                 variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.des)
             };
             const data = await jsonLoader('download_met', contents);
             if (data.status === 'error') { alert(data.message); return; }
-            updateLog(currentProject, obj.metLogText, 2, 'met', async () => {
+            updateLog(currentProject, obj.metLogText, 2, key, async () => {
                 alert('Downloading weather completed.');
-                const content_csv = { projectName: currentProject, fileName: 'met_data.csv' };
+                const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
+                signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_weather_csv', content_csv);
+                signalSender('hideOverlay');
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.metDownloadTable, csv.columns, csv.content);
                 obj.metSaveBtn.style.display = 'block';
@@ -406,7 +408,7 @@ function updateManager() {
         });
     });
     obj.nveDownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.clientIdNVE.value;
+        const apiKey = obj.clientIdNVE.value, key = 'nve';
         if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
         const tableData = getDataFromTable(obj.nveTable, true);
         if (tableData.rows.length === 0) {
@@ -427,21 +429,23 @@ function updateManager() {
             alert('Please select at least one variable to download.'); return;
         }
         try {
-            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: 'nve' });
+            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
             if (statusRes.status === "running") { alert("Weather download is running."); return; }
             obj.nveLogText.value = ''; obj.nveLogContainer.style.display = 'flex';
             obj.nveSaveBtn.style.display = 'none'; obj.nveDownloadTable.style.display = 'none';
             const contents = {
                 projectName: currentProject, api_key: apiKey, ids: ids, interval: obj.nveInterval.value,
-                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
+                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(), key: key,
                 variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.des)
             };
             const data = await jsonLoader('download_nve', contents);
             if (data.status === 'error') { alert(data.message); return; }
-            updateLog(currentProject, obj.nveLogText, 2, 'nve', async () => {
+            updateLog(currentProject, obj.nveLogText, 2, key, async () => {
                 alert('Downloading weather completed.');
-                const content_csv = { projectName: currentProject, fileName: 'nve_data.csv' };
+                const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
+                signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_weather_csv', content_csv);
+                signalSender('hideOverlay');
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.nveDownloadTable, csv.columns, csv.content);
                 obj.nveSaveBtn.style.display = 'block';
@@ -617,7 +621,7 @@ function updateManager() {
         }
     });
     obj.era5DownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.apikeyEra5.value;
+        const apiKey = obj.apikeyEra5.value, key = 'era5';
         if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
         const lat = obj.era5Lat.value, lon = obj.era5Lon.value;
         if (lat === '' || lon === '') {
@@ -637,21 +641,22 @@ function updateManager() {
             alert('Please select at least one variable to download.'); return;
         }
         try {
-            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: 'era5' });
+            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
             if (statusRes.status === "running") { alert("Weather download is running."); return; }
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
             obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none';
             const contents = {
                 projectName: currentProject, lat: lat, lon: lon, api_key: apiKey,
-                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
-                variables: selectedValues.map(v => v.value)
+                startTime: startTime, endTime: endTime, key: key,
+                timeZone: getLastTimeZone(), variables: selectedValues.map(v => v.value)
             };
             const data = await jsonLoader('download_era5', contents);
             if (data.status === 'error') { alert(data.message); return; }
-            updateLog(currentProject, obj.era5LogText, 2, 'era5', async () => {
+            updateLog(currentProject, obj.era5LogText, 2, key, async () => {
                 alert('Downloading weather completed.');
-                const content_csv = { projectName: currentProject };
-                const csv = await jsonLoader('upload_era5_csv', content_csv);
+                const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
+                signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
+                const csv = await jsonLoader('upload_era5_csv', content_csv); signalSender('hideOverlay');
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.era5Table, csv.columns, csv.content);
                 obj.era5SaveBtn.style.display = 'block';
