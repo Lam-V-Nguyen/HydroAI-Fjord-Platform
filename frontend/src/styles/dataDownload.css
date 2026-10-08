@@ -98,7 +98,7 @@ body {
 }
 .attributes-table thead { position: sticky; top: 0; z-index: 2; }
 .attributes-table tbody {
-  display: block; max-height: 150px; overflow-y: auto; width: 100%;
+  display: block; max-height: 150px; overflow-y: auto; width: 100%; 
 }
 .attributes-table thead tr, .attributes-table tbody tr {
   display: table; width: 100%; table-layout: fixed;
@@ -113,12 +113,9 @@ body {
   background: var(--card); color: var(--text); outline: none; text-align: center;
 } 
 .attributes-table tbody tr:not(.selected):hover {
-  background-color: rgba(30, 136, 229, 0.1); cursor: pointer;
-}
-.attributes-table tbody tr.selected { background-color: rgba(202, 236, 10, 0.63); }
-.attributes-table tbody tr:hover {
   background-color: rgba(20, 125, 216, 0.363); cursor: pointer;
 }
+.attributes-table tbody tr.selected { background-color: rgba(202, 236, 10, 0.63); }
 .attributes-table tbody tr.selected:hover { background-color: rgba(202, 236, 10, 0.63); }
 
 .overlay-window {

@@ -334,14 +334,7 @@ export function addDataToTable(table, header, data) {
     const trHead = document.createElement('tr');
     header.forEach(col => {
         const th = document.createElement('th');
-        th.textContent = col; 
-        Object.assign(th.style, {
-            fontSize: '14px', fontWeight: 'bold',
-            textAlign: 'center', verticalAlign: 'middle',
-            padding: '8px 10px',
-            backgroundColor: '#4b4747', color: '#f7f4f4'
-        });
-        trHead.appendChild(th);
+        th.textContent = col; trHead.appendChild(th);
     });
     thead.appendChild(trHead); table.prepend(thead);
     const tbody = document.createElement('tbody');

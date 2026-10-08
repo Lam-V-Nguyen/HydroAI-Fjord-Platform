@@ -330,6 +330,7 @@ async def upload_weather_csv(request: Request, user=Depends(functions.basic_auth
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
         df['Time'] = pd.to_datetime(df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        if body.get('ignore_stationName'): df = df.drop(columns=['stationId'])
         df = df.replace([np.inf, -np.inf], np.nan)
         df = df.astype(object).where(pd.notna(df), None)
         columns, content = df.columns.tolist(), df.values.tolist()

@@ -5,7 +5,6 @@ import { getUser, signalSender, iframeConnector, updateLog, deleteTable,
 } from "./commonFunctions.js";
 import { initMap, pointPloter } from "./visualizationMap.js";
 
-
 const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
     sticky: true, offset: [0, 10], className: 'custom-tooltip'
@@ -13,8 +12,8 @@ const hoverTooltip = L.tooltip({
 
 const $ = (id) => document.getElementById(id);
 const obj = {
-    sourceNVERemember: $('nve-remember-btn'), sourceNVEAPIKey: $('nve-client-id'),
-    sourceNVEBtn: $('nve-stations-btn'), sourceNVEStart: $('nve-start'), sourceNVEEnd: $('nve-end'),
+    sourceRemember: $('nve-remember-btn'), sourceAPIKey: $('nve-client-id'),
+    sourceBtn: $('nve-stations-btn'), sourceStart: $('nve-start'), sourceEnd: $('nve-end'),
     stationID: $('station-id'), stationName: $('station-name'), basinArea: $('basin-area'), 
     downloadBtn: $('nve-download-btn'), dischargeContainer: $('discharge-container'),
     dischargeLogText: $('discharge-log-text'), dischargeLogContainer: $('discharge-log-container'),
@@ -32,18 +31,22 @@ const obj = {
     meteoLocation: $('meteo-picker-btn'), meteoLat: $('meteo-lat'), meteoLon: $('meteo-lon'),
     meteoStart: $('hyd-meteo-start-date'), meteoEnd: $('hyd-meteo-end-date'),
     meteoDownload: $('meteo-download-btn'), meteoLog: $('meteo-text'), 
-    meteoTable: $('meteo-table'), meteoSave: $('meteo-save-btn'), weatherLon: $('weather-lon'),
-    weatherLocation: $('weather-picker-btn'), weatherLat: $('weather-lat'), 
-    weatherStart: $('hyd-weather-start-date'), weatherEnd: $('hyd-weather-end-date'),
-    weatherDownload: $('weather-download-btn'), weatherLog: $('weather-text'),
-    weatherTable: $('weather-table'), weatherSave: $('weather-save-btn')
+    meteoTable: $('meteo-table'), meteoSave: $('meteo-save-btn'), 
+    
+    
+    
+    
+    weatherLat: $('weather-lat'), weatherLon: $('weather-lon'), weatherLocation: $('weather-picker-btn'),
+    weatherSource: $('hyd-weather-station'), weatherDownload: $('weather-download-btn'), 
+    weatherLog: $('weather-text'), weatherTable: $('weather-table'), weatherSave: $('weather-save-btn')
 }
 
-let currentProject, nveLayer = null, nveSelected = false;
+let currentProject, nveLayer = null, nveSelected = false, picker = '';
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-hyd-preparation');
-sourceManagement(); meteoManagement(); weatherManagement(); mapOptions(mapObj);
+nveSourceManagement(); sourceManagement(); meteoManagement(); 
+weatherManagement(); mapOptions(mapObj);
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
@@ -62,7 +65,7 @@ function savePassword() {
             }
         });
     });
-    obj.sourceNVERemember.addEventListener('click', async () => {
+    obj.sourceRemember.addEventListener('click', async () => {
         const nameID = obj.sourceNVEAPIKey.value;
         if (nameID === '') {
             alert('Please add NVE API Key and try again.\nInformation is NOT saved.'); return;
@@ -75,18 +78,18 @@ function savePassword() {
 async function loadClient(key) {
     const content = { projectName: currentProject, key: key };
     const response = await jsonLoader('load_client', content);
-    obj.sourceNVEAPIKey.value = response.content.client_id;
+    obj.sourceAPIKey.value = response.content.client_id;
 }
 
-async function sourceManagement() {
+async function nveSourceManagement(){
     savePassword(); await loadClient('nve');
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const start = new Date(now); start.setDate(start.getDate() - 15);
     const end = new Date(now); end.setDate(end.getDate() - 2);
-    obj.sourceNVEStart.value = formatDate(start).split(' ')[0];
-    obj.sourceNVEEnd.value = formatDate(end).split(' ')[0];
-    obj.sourceNVEBtn.addEventListener('click', async () => {
-        const apiKey = obj.sourceNVEAPIKey.value;
+    obj.sourceStart.value = formatDate(start);
+    obj.sourceEnd.value = formatDate(end);
+    obj.sourceBtn.addEventListener('click', async () => {
+        const apiKey = obj.sourceAPIKey.value;
         if (apiKey === '') { alert('Please enter your NVE API key.'); return; }
         signalSender('showOverlay', 'Getting stations from NVE. Please wait...');
         const content = { projectName: currentProject, key: 'nve', clientName: apiKey };
@@ -104,12 +107,12 @@ async function sourceManagement() {
         nveLayer = await pointPloter('nve', data.content.point, mapObj, contents);
     });
     obj.downloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.sourceNVEAPIKey.value;
+        const apiKey = obj.sourceAPIKey.value;
         if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
         const stationID = obj.stationID.value, basinArea = obj.basinArea.value;;
         if (stationID === '') { alert('Please select a station from NVE first.'); return; }
         if (basinArea === '') { alert('Please enter the basin area.'); return; }
-        const start = obj.sourceNVEStart.value, end = obj.sourceNVEEnd.value;
+        const start = obj.sourceStart.value, end = obj.sourceEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
         obj.dischargeContainer.style.display = 'block'; obj.dischargeLogText.value = '';
         try {
@@ -124,7 +127,9 @@ async function sourceManagement() {
             if (data.status === 'error') { alert(data.message); return; }
             updateLog(currentProject, obj.dischargeLogText, 2, 'nve', async () => {
                 alert('Downloading weather completed.');
-                const content_csv = { projectName: currentProject, fileName: 'nve_data.csv' };
+                const content_csv = { 
+                    projectName: currentProject, fileName: 'nve_data.csv', ignore_stationName: true
+                };
                 const csv = await jsonLoader('upload_weather_csv', content_csv);
                 if (csv.status === 'error') { 
                     alert(csv.message); deleteTable(obj.dischargeTable); return; 
@@ -139,6 +144,10 @@ async function sourceManagement() {
             obj.dischargeTable.style.display = 'none'; return;
         }
     });
+}
+
+async function sourceManagement() {
+
 
 
 
@@ -204,56 +213,57 @@ function meteoManagement() {
 }
 
 function weatherManagement() {
-    // Update location
-    iframeConnector(obj.weatherLocation, [obj.weatherLat, obj.weatherLon], 'pickLatLon');
+    obj.weatherLocation.addEventListener('click', () => { picker = 'weather'; });
     obj.weatherDownload.addEventListener('click', async () => {
-        const lat = obj.weatherLat.value, lon = obj.weatherLon.value, key = 'wind';
+        const lat = obj.weatherLat.value, lon = obj.weatherLon.value;
+        const key = 'wind', dataService = obj.weatherSource.value;
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
-        const start = obj.weatherStart.value, end = obj.weatherEnd.value;
+        const start = obj.sourceStart.value, end = obj.sourceEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-        const keyChecker = 'wind_log'; 
+        const keyChecker = 'wind_log';
         const contentChecker = {projectName: currentProject, key: keyChecker};
         const statusRes = await jsonLoader('check_download_status', contentChecker);
         if (statusRes.status === "running") { alert("Wind download is running."); return; }
         obj.weatherLog.value = '';
         const content = { 
-            projectName: currentProject, lat: lat, lon: lon, keyChecker: keyChecker,
-            start: start, end: end, key: key, timeZone: getLastTimeZone()
+            projectName: currentProject, lat: lat, lon: lon, keyChecker: keyChecker, fileName: key,
+            dataService: dataService, start: start, end: end, key: key, timeZone: getLastTimeZone()
         };
         const request = await jsonLoader('start_meteo', content);
         if (request.status === 'error') { alert(request.message); return; }
         updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
-            const res = { projectName: currentProject, fileName: `${key}.csv` };
-            const wind = await jsonLoader('get_result', res);
-            if (wind.status === 'error') { alert(wind.message); return; }
-            fillTable(wind.content, obj.weatherTable);
             alert('Downloading wind data completed.');
+            const res = { projectName: currentProject, fileName: `${key}.csv` };
+            const wind = await jsonLoader('upload_weather_csv', res);
+            if (wind.status === 'error') { alert(wind.message); return; }
+            addDataToTable(obj.weatherTable, wind.columns, wind.content);
         });
     });
     obj.weatherSave.addEventListener('click', async () => {
-        const data = getDataFromTable(obj.weatherTable, true);
-        if (data.rows.length === 0) {alert('No wind observation found.'); return;}
-        try {
-            const header = ['Time [yyyy/MM/dd HH:mm:ss]','Magnitude [m/s]','Angle [deg]'];
-            await saveCSV('wind.csv', header, data.rows);
-            alert(`Save file successfully.`);
-        } catch (e) { alert(e);}
+        // const data = getDataFromTable(obj.weatherTable, true);
+        // if (data.rows.length === 0) {alert('No wind observation found.'); return;}
+        // try {
+        //     const header = ['Time [yyyy/MM/dd HH:mm:ss]','Magnitude [m/s]','Angle [deg]'];
+        //     await saveCSV('wind.csv', header, data.rows);
+        //     alert(`Save file successfully.`);
+        // } catch (e) { alert(e);}
     });
 }
 
 function mapOptions(map) {
-    // map.on('mousemove', function (e) {
-    //     if (!plotChecked && (waterFlowLayer || waterLevelLayer || overFlowLayer || tempLayer || preLayer || weirLayer || evaLayer)) {
-    //         const html = `- Left-click to select station and add to the download list.<br>- Right-click to remove the last station.`;
-    //         hoverTooltip.setLatLng(e.latlng).setContent(html);
-    //         map.openTooltip(hoverTooltip);
+    map.on('mousemove', function (e) {
+        if (picker === 'weather') {
+            const html = `Click on map to select location.`;
+            hoverTooltip.setLatLng(e.latlng).setContent(html);
+            map.openTooltip(hoverTooltip);
     //     } else if (era5Checked) {
     //         map.getContainer().style.cursor = "crosshair";
     //         const html = `Select average location.`;
     //         hoverTooltip.setLatLng(e.latlng).setContent(html);
     //         map.openTooltip(hoverTooltip);
-    //     } else { if (hoverTooltip) map.closeTooltip(hoverTooltip); }
-    // });
+    //     } else { if (hoverTooltip) map.closeTooltip(hoverTooltip); 
+        }
+    });
     map.on('click', async function (e) {
         if (nveLayer) {
             nveLayer.closeTooltip(); nveLayer.unbindTooltip();
@@ -265,12 +275,10 @@ function mapOptions(map) {
                 });
             }
             nveLayer = null;
-
-
-
-
-
-
+        }
+        if (picker === 'weather') {
+            obj.weatherLat.value = e.latlng.lat; obj.weatherLon.value = e.latlng.lng;
+            picker = ''; hoverTooltip.closeTooltip();
         }
     });
     // map.on('contextmenu', async function (e) {

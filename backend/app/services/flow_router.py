@@ -817,6 +817,7 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
         lat, lon, key = body.get('lat'), body.get('lon'), body.get('key')
+        data_source, file_name = body.get('dataService'), body.get('fileName')
         process_key, time_zone = f"{project_name}:{body.get('keyChecker')}", body.get('timeZone')
         lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
         async with lock:
@@ -824,11 +825,14 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
             # Check if process already running
             if info and info["status"] == "running":
                 return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-            processes[process_key] = {"status": "running", "message": "Preparing download meteo.."}
+            processes[process_key] = {"status": "running", "message": "Preparing download meteo..."}
             if key == 'meteo': target = hyd_functions.meteo_downloader
             elif key == 'wind': target = hyd_functions.wind_downloader
             threading.Thread(
-                target=target, args=(project_name, process_key, processes, lat, lon, start, end, time_zone, key), daemon=True
+                target=target, args=(
+                    project_name, data_source, file_name, process_key, processes, 
+                    lat, lon, start, end, time_zone, key
+                ), daemon=True
             ).start()
         return JSONResponse({"status": "ok", "message": "Meteo downloading started", 'content': body})
     except Exception as e:
