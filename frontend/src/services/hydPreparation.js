@@ -1,7 +1,8 @@
 import { setupTabs } from "./tabManager.js";
 import { getLastTimeZone } from "./constant.js";
-import { getUser, signalSender, iframeConnector, updateLog, deleteTable,
-    jsonLoader, fillTable, getDataFromTable, saveCSV, formatDate, addDataToTable
+import { getUser, signalSender, updateLog, deleteTable,
+    jsonLoader, fillTable, getDataFromTable, saveCSV, formatDate, 
+    addDataToTable, addRowToTable
 } from "./commonFunctions.js";
 import { initMap, pointPloter } from "./visualizationMap.js";
 
@@ -29,14 +30,13 @@ const obj = {
 
 
     meteoLocation: $('meteo-picker-btn'), meteoLat: $('meteo-lat'), meteoLon: $('meteo-lon'),
-    meteoStart: $('hyd-meteo-start-date'), meteoEnd: $('hyd-meteo-end-date'),
-    meteoDownload: $('meteo-download-btn'), meteoLog: $('meteo-text'), 
-    meteoTable: $('meteo-table'), meteoSave: $('meteo-save-btn'), 
+    meteoSource: $('hyd-meteo-station'), meteoTable: $('meteo-table'), meteoLog: $('meteo-text'),
+    meteoDownload: $('meteo-download-btn'), meteoSave: $('meteo-save-btn'), 
     
     
     
     
-    weatherLat: $('weather-lat'), weatherLon: $('weather-lon'), weatherLocation: $('weather-picker-btn'),
+    weatherLocation: $('weather-picker-btn'), weatherLat: $('weather-lat'), weatherLon: $('weather-lon'), 
     weatherSource: $('hyd-weather-station'), weatherDownload: $('weather-download-btn'), 
     weatherLog: $('weather-text'), weatherTable: $('weather-table'), weatherSave: $('weather-save-btn')
 }
@@ -172,15 +172,21 @@ async function sourceManagement() {
 }
 
 function meteoManagement() {
-    // // Update location
-    // iframeConnector(obj.meteoLocation, [obj.meteoLat, obj.meteoLon], 'pickLatLon');
-    // obj.meteoDownload.addEventListener('click', async () => {
-    //     const lat = obj.meteoLat.value, lon = obj.meteoLon.value, key = 'meteo';
-    //     if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
-    //     const start = obj.meteoStart.value, end = obj.meteoEnd.value;
-    //     if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
-    //     const keyChecker = 'meteo_log'; 
-    //     const contentChecker = {projectName: currentProject, key: keyChecker};
+    obj.meteoLocation.addEventListener('click', () => { picker = 'meteo'; });
+    obj.meteoSource.addEventListener('change', () => {
+        obj.meteoLog.value = ''; deleteTable(obj.meteoTable);
+        const row = ["YYYY-MM-DD HH:MM:SS", "Humidity", 
+            "Air temperature", "Cloud coverage", "Solar radiation"];
+        addRowToTable(obj.meteoTable, row);
+    });
+    obj.meteoDownload.addEventListener('click', async () => {
+        const lat = obj.meteoLat.value, lon = obj.meteoLon.value;
+        const key = 'meteo', dataService = obj.meteoSource.value;
+        if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
+        const start = obj.sourceStart.value, end = obj.sourceEnd.value;
+        if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
+        try {
+            const contentChecker = {projectName: currentProject, key: key};
     //     const statusRes = await jsonLoader('check_download_status', contentChecker);
     //     if (statusRes.status === "running") { alert("Meteo download is running."); return; }
     //     obj.meteoLog.value = '';
@@ -199,23 +205,28 @@ function meteoManagement() {
     //         fillTable(weather.content, obj.meteoTable);
     //         alert('Downloading meteo data completed.');
     //     });
-    // });
-    // obj.meteoSave.addEventListener('click', async () => {
-    //     const data = getDataFromTable(obj.meteoTable, true);
-    //     if (data.rows.length === 0) {alert('No meteo observation found.'); return;}
-    //     try {
-    //         const header = [
-    //             'Time [yyyy/MM/dd HH:mm:ss]','Humidity [%]','Air temperature [°C]',
-    //             'Cloud coverage [%]','Solar radiation [W/m2]'
-    //         ];
-    //         await saveCSV('meteo.csv', header, data.rows);
-    //         alert(`Save file successfully.`);
-    //     } catch (e) { alert(e);}
-    // });
+
+        } catch (error) {
+            alert(error.message || error); return;
+        }
+    
+    });
+    obj.meteoSave.addEventListener('click', async () => {
+        const data = getDataFromTable(obj.meteoTable, true);
+        if (data.rows.length === 0) {alert('No meteo observation found.'); return;}
+        try {
+            await saveCSV('meteo.csv', data.columns, data.rows);
+            alert(`Save file successfully.`);
+        } catch (e) { alert(`Failed to save meteo data:\n${e.message}`);}
+    });
 }
 
 function weatherManagement() {
     obj.weatherLocation.addEventListener('click', () => { picker = 'weather'; });
+    obj.weatherSource.addEventListener('change', () => {
+        obj.weatherLog.value = ''; deleteTable(obj.weatherTable);
+        addRowToTable(obj.weatherTable, ["YYYY-MM-DD HH:MM:SS", "Wind Speed", "Wind Direction"]);
+    });
     obj.weatherDownload.addEventListener('click', async () => {
         const lat = obj.weatherLat.value, lon = obj.weatherLon.value;
         const key = 'wind', dataService = obj.weatherSource.value;
@@ -259,11 +270,12 @@ function weatherManagement() {
 function mapOptions(map) {
     mapContainer = map.getContainer();
     map.on('mousemove', function (e) {
-        if (picker === 'weather') {
+        if (picker === 'weather' || picker === 'meteo') {
+            mapContainer.style.cursor = "crosshair";
             const html = `Click on map to select location.`;
             hoverTooltip.setLatLng(e.latlng).setContent(html);
-            map.openTooltip(hoverTooltip); mapContainer.style.cursor = "crosshair";
-    //     } else if (era5Checked) {
+            map.openTooltip(hoverTooltip); 
+        // } else if (picker === 'meteo') {
     //         map.getContainer().style.cursor = "crosshair";
     //         const html = `Select average location.`;
     //         hoverTooltip.setLatLng(e.latlng).setContent(html);
@@ -285,6 +297,9 @@ function mapOptions(map) {
         }
         if (picker === 'weather') {
             obj.weatherLat.value = e.latlng.lat; obj.weatherLon.value = e.latlng.lng;
+            picker = ''; hoverTooltip.closeTooltip(); 
+        } else if (picker === 'meteo') {
+            obj.meteoLat.value = e.latlng.lat; obj.meteoLon.value = e.latlng.lng;
             picker = ''; hoverTooltip.closeTooltip(); 
         }
         mapContainer.style.cursor = "";

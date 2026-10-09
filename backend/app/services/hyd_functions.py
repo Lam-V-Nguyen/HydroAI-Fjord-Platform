@@ -136,8 +136,8 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
                 data = res.json()
                 if timestamps is None:
                     start = pd.to_datetime(data["StartDate"], format="%d.%m.%Y %H:%M:%S")
-                    resolution = pd.Timedelta(minutes=data["TimeResolution"])
-                    timestamps = pd.date_range(start=start, periods=len(data["Data"]), freq=resolution)
+                    res = pd.Timedelta(minutes=data["TimeResolution"])
+                    timestamps = pd.date_range(start=start, periods=len(data["Data"]), freq=res)
                 data_dict[item] = data["Data"]
             df = pd.DataFrame(data_dict)
             df.insert(0, "Time", timestamps)
@@ -165,10 +165,8 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
                 '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
             }
             weather, csv_path = pd.DataFrame(), os.path.join(project_dir, f"{key}.csv")
-            
-            logger.info("Wind downloader started")
+            logger.info("Wind downloader started.")
             logger.info(f"Starting time: {start}   --   Ending time: {end}")
-            
             lat_new = round(float(lat) / resolution) * resolution
             lon_new = round(float(lon) / resolution) * resolution
             area = [lat_new + delta, lon_new - delta, lat_new - delta, lon_new + delta]
@@ -179,8 +177,8 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
             while current <= end_time:
                 year, month = current.year, current.month
                 last_day = calendar.monthrange(year, month)[1]
-                month_start = datetime(year, month, 1)
-                month_end = datetime(year, month, last_day, 23)
+                month_start = pd.Timestamp(year=year, month=month, day=1, tz="UTC")
+                month_end = (month_start + pd.offsets.MonthEnd(0)).normalize() + pd.Timedelta(hours=23)
                 # Clip by requested range
                 actual_start = max(start_time, month_start)
                 actual_end = min(end_time, month_end)
@@ -206,14 +204,15 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
                     functions.safe_remove(out_path)
                 weather = pd.concat([weather, df_temp], axis=0)
                 current += relativedelta(months=1)
-            weather['Magnitude [m/s]'] = np.sqrt(weather['u10']**2 + weather['v10']**2)
+            weather.index = pd.to_datetime(weather.index, utc=True)
+            weather = weather[(weather.index >= start_time) & (weather.index <= end_time)].copy()
+            weather['Magnitude (m/s)'] = np.sqrt(weather['u10']**2 + weather['v10']**2)
             angle = (np.degrees(np.arctan2(-weather['u10'], -weather['v10'])) + 360) % 360
-            weather['Angle [deg]'] = angle.round(1)
+            weather['Angle (°)'] = angle.round(1)
             weather = weather.drop(columns=['u10', 'v10'], axis=0)
-            weather = weather[['Magnitude [m/s]', 'Angle [deg]']]
-            weather.index.name = 'Time'
+            weather = weather[['Magnitude (m/s)', 'Angle (°)']]
             weather.index = functions.utc_to_local(weather.index, time_zone)
-            weather.to_csv(csv_path)
+            weather.to_csv(csv_path, index_label='Time')
             logger.info(f"Wind saved: {csv_path}")
             if os.path.exists(download_dir): shutil.rmtree(download_dir)
             logger.info("Temporary monthly files removed")

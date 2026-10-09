@@ -187,7 +187,7 @@
                                 <button type="button" id="meteo-save-btn"
                                     style="margin-top: -20px; max-width: 200px;">Save Meteo Data</button>
                             </div>
-                            <table class="attributes-table" id="meteo-table" style="display: none;">
+                            <table class="attributes-table" id="meteo-table">
                                 <thead>
                                     <tr><th>Time</th><th>Humidity (%)</th><th>Air Temperature (°C)</th>
                                         <th>Cloud Coverage (%)</th><th>Solar Radiation (W/m²)</th>
@@ -203,7 +203,7 @@
                                     </tr>
                                 </tbody>
                             </table>
-                            <div class="log-container" id="meteo-log-container">
+                            <div class="log-container" id="meteo-log-container" style="display: none;">
                                 <textarea wrap="off" class="log-text" id="meteo-log-text" placeholder="Logs..." readonly>
                                 </textarea>
                             </div>
@@ -224,7 +224,6 @@
                                     <label for="hyd-weather-station">Source:</label>
                                     <select id="hyd-weather-station" style="width: 100%;">
                                         <option value="nve-gts" selected>NVE GridTimeSeries</option>
-                                        <option value="nve-station">NVE In-situ Station</option>
                                         <option value="era5">Climate Data Store - ERA5</option>
                                     </select>
                                 </div>
