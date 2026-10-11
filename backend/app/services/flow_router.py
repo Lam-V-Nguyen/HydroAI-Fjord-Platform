@@ -1,29 +1,20 @@
-import os, json, traceback, mercantile, rasterio, shutil, matplotlib
-import io, sknw, shapely, rioxarray, zipfile, pyflwdir, threading
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
+import os, json, traceback, rasterio, shutil, asyncio
+import sknw, rioxarray, zipfile, pyflwdir, threading
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
-from config import PROJECT_ROOT, WHITEBOX_DIR, SOURCE_BACKEND
-from dotenv import load_dotenv
+from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
-from rasterio.warp import calculate_default_transform, reproject
 from rasterio.features import shapes
-from shapely.geometry import shape, LineString
+from shapely.geometry import LineString
 from shapely.ops import unary_union, linemerge
 from shapely import force_2d
-from PIL import Image
 from pyflwdir import dem
 from skimage.morphology import skeletonize
-from services import functions, flow_functions
-from whitebox.whitebox_tools import WhiteboxTools
+from services import functions, flow_functions, data_functions
 from rasterio.io import MemoryFile
 from pathlib import Path
 
-
-load_dotenv()
-wtb = WhiteboxTools()
-wtb.set_verbose_mode(False)
-wtb.set_whitebox_dir(WHITEBOX_DIR)
 
 router, process_lock = APIRouter(), threading.Lock()
 
@@ -32,37 +23,60 @@ router, process_lock = APIRouter(), threading.Lock()
 async def flow_project(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     try:
-        flow_name, key, time_zone = body.get('flowName'), body.get('key'), body.get('timeZone')
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows"))
-        os.makedirs(flow_dir, exist_ok=True)
-        dir, content = os.path.normpath(os.path.join(flow_dir, flow_name)), {}
-        if key == 'create':
-            if not os.path.exists(dir):
-                os.makedirs(dir, exist_ok=True)
-                return JSONResponse({'status': 'create', 'message': f"Project '{flow_name}' created successfully."})
-            water_dir = os.path.join(dir, 'water_area')
-            file_water = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
-            content['water'] = file_water[0] if len(file_water) > 0 else ''
-            files = [f for f in os.listdir(dir) if f.endswith("_filled.tif")]
-            dtm_file = files[0].replace("_filled", "") if len(files) > 0 else ''
-            dtm_path = os.path.join(dir, dtm_file)
-            content['dtm'] = dtm_file if os.path.exists(dtm_path) else ''
-        elif key == 'open':
-            forcing_path = os.path.normpath(os.path.join(dir, 'forcing', 'weather_forcing.nc'))
-            if not os.path.exists(forcing_path):
-                return JSONResponse({'status': 'error', 'message': f"Forcing file not found."})
-            with xr.open_dataset(forcing_path) as forcing:
-                start, end = forcing.time.values[0], forcing.time.values[-1]
-                interval = np.diff(forcing['time'].values).astype('timedelta64[s]').astype(int)[0]
-            content['start'] = functions.utc_to_local(start, time_zone)
-            content['end'] = functions.utc_to_local(end, time_zone)
-            content['interval'] = str(interval)
+        flow_name, content = body.get('flowName'), {}
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        if not os.path.exists(flow_dir):
+            os.makedirs(flow_dir, exist_ok=True)
+            return JSONResponse({'status': 'create', 'message': f"Project '{flow_name}' created successfully."})
+        water_dir = os.path.join(flow_dir, 'water_area')
+        file_water = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
+        content['water'] = file_water[0] if len(file_water) > 0 else ''
+        files = [f for f in os.listdir(flow_dir) if f.endswith("_filled.tif")]
+        dtm_file = files[0].replace("_filled", "") if len(files) > 0 else ''
+        dtm_path = os.path.join(flow_dir, dtm_file)
+        content['dtm'] = dtm_file if os.path.exists(dtm_path) else ''
+        # elif key == 'open':
+            #  time_zone = body.get('timeZone')
+        #     forcing_path = os.path.normpath(os.path.join(dir, 'forcing', 'weather_forcing.nc'))
+        #     if not os.path.exists(forcing_path):
+        #         return JSONResponse({'status': 'error', 'message': f"Forcing file not found."})
+        #     with xr.open_dataset(forcing_path) as forcing:
+        #         start, end = forcing.time.values[0], forcing.time.values[-1]
+        #         interval = np.diff(forcing['time'].values).astype('timedelta64[s]').astype(int)[0]
+        #     content['start'] = functions.utc_to_local(start, time_zone)
+        #     content['end'] = functions.utc_to_local(end, time_zone)
+        #     content['interval'] = str(interval)
         return JSONResponse({'content': content})
     except Exception as e:
         print('/flow_project:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/delete_project_flow")
+async def delete_project_flow(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, redis = body.get('flowName'), request.app.state.redis
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        lock, extend_task = redis.lock(f"{project_name}:delete_flow", timeout=600), None
+        async with lock:
+            extend_task = asyncio.create_task(functions.auto_extend(lock))
+            if not os.path.exists(flow_dir): 
+                return JSONResponse({"status": 'error', "message": f"Project '{project_name}' does not exist."})
+            shutil.rmtree(flow_dir, onerror=functions.remove_readonly)
+            if hasattr(request.app.state, "project_cache"): request.app.state.project_cache.pop(project_name, None)
+            return JSONResponse({"status": "ok", "message": f"Project '{flow_name}' was deleted successfully."})
+    except Exception as e:
+        print('/delete_project_flow:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
+    finally:
+        if extend_task:
+            extend_task.cancel()
+            try: await extend_task
+            except asyncio.CancelledError: pass
 
 @router.post("/water_upload")
 async def water_upload(file: UploadFile = File(...), flowName: str = Form(...),
@@ -70,7 +84,6 @@ async def water_upload(file: UploadFile = File(...), flowName: str = Form(...),
     try:
         project_name, _ = functions.project_definer(projectName, user)
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows"))
-        if not os.path.exists(flow_dir): os.makedirs(flow_dir, exist_ok=True)
         water_dir = os.path.normpath(os.path.join(flow_dir, flowName, "water_area"))
         if os.path.exists(water_dir): shutil.rmtree(water_dir)
         os.makedirs(water_dir, exist_ok=True)
@@ -88,136 +101,111 @@ async def water_upload(file: UploadFile = File(...), flowName: str = Form(...),
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.get("/{name:path}/terrain/{key}/{folder}/{filename}/{z}/{x}/{y}.png")
-def terrain_tiles(name: str, key: str, folder: str, filename: str, z: int, x: int, y: int):
-    try:
-        tif_folder = os.path.normpath(os.path.join(PROJECT_ROOT, name, 'flows', folder))
-        tif_path = os.path.normpath(os.path.join(tif_folder, filename))
-        # Get min and max
-        meta_path = tif_path.replace("_cog.tif", ".json").replace("_streams.tif", ".json")
-        if key == "soil":
-            tif_path = os.path.normpath(os.path.join(tif_folder, key, filename))       
-            meta_path = os.path.normpath(os.path.join(tif_folder, key, 'soil.json'))
-        if not os.path.exists(tif_path):
-            return JSONResponse({"status": 'error', "message": f"File not found: {tif_path}"})
-        with open(meta_path) as f:
-            meta = json.load(f)
-        global_min, global_max = float(meta[key].get("min", 0)), float(meta[key].get("max", 0))
-        bounds = mercantile.xy_bounds(x, y, z)
-        dst_transform = rasterio.transform.from_bounds(
-            bounds.left, bounds.bottom, bounds.right, bounds.top, 256, 256
-        )
-        dst = np.full((256, 256), np.nan, dtype=np.float32)
-        with rasterio.open(tif_path) as src:
-            reproject( source=rasterio.band(src, 1), destination=dst,
-                src_transform=src.transform, src_crs=src.crs,
-                dst_transform=dst_transform, dst_crs="EPSG:3857",
-                resampling=Resampling.bilinear, dst_nodata=np.nan
-            )
-        if np.all(np.isnan(dst)): return Response(status_code=204)
-        valid_mask = ~np.isnan(dst)
-        norm = np.zeros_like(dst)
-        if global_max > global_min:
-            norm[valid_mask] = (dst[valid_mask] - global_min) / (global_max - global_min)
-        else: norm[:] = 0
-        norm = np.clip(norm, 0, 1)
-        # rgba_map = cm.get_cmap("terrain")(norm)
-        rgba_map = matplotlib.colormaps['terrain'](norm)
-        rgb = (rgba_map[:, :, :3] * 255).astype(np.uint8)
-        alpha = (valid_mask * 255).astype(np.uint8)
-        rgba = np.dstack([rgb, alpha])
-        img, buf = Image.fromarray(rgba, mode="RGBA"), io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return Response(content=buf.getvalue(), media_type="image/png")
-    except Exception as e:
-        print('/terrain_tiles:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.post("/terrain_upload")
-async def terrain_upload(file: UploadFile = File(...), flowName: str = Form(...),
+@router.post("/upload_terrain_flow")
+async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form(...),
     projectName: str = Form(...), user=Depends(functions.basic_auth)):
     try:
         project_name, _ = functions.project_definer(projectName, user)
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flowName))
         os.makedirs(flow_dir, exist_ok=True)
-        terrain_path = os.path.normpath(os.path.join(flow_dir, file.filename))
+        terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem.tif'))
         with open(terrain_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         file.file.close()
-        # Convert to COG
-        dst_crs, cog_path = "EPSG:3857", os.path.splitext(terrain_path)[0] + "_cog.tif"
-        with rasterio.open(terrain_path) as src:
-            if src.crs is None:
-                return JSONResponse({'status': 'error', 'message': "TIF file has no CRS"})
-            transform, width, height = calculate_default_transform(
-                src.crs, dst_crs, src.width, src.height, *src.bounds
-            )
-            profile = src.profile.copy()
-            profile.update({"crs": dst_crs, "transform": transform, "width": width,
-                "height": height, "driver": "COG", "compress": "LZW", "tiled": True,
-                "blockxsize": 256, "blockysize": 256
-            })
-            with rasterio.open(cog_path, "w", **profile) as dst:
-                reproject(
-                    source=rasterio.band(src, 1), destination=rasterio.band(dst, 1),
-                    src_transform=src.transform, src_crs=src.crs,
-                    dst_transform=transform, dst_crs=dst_crs, resampling=Resampling.bilinear
-                )
-        # Get min and max
-        with rasterio.open(cog_path) as src:
-            data = src.read(1, masked=True)
-            global_min, global_max = float(data.min()), float(data.max())
-        del data
-        meta_path, meta = os.path.splitext(terrain_path)[0] + ".json", {}
-        if os.path.exists(meta_path):
-            with open(meta_path, "r") as f: meta = json.load(f)
-        meta['raw'] = {"min": global_min, "max": global_max}
-        with open(meta_path, "w") as f: json.dump(meta, f)
-        tile_url = f"/{project_name}/terrain/raw/{flowName}/{os.path.basename(cog_path)}/{{z}}/{{x}}/{{y}}.png"
-        contents = {"tile_url": tile_url, "min": global_min, "max": global_max}
-        return JSONResponse({'status': 'ok', 'content': contents})
+        content = data_functions.prepare_terrain(project_name, terrain_path)
+        return JSONResponse(content)
     except Exception as e:
-        print('/terrain_upload:\n==============')
+        print('/upload_terrain_flow:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/stream_upload")
-async def stream_upload(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        file_name, threshold = body.get('filename'), body.get('threshold')
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder, key, flow_name = file_name.rstrip(".tif"), "streams", body.get('flowName')
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-        dtm_path = os.path.normpath(os.path.join(flow_dir, file_name))
-        fill_name, stream_name = folder + "_filled.tif", folder + "_streams.tif"
-        flwdir_name, flwacc_name = folder + "_flowdir.tif", folder + "_flowacc.tif"
-        fill_path = os.path.normpath(os.path.join(flow_dir, fill_name))
-        if os.path.exists(fill_path): functions.safe_remove(fill_path)
-        wtb.fill_depressions(dem=dtm_path, output=fill_path)
-        flw_path = os.path.normpath(os.path.join(flow_dir, flwdir_name))
-        if os.path.exists(flw_path): functions.safe_remove(flw_path)
-        wtb.d8_pointer(dem=fill_path, output=flw_path)
-        flwacc_path = os.path.normpath(os.path.join(flow_dir, flwacc_name))
-        if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
-        wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
-        stream_path = os.path.normpath(os.path.join(flow_dir, stream_name))
-        if os.path.exists(stream_path): functions.safe_remove(stream_path)
-        wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
-        meta_path, meta = dtm_path.replace(".tif", ".json"), {}
-        if os.path.exists(meta_path):
-            with open(meta_path, "r") as f: meta = json.load(f)
-        meta[key] = {"min": 0, "max": 1}
-        with open(meta_path, "w") as f: json.dump(meta, f)
-        tile_url = f"/{project_name}/terrain/{key}/{flow_name}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
-        contents = {"tile_url": tile_url, "min": 0, "max": 1}
-        return JSONResponse({'status': 'ok', 'content': contents})
-    except Exception as e:
-        print('/stream_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
+# @router.get("/{name:path}/terrain/{key}/{folder}/{filename}/{z}/{x}/{y}.png")
+# def terrain_tiles(name: str, key: str, folder: str, filename: str, z: int, x: int, y: int):
+#     try:
+#         tif_folder = os.path.normpath(os.path.join(PROJECT_ROOT, name, 'flows', folder))
+#         tif_path = os.path.normpath(os.path.join(tif_folder, filename))
+#         # Get min and max
+#         meta_path = tif_path.replace("_cog.tif", ".json").replace("_streams.tif", ".json")
+#         if key == "soil":
+#             tif_path = os.path.normpath(os.path.join(tif_folder, key, filename))       
+#             meta_path = os.path.normpath(os.path.join(tif_folder, key, 'soil.json'))
+#         if not os.path.exists(tif_path):
+#             return JSONResponse({"status": 'error', "message": f"File not found: {tif_path}"})
+#         with open(meta_path) as f:
+#             meta = json.load(f)
+#         global_min, global_max = float(meta[key].get("min", 0)), float(meta[key].get("max", 0))
+#         bounds = mercantile.xy_bounds(x, y, z)
+#         dst_transform = rasterio.transform.from_bounds(
+#             bounds.left, bounds.bottom, bounds.right, bounds.top, 256, 256
+#         )
+#         dst = np.full((256, 256), np.nan, dtype=np.float32)
+#         with rasterio.open(tif_path) as src:
+#             reproject( source=rasterio.band(src, 1), destination=dst,
+#                 src_transform=src.transform, src_crs=src.crs,
+#                 dst_transform=dst_transform, dst_crs="EPSG:3857",
+#                 resampling=Resampling.bilinear, dst_nodata=np.nan
+#             )
+#         if np.all(np.isnan(dst)): return Response(status_code=204)
+#         valid_mask = ~np.isnan(dst)
+#         norm = np.zeros_like(dst)
+#         if global_max > global_min:
+#             norm[valid_mask] = (dst[valid_mask] - global_min) / (global_max - global_min)
+#         else: norm[:] = 0
+#         norm = np.clip(norm, 0, 1)
+#         # rgba_map = cm.get_cmap("terrain")(norm)
+#         rgba_map = matplotlib.colormaps['terrain'](norm)
+#         rgb = (rgba_map[:, :, :3] * 255).astype(np.uint8)
+#         alpha = (valid_mask * 255).astype(np.uint8)
+#         rgba = np.dstack([rgb, alpha])
+#         img, buf = Image.fromarray(rgba, mode="RGBA"), io.BytesIO()
+#         img.save(buf, format="PNG")
+#         buf.seek(0)
+#         return Response(content=buf.getvalue(), media_type="image/png")
+#     except Exception as e:
+#         print('/terrain_tiles:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
+# @router.post("/stream_upload")
+# async def stream_upload(request: Request, user=Depends(functions.basic_auth)):
+#     try:
+#         body = await request.json()
+#         file_name, threshold = body.get('filename'), body.get('threshold')
+#         project_name, _ = functions.project_definer(body.get('projectName'), user)
+#         folder, key, flow_name = file_name.rstrip(".tif"), "streams", body.get('flowName')
+#         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+#         dtm_path = os.path.normpath(os.path.join(flow_dir, file_name))
+#         fill_name, stream_name = folder + "_filled.tif", folder + "_streams.tif"
+#         flwdir_name, flwacc_name = folder + "_flowdir.tif", folder + "_flowacc.tif"
+#         fill_path = os.path.normpath(os.path.join(flow_dir, fill_name))
+#         if os.path.exists(fill_path): functions.safe_remove(fill_path)
+#         wtb.fill_depressions(dem=dtm_path, output=fill_path)
+#         flw_path = os.path.normpath(os.path.join(flow_dir, flwdir_name))
+#         if os.path.exists(flw_path): functions.safe_remove(flw_path)
+#         wtb.d8_pointer(dem=fill_path, output=flw_path)
+#         flwacc_path = os.path.normpath(os.path.join(flow_dir, flwacc_name))
+#         if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
+#         wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
+#         stream_path = os.path.normpath(os.path.join(flow_dir, stream_name))
+#         if os.path.exists(stream_path): functions.safe_remove(stream_path)
+#         wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
+#         meta_path, meta = dtm_path.replace(".tif", ".json"), {}
+#         if os.path.exists(meta_path):
+#             with open(meta_path, "r") as f: meta = json.load(f)
+#         meta[key] = {"min": 0, "max": 1}
+#         with open(meta_path, "w") as f: json.dump(meta, f)
+#         tile_url = f"/{project_name}/terrain/{key}/{flow_name}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
+#         contents = {"tile_url": tile_url, "min": 0, "max": 1}
+#         return JSONResponse({'status': 'ok', 'content': contents})
+#     except Exception as e:
+#         print('/stream_upload:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/data_upload")
 async def data_upload(request: Request, user=Depends(functions.basic_auth)):
@@ -387,50 +375,50 @@ async def geojson_upload(file: UploadFile = File(...), projectName: str = Form(.
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/catchment")
-async def catchment(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        file_name, lat, lon = body.get('filename'), body.get('lat'), body.get('lon')
-        snap_distance, folder = float(body.get('snapDistance')), file_name.rstrip(".tif")
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
-        os.makedirs(flow_dir, exist_ok=True)
-        flw_path = os.path.normpath(os.path.join(flow_dir, f"{folder}_flowdir.tif"))
-        stream_path = os.path.normpath(os.path.join(flow_dir, f"{folder}_streams.tif"))
-        with rasterio.open(stream_path) as src:
-            crs = src.crs
-        # Create outlet point for catchment
-        outlet_dir = os.path.normpath(os.path.join(flow_dir, "outlet"))
-        if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
-        outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
-        if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
-        outlet = gpd.GeoDataFrame(geometry=[shapely.geometry.Point(lon, lat)], crs="EPSG:4326")
-        outlet = outlet.to_crs(crs)
-        outlet.to_file(outlet_path)
-        # Create pour point
-        snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
-        if os.path.exists(snap_path): functions.safe_remove(snap_path)
-        catchment_path = os.path.normpath(os.path.join(flow_dir, "catchment.tif"))
-        if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
-        wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
-        wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
-        with rasterio.open(catchment_path) as src:
-            data = src.read(1).astype("uint8")
-            transform = src.transform
-        results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
-        geom = flow_functions.remove_holes(unary_union(results))
-        catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-        catchment.to_file(os.path.normpath(os.path.join(outlet_dir, "catchment.geojson")), driver="GeoJSON")
-        # Delete temporary files
-        functions.safe_remove(catchment_path)
-        if catchment.empty: return JSONResponse({'status': 'error', 'message': 'No catchment found.'})
-        if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
-        return JSONResponse({'status': 'ok', 'content': json.loads(catchment.to_json())})
-    except Exception as e:
-        print('/catchment:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+# @router.post("/catchment")
+# async def catchment(request: Request, user=Depends(functions.basic_auth)):
+#     try:
+#         body = await request.json()
+#         file_name, lat, lon = body.get('filename'), body.get('lat'), body.get('lon')
+#         snap_distance, folder = float(body.get('snapDistance')), file_name.rstrip(".tif")
+#         project_name, _ = functions.project_definer(body.get('projectName'), user)
+#         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
+#         os.makedirs(flow_dir, exist_ok=True)
+#         flw_path = os.path.normpath(os.path.join(flow_dir, f"{folder}_flowdir.tif"))
+#         stream_path = os.path.normpath(os.path.join(flow_dir, f"{folder}_streams.tif"))
+#         with rasterio.open(stream_path) as src:
+#             crs = src.crs
+#         # Create outlet point for catchment
+#         outlet_dir = os.path.normpath(os.path.join(flow_dir, "outlet"))
+#         if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
+#         outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
+#         if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
+#         outlet = gpd.GeoDataFrame(geometry=[shapely.geometry.Point(lon, lat)], crs="EPSG:4326")
+#         outlet = outlet.to_crs(crs)
+#         outlet.to_file(outlet_path)
+#         # Create pour point
+#         snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
+#         if os.path.exists(snap_path): functions.safe_remove(snap_path)
+#         catchment_path = os.path.normpath(os.path.join(flow_dir, "catchment.tif"))
+#         if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
+#         wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
+#         wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
+#         with rasterio.open(catchment_path) as src:
+#             data = src.read(1).astype("uint8")
+#             transform = src.transform
+#         results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
+#         geom = flow_functions.remove_holes(unary_union(results))
+#         catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
+#         catchment.to_file(os.path.normpath(os.path.join(outlet_dir, "catchment.geojson")), driver="GeoJSON")
+#         # Delete temporary files
+#         functions.safe_remove(catchment_path)
+#         if catchment.empty: return JSONResponse({'status': 'error', 'message': 'No catchment found.'})
+#         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
+#         return JSONResponse({'status': 'ok', 'content': json.loads(catchment.to_json())})
+#     except Exception as e:
+#         print('/catchment:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 @router.post("/polygon_clip")
 async def polygon_clip(request: Request):

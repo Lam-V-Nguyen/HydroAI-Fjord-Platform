@@ -5,10 +5,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-        <link rel="stylesheet" href="/src_frontend/styles/index.css">
         <link rel="stylesheet" href="/src_frontend/styles/unstructuredGrid.css">
-        <link rel="stylesheet" href="/src_frontend/styles/gridLayout.css">
         <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
+        <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
     </head>
     <body>
         <div class="data-source">
@@ -81,7 +80,7 @@
                             <label class="checkbox-item">
                                 <input type="checkbox" id="depth-grid-checkbox"><span>Show Depth Grid</span>
                             </label>
-                            <button id="export-depth-btn">Save Data</button>
+                            <button id="export-depth-btn">View Interpolated Depths</button>
                         </div>
                     </div>
                     <div class="tabpanel main-panel" data-panel="grid-edit-tab">
@@ -164,9 +163,9 @@
         </div>
         <!-- Add the map -->
         <div class="map-container" id="map-container">
-            <div id="leaflet-map-lakes"></div>
-            <img class="leaflet-compass-grid" src="/src_frontend/images/compass.png">
-            <div class="basemap-container-grid">
+            <div class="leaflet-map" id="leaflet-map-grid"></div>
+            <img class="leaflet-compass" src="/src_frontend/images/compass.png">
+            <div class="basemap-container">
                 <button type="button" class="leaflet-basemap-btn" id="basemap-btn">
                     <img src="/src_frontend/images/basemap.png">
                 </button>
@@ -180,7 +179,7 @@
                 </div>
             </div>
             <!-- Legend -->
-            <div id="custom-colorbar-grid">
+            <div class="colorbar-container" id="custom-colorbar-grid">
                 <div class="colorbar-wrapper">
                     <div class="colorbar-title" id="colorbar-title">Legend</div>
                     <div class="colorbar-gradient" id="colorbar-gradient"></div>
@@ -210,6 +209,6 @@
         <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
         <script src="https://cdn.plot.ly/plotly-2.26.1.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-        <script type="module" src="/src_frontend/services/unstructuredGridManager.js?v=1"></script>
+        <script type="module" src="/src_frontend/services/unstructuredGridManager.js"></script>
     </body>
 </html>

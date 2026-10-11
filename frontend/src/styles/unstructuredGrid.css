@@ -15,7 +15,25 @@ body {
 }
 * { box-sizing: border-box; }
 
-.data-source {
+.group-container, .group-container-grid { 
+  background: #4d69aa;
+  border: 1px solid #1f2a44; padding: 10px; margin: 10px; 
+  border-radius: 20px; backdrop-filter: blur(6px);
+  box-shadow: 0 20px 60px rgba(13, 71, 161, 0.35); display: grid;
+} 
+.group-container-grid { 
+  gap: 5px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+}
+.group-container h3 { 
+  text-align: center;
+  margin: 0 0 5px 0; font-size: 18px; color: #e9ec09;
+}
+.button-grid {
+  padding: 10px 20px; font-size: 14px;
+  border-radius: 8px; cursor: pointer;
+}
+
+.data-source, .table-header {
   display: flex; align-items: center; 
   justify-content: center; margin: 10px 0 5px 0;
   font-size: 20px; font-weight: bold; 
@@ -140,3 +158,10 @@ body {
   flex: 1; border-radius: 10px; margin-top: 10px;
   background-color: rgb(175, 179, 184);
 }
+
+.point-marker-default, .point-marker-move {
+  width: 10px; height: 10px; border: 1px solid black; 
+  border-radius: 50%; box-sizing: border-box;
+}
+.point-marker-default { background: green; }
+.point-marker-move { background: red; }

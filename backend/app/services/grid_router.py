@@ -109,7 +109,6 @@ async def export_depth(request: Request):
         depth['geometry'] = depth['geometry'].centroid
         depth['Latitude'], depth['Longitude'], depth['Depth'] = depth.geometry.y, depth.geometry.x, depth['value']
         depth = depth[['Latitude', 'Longitude', 'Depth', 'geometry']]
-        print(depth)
         return JSONResponse({'status': 'ok', 'content': json.loads(depth.to_json())})
     except Exception as e:
         print('/export_depth:\n==============')

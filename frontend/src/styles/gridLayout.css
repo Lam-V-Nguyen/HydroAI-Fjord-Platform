@@ -94,9 +94,4 @@
   background-color: #a7936a; color: white; 
 }
 
-.point-marker-default, .point-marker-move {
-  width: 10px; height: 10px; border: 1px solid black; 
-  border-radius: 50%; box-sizing: border-box;
-}
-.point-marker-default { background: green; }
-.point-marker-move { background: red; }
+

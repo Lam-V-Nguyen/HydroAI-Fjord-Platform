@@ -87,34 +87,34 @@ export function getColorFromValue(value, vmin, vmax, colorbarKey) {
 
 export function updateColorbar(min, max, title, colorbarKey, bar_color, bar_title, bar_label) {
     bar_title.innerHTML = title.replace(/\n/g, '<br>');
-    // Generate 5 color stops
-    const colorStops = [], numStops = 5;
-    // Minimum difference
-    const minDiff = 1e-2, epsilon = 1e-6;
+    const numStops = 5, minDiff = 1e-2, epsilon = 1e-6;
     if (max - min < minDiff) max = min + minDiff;
-    // Update 5 labels
+    const useLogScale = min + epsilon > 0 && max + epsilon > 0 && colorbarKey !== "terrain";
+    const getValueAt = (t) => {
+        if (useLogScale) {
+            const logMin = Math.log(min + epsilon);
+            const logMax = Math.log(max + epsilon);
+            return Math.exp(logMin + t * (logMax - logMin));
+        }
+        return min + t * (max - min);
+    };
     const labels = bar_label.children;
     for (let i = 0; i < numStops; i++) {
-        const percent = i / 4; // 0,0.25,0.5,0.75,1
-        let value;
-        if (min + epsilon > 0 && max + epsilon > 0) {
-            const logMin = Math.log(min + epsilon);
-            const logMax = Math.log(max + epsilon);
-            value = Math.exp(logMin + percent * (logMax - logMin));
-        } else { value = min + percent * (max - min);}
-        labels[numStops - i - 1].textContent = valueFormatter(value, minDiff);
+        const t = i / (numStops - 1); const value = getValueAt(t);
+        labels[numStops - 1 - i].textContent = valueFormatter(
+            value, minDiff, { scientificThreshold: 0.01, decimalPlaces: 2, scientificDigits: 2 }
+        );
     }
-    // Generate color for colorbar
+    const colorStops = [];
     for (let i = 0; i < numStops; i++) {
         const t = i / (numStops - 1);
-        let value;
-        if (min + epsilon > 0 && max + epsilon > 0) {
-            const logMin = Math.log(min + epsilon);
-            const logMax = Math.log(max + epsilon);
-            value = Math.exp(logMin + t * (logMax - logMin));
-        } else { value = min + t * (max - min); }
-        const color = getColorFromValue(value, min, max, colorbarKey);
-        colorStops.push(`rgb(${color.r}, ${color.g}, ${color.b}) ${(t * 100).toFixed(1)}%`);
+        const value = getValueAt(t);
+        const color = getColorFromValue(
+            value, min, max, colorbarKey
+        );
+        colorStops.push(
+            `rgb(${color.r}, ${color.g}, ${color.b}) ${(t * 100).toFixed(1)}%`
+        );
     }
     // Update gradient
     bar_color.style.background = `linear-gradient(to top, ${colorStops.join(", ")})`;

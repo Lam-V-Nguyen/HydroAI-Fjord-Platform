@@ -104,7 +104,7 @@ function widgetMenuManager() {
         else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
         else if (id === 'visualization') { w = 12; h = 9; }
         else if (id === 'flow-preparation') { 
-            w = 11; h = 8; title = 'Data Preparation for Flow Estimation'; }
+            w = 11; h = 10; title = 'Data Preparation for Flow Estimation'; }
         else if (id === 'run-flow-model' || id === 'calibration') { w = 12; h = 11; }
         else if (id === 'calibration' || id === 'calibration') { w = 12; h = 12; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }

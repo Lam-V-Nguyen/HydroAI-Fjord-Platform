@@ -1,11 +1,25 @@
-import os, dotenv, base64, requests
-import traceback, sys, shutil, cdsapi, calendar
-import pandas as pd, xarray as xr, numpy as np
+import os, dotenv, base64, requests, math, rasterio
+import traceback, sys, shutil, cdsapi, calendar, json
+from rasterio.warp import calculate_default_transform, reproject
+from rasterio.shutil import copy as rio_copy
+from shapely.geometry import Point, shape
+from shapely.ops import unary_union
+from rasterio.enums import Resampling
+from rasterio.warp import transform_bounds
+from rasterio.features import shapes
+import pandas as pd, xarray as xr, numpy as np, geopandas as gpd
+from config import PROJECT_ROOT, WHITEBOX_DIR
 from services import functions, flow_functions
 from pathlib import Path
 from services.flow_functions import StreamToLogger
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
+from whitebox.whitebox_tools import WhiteboxTools
+
+
+wtb = WhiteboxTools()
+wtb.set_verbose_mode(False)
+wtb.set_whitebox_dir(WHITEBOX_DIR)
 
 variables = {
     'total_precipitation': 'tp', # Precipitation
@@ -260,7 +274,7 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
         logger.info(f"Saved CSV to: {csv_path}")
         logger.info(f"Saved forcing file successfully.")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        logger.info("Temporary monthly files removed")
+        logger.info("Temporary monthly files removed.")
         logger.handlers[0].flush()
         processes[key_process] = {"status": "finished", "message": "Weather download completed successfully.\n\n"}
     except Exception as e:
@@ -383,18 +397,20 @@ def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
     ids:list, columns:list, vars:list, interval:int, start:str, end:str, time_zone:str):
     log_path = os.path.join(dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
-    logger = flow_functions.setup_logger("nve", log_path)
+    logger = flow_functions.setup_logger(key, log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
-    start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-    end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+    start_local = pd.Timestamp(start).tz_localize(time_zone)
+    end_local = pd.Timestamp(end).tz_localize(time_zone) + pd.Timedelta(days=1)
+    start_time, end_time = start_local.tz_convert('UTC'), end_local.tz_convert('UTC')
     if (start_time >= end_time): 
         logger.info("Start time must be before end time.")
         processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
-    headers = { "X-API-Key": api_key, "Accept": "application/json" }
-    start_date = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
-    end_date = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
-    try:
+    try:    
+        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
+        headers = { "X-API-Key": api_key, "Accept": "application/json" }
+        start_date = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+        end_date = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')    
         logger.info("NVE downloader started.")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
         logger.info("="*60)
@@ -437,22 +453,143 @@ def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         df = pd.concat(all_observations, ignore_index=True) if all_observations else pd.DataFrame()
         if df.empty:
             logger.error("No data downloaded")
-            processes[key_process] = {"status": "failed", "message": "No data downloaded"}
+            processes[key_process] = {"status": "failed", "message": "No data downloaded."}
             return
         df['Time'] = functions.utc_to_local(df['Time'], time_zone)
-        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df.to_csv(csv_path, index=False)
-        logger.info(f"Saved CSV to: {csv_path}")
-        logger.info(f"Saved weather file successfully.")
+        logger.info(f"Saved data to: {csv_path}")
+        logger.info(f"Saved data file successfully.")
         logger.handlers[0].flush()
-        processes[key_process] = {"status": "finished", "message": "Weather download completed successfully.\n\n"}
+        processes[key_process] = {"status": "finished", "message": "Data download completed successfully.\n\n"}
     except Exception as e:
         print('/nve_downloader:\n==============')
         traceback.print_exc()
-        logger.exception("Weather download failed.")
+        logger.exception("Data download failed.")
         processes[key_process] = {"status": "failed", "message": str(e)}
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
+
+def dem_downloader(dir:str, key:str, resolution:int, boundary:gpd.GeoDataFrame):
+    try:
+        path = os.path.normpath(os.path.join(dir, f'{key}.tif'))
+        url, crs = os.getenv('DEM_URL'), 'EPSG:25833'
+        [xmin, ymin, xmax, ymax] = boundary.total_bounds
+        width = math.ceil((xmax - xmin) / resolution)
+        height = math.ceil((ymax - ymin) / resolution)
+        params = {
+            "SERVICE": "WCS", "VERSION": "1.0.0", "REQUEST": "GetCoverage",
+            "COVERAGE": "nhm_dtm_topo_25833", "FORMAT": "GeoTIFF",
+            "BBOX": f"{xmin},{ymin},{xmax},{ymax}",
+            "WIDTH": str(width), "HEIGHT": str(height), "CRS": crs,
+        }
+        response = requests.get(url, params=params, timeout=180)
+        if response.ok and response.content[:4] in (b"II*\x00", b"MM\x00*"):
+            with open(path, "wb") as f: f.write(response.content)
+            return 'ok', "Download DEM completed successfully."
+        else: return 'error', 'Download DEM failed. Try again with lower resolution.'
+    except Exception as e:
+        print('/dem_downloader:\n==============')
+        traceback.print_exc()
+        return 'error', f"Error: {str(e)}"
+
+def prepare_terrain(project_name:str, dem_path:str):
+    # Convert to COG
+    dst_crs, base_path = "EPSG:3857", os.path.splitext(dem_path)[0]
+    temp_path, cog_path = base_path + "_temp.tif", base_path + "_cog.tif"
+    with rasterio.open(dem_path) as src:
+        if src.crs is None:
+            return {'status': 'error', 'message': "TIF file has no CRS"}
+        dem = src.read(1, masked=True)
+        if dem.count() == 0:
+            return {"status": "error", "message": "DEM contains no valid elevation values"}
+        min, max = round(float(dem.min()), 2), round(float(dem.max()), 2)
+        transform, width, height = calculate_default_transform(
+            src.crs, dst_crs, src.width, src.height, *src.bounds
+        )
+        profile = src.profile.copy()
+        profile.update({"driver": "GTiff", "crs": dst_crs, "transform": transform,
+            "width": width, "height": height, "compress": "LZW",
+            "tiled": True, "blockxsize": 256, "blockysize": 256
+        })
+        with rasterio.open(temp_path, "w", **profile) as dst:
+            reproject(
+                source=rasterio.band(src, 1), destination=rasterio.band(dst, 1),
+                src_transform=src.transform, src_crs=src.crs,
+                dst_transform=transform, dst_crs=dst_crs, resampling=Resampling.bilinear
+            )
+    try: rio_copy(temp_path, cog_path, driver="COG", compress="LZW", blocksize=256)
+    finally:
+        if os.path.exists(temp_path): os.remove(temp_path)
+    with rasterio.open(cog_path) as src:
+        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+    bounds = [[south, west], [north, east]]
+    project_root = os.path.abspath(os.path.join(PROJECT_ROOT, project_name))
+    cog_abs_path = os.path.abspath(cog_path)
+    if os.path.commonpath([project_root, cog_abs_path]) != project_root:
+        return {"status": "error", "message": "COG file is outside the project directory"}
+    relative_path = os.path.relpath(cog_abs_path, project_root).replace(os.sep, "/")
+    tile_url = f"/{project_name}/{relative_path}/{{z}}/{{x}}/{{y}}.png"
+    content = {"tile_url": tile_url, "bounds": bounds, 'min_max': [min, max]}
+    return {'status': 'ok', 'content': content}
+
+def stream_detector(project_name:str, folder:str, dem_name:str, threshold:float):
+    dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, folder))
+    dem_path = os.path.normpath(os.path.join(dir, f"{dem_name}.tif"))
+    fill_name, stream_name = dem_name + "_filled.tif", dem_name + "_streams.tif"
+    flwdir_name, flwacc_name = dem_name + "_flowdir.tif", dem_name + "_flowacc.tif"
+    fill_path = os.path.normpath(os.path.join(dir, fill_name))
+    if os.path.exists(fill_path): functions.safe_remove(fill_path)
+    wtb.fill_depressions(dem=dem_path, output=fill_path)
+    flw_path = os.path.normpath(os.path.join(dir, flwdir_name))
+    if os.path.exists(flw_path): functions.safe_remove(flw_path)
+    wtb.d8_pointer(dem=fill_path, output=flw_path)
+    flwacc_path = os.path.normpath(os.path.join(dir, flwacc_name))
+    if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
+    wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
+    stream_path = os.path.normpath(os.path.join(dir, stream_name))
+    if os.path.exists(stream_path): functions.safe_remove(stream_path)
+    wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
+    with rasterio.open(stream_path) as src:
+        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+    bounds = [[south, west], [north, east]]
+    tile_url = f"/{project_name}/{folder}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
+    contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
+    return {'status': 'ok', 'content': contents}
+
+def catchment_detector(dir:str, dem_name:str, lat:float, lon:float, snap_distance:float):
+    if not os.path.exists(dir): os.makedirs(dir, exist_ok=True)
+    flw_path = os.path.normpath(os.path.join(dir, f"{dem_name}_flowdir.tif"))
+    stream_path = os.path.normpath(os.path.join(dir, f"{dem_name}_streams.tif"))
+    with rasterio.open(stream_path) as src:
+        crs = src.crs
+    # Create outlet point for catchment
+    outlet_dir = os.path.normpath(os.path.join(dir, "outlet"))
+    if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
+    outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
+    if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
+    outlet = gpd.GeoDataFrame(geometry=[Point(lon, lat)], crs="EPSG:4326")
+    outlet = outlet.to_crs(crs)
+    outlet.to_file(outlet_path)
+    # Create pour point
+    snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
+    if os.path.exists(snap_path): functions.safe_remove(snap_path)
+    catchment_path = os.path.normpath(os.path.join(dir, "catchment.tif"))
+    if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
+    wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
+    wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
+    with rasterio.open(catchment_path) as src:
+        data = src.read(1).astype("uint8")
+        transform = src.transform
+    results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
+    geom = flow_functions.remove_holes(unary_union(results))
+    catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
+    catchment.to_file(os.path.normpath(os.path.join(outlet_dir, "catchment.geojson")), driver="GeoJSON")
+    # Delete temporary files
+    functions.safe_remove(catchment_path)
+    if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
+    area = round(catchment["geometry"].area.sum() / 1000000, 6)
+    if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
+    return {'status': 'ok', 'content': json.loads(catchment.to_json()), 'area': area}

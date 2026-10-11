@@ -99,7 +99,7 @@ async function projectOptions(){
     // Delete HYD project
     obj.projectRemover.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
-        if (!name || name.trim() === '') { alert('Please define scenario.'); return; }
+        if (!name || name === '') { alert('Please define scenario.'); return; }
         // Ask for confirmation
         if (name === 'demo') {
             if (!confirm(
@@ -112,7 +112,7 @@ async function projectOptions(){
         const data = await jsonLoader('delete_project', {projectName: name});
         obj.projectName.value = ''; const respond = await getProjectList();
         await projectRender(obj.projectName, obj.projectList, respond);
-        signalSender('hideOverlay'); alert(data.message); 
+        signalSender('hideOverlay'); alert(data.message);
     });
 }
 

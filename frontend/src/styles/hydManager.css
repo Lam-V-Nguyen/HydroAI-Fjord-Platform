@@ -22,7 +22,7 @@ body {
 #label-waq { font-size: 18px; font-weight: normal; display: none; }
 #label-waq-model { font-size: 16px; font-weight: normal; }
 #waq-name { min-width: 150px; font-size: 16px; display: none; }
-#project-name { text-align: center; width: 500px; pointer-events: none;}
+#project-name { text-align: center; width: 300px; pointer-events: none;}
 #project-name-wrapper {
   display: flex; align-items: center; position: relative;
 }
@@ -142,3 +142,4 @@ ul li { margin-top: 15px; }
   border-bottom-left-radius: 10px;
   border-bottom-right-radius: 10px;
 }
+

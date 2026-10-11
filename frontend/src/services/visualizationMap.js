@@ -7,7 +7,7 @@ let tileLayer = null, timeCounter = null;
 const $ = (id) => document.getElementById(id);
 const obj = { baseMap: $("basemap-btn") };
 
-export async function initMap(id='leaflet-map') {
+export async function initMap(id) {
     const map = L.map(id, { center: CENTER, zoom: ZOOM, zoomControl: false, attributionControl: true });
     tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map); setMap(map);
     L.control.scale({imperial: false, metric: true, maxWidth: 200}).addTo(map);

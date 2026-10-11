@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,8 +7,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
     <link rel="stylesheet" href="/src_frontend/styles/dataDownload.css">
+    <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
 </head>
-
 <body>
     <div class="wrapper">
         <section class="main-tab" id="control-tab">
@@ -40,8 +39,7 @@
                     <div class="tabs-content">
                         <div class="tabpanel" data-panel="met-tab-1">
                             <div class="grid">
-                                <div class="tile">
-                                    <h3>Registration</h3>
+                                <div class="tile"><h3>Registration</h3>
                                     <div class="row">
                                         <div class="field-inline" style="flex-direction: column;">
                                             <div class="field-row">
@@ -61,8 +59,7 @@
                         </div>
                         <div class="tabpanel" data-panel="met-tab-2">
                             <div class="grid">
-                                <div class="tile" style="grid-column: span 2;">
-                                    <h3>Observation Stations</h3>
+                                <div class="tile" style="grid-column: span 2;"><h3>Observation Stations</h3>
                                     <div class="row">
                                         <div class="field-inline">
                                             <button type="button" id="met-location-btn">Get Stations</button>
@@ -95,7 +92,8 @@
                                             </label>
                                         </div>
                                     </div>
-                                    <table class="attributes-table" id="met-station-table">
+                                    <table class="attributes-table" id="met-station-table" 
+                                        style="margin-top: -10px; max-height: 150px;">
                                         <thead><tr>
                                             <th>ID</th><th>Name</th><th>Country</th>
                                             <th>Latitude</th><th>Longitude</th>
@@ -112,8 +110,7 @@
                         </div>
                         <div class="tabpanel" data-panel="met-tab-3">
                             <div class="grid">
-                                <div class="tile" style="grid-column: span 3;">
-                                    <h3>Download Period</h3>
+                                <div class="tile" style="grid-column: span 3;"><h3>Download Period</h3>
                                     <div class="row">
                                         <div class="field-inline">
                                             <label for="met-start">Start Time:</label>
@@ -126,9 +123,8 @@
                                     </div>
                                 </div>
                                 <div class="tile" style="grid-column: span 5;">
-                                    <div class="field-inline">
-                                        <h3>Variables</h3>
-                                        <div class="row" style="display: flex; margin-top: -15px;">
+                                    <div class="field-inline"><h3 style="margin-top: 5px;">Variables</h3>
+                                        <div class="row" style="margin-top: -15px;">
                                             <button type="button" style="font-size: 11px; height: 30px;"
                                                 id="met-variable-btn">Get All MET Variables</button>
                                         </div>
@@ -146,9 +142,9 @@
                                     <div class="row">
                                         <div class="field-inline">
                                             <button type="button" id="met-download-btn"
-                                                style="margin-top: -20px; max-width: 150px;">Download</button>
+                                                style="max-width: 150px;">Download</button>
                                             <button type="button" id="met-save-btn"
-                                                style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
+                                                style="max-width: 150px; display: none;">Save</button>
                                         </div>
                                         <table class="attributes-table" id="met-table" style="display: none;">
                                             <thead></thead>
@@ -182,8 +178,7 @@
                     <div class="tabs-content">
                         <div class="tabpanel" data-panel="nve-tab-1">
                             <div class="grid">
-                                <div class="tile">
-                                    <h3>Registration</h3>
+                                <div class="tile"><h3>Registration</h3>
                                     <div class="row">
                                         <div class="field-inline" style="flex-direction: column;">
                                             <div class="field-row">
@@ -202,8 +197,7 @@
                         </div>
                         <div class="tabpanel" data-panel="nve-tab-2">
                             <div class="grid">
-                                <div class="tile" style="grid-column: span 2;">
-                                    <h3>Observation Stations</h3>
+                                <div class="tile" style="grid-column: span 2;"><h3>Observation Stations</h3>
                                     <div class="row">
                                         <div class="field-inline">
                                             <button type="button" id="nve-location-btn">Get Stations</button>
@@ -237,7 +231,8 @@
                                             </label>
                                         </div>
                                     </div>
-                                    <table class="attributes-table" id="nve-station-table">
+                                    <table class="attributes-table" id="nve-station-table"
+                                        style="margin-top: -10px; max-height: 150px;">
                                         <thead><tr>
                                             <th>ID</th><th>Name</th><th>River Name</th>
                                             <th>Council Name</th><th>Latitude</th><th>Longitude</th>
@@ -254,8 +249,7 @@
                         </div>
                         <div class="tabpanel" data-panel="nve-tab-3">
                             <div class="grid">
-                                <div class="tile" style="grid-column: span 3;">
-                                    <h3>Download Period</h3>
+                                <div class="tile" style="grid-column: span 3;"><h3>Download Period</h3>
                                     <div class="row">
                                         <div class="field-inline">
                                             <label for="nve-start">Start Time:</label>
@@ -276,9 +270,8 @@
                                     </div>
                                 </div>
                                 <div class="tile" style="grid-column: span 5;">
-                                    <div class="field-inline">
-                                        <h3>Variables</h3>
-                                        <div class="row" style="display: flex; margin-top: -15px;">
+                                    <div class="field-inline"><h3 style="margin-top: 5px;">Variables</h3>
+                                        <div class="row" style="margin-top: -15px;">
                                             <button type="button" style="font-size: 11px; height: 30px;"
                                                 id="nve-variable-btn">Get All NVE Variables</button>
                                         </div>
@@ -295,10 +288,8 @@
                                 <div class="tile" style="grid-column: span 8;">
                                     <div class="row">
                                         <div class="field-inline">
-                                            <button type="button" id="nve-download-btn"
-                                                style="margin-top: -20px; max-width: 150px;">Download</button>
-                                            <button type="button" id="nve-save-btn"
-                                                style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
+                                            <button type="button" id="nve-download-btn" style="max-width: 150px;">Download</button>
+                                            <button type="button" id="nve-save-btn" style="max-width: 150px; display: none;">Save</button>
                                         </div>
                                         <table class="attributes-table" id="nve-table" style="display: none;">
                                             <thead></thead><tbody></tbody>
@@ -332,8 +323,7 @@
                         <div class="tabs-content">
                             <div class="tabpanel" data-panel="regnbyge-tab-1">
                                 <div class="grid">
-                                    <div class="tile">
-                                        <h3>Registration</h3>
+                                    <div class="tile"><h3>Registration</h3>
                                         <div class="row">
                                             <div class="field-inline" style="flex-direction: column;">
                                                 <div class="field-row">
@@ -376,8 +366,7 @@
                                 <div class="grid">
                                     <!-- Plot options -->
                                     <div class="tile" id="plot-container"
-                                        style="grid-column: span 2; flex-direction: column;">
-                                        <h3>Plot Options</h3>
+                                        style="grid-column: span 2; flex-direction: column;"><h3>Plot Options</h3>
                                         <div class="row">
                                             <div class="field-inline">
                                                 <label for="start-plot">Start Time:</label>
@@ -444,8 +433,7 @@
                                 <div class="grid">
                                     <!-- Selected Names -->
                                     <div class="tile"
-                                        style="grid-column: span 2; display: flex; flex-direction: column; height: 100%;">
-                                        <h3>Selected Stations</h3>
+                                        style="grid-column: span 2; display: flex; flex-direction: column; height: 100%;"><h3>Selected Stations</h3>
                                         <table class="attributes-table" id="station-selected-table"
                                             style="flex: 1; height: inherit; min-height: 0; display: flex; flex-direction: column;">
                                             <thead
@@ -535,8 +523,7 @@
                         <div class="tabs-content">
                             <div class="tabpanel" data-panel="era5-tab-1">
                                 <div class="grid">
-                                    <div class="tile">
-                                        <h3>Registration</h3>
+                                    <div class="tile"><h3>Registration</h3>
                                         <div class="row">
                                             <div class="field-inline" style="flex-direction: column;">
                                                 <div class="field-row">
@@ -555,8 +542,7 @@
                             </div>
                             <div class="tabpanel" data-panel="era5-tab-2">
                                 <div class="grid">
-                                    <div class="tile" style="grid-column: span 3;">
-                                        <h3>Location & Period</h3>
+                                    <div class="tile" style="grid-column: span 3;"><h3>Location & Period</h3>
                                         <div class="row">
                                             <div class="field-inline">
                                                 <button type="button" id="era5-location-btn">Pick on Map</button>
@@ -626,10 +612,8 @@
                                     <div class="tile" style="grid-column: span 12;">
                                         <div class="row">
                                             <div class="field-inline">
-                                                <button type="button" id="era5-download-btn"
-                                                    style="margin-top: -20px; max-width: 150px;">Download</button>
-                                                <button type="button" id="era5-save-btn"
-                                                    style="margin-top: -20px; max-width: 150px; display: none;">Save</button>
+                                                <button type="button" id="era5-download-btn" style="max-width: 150px;">Download</button>
+                                                <button type="button" id="era5-save-btn" style="max-width: 150px; display: none;">Save</button>
                                             </div>
                                             <table class="attributes-table" id="era5-table" style="display: none;">
                                                 <thead></thead><tbody></tbody>
@@ -656,16 +640,11 @@
                 </button>
                 <div class="basemap-popup">
                     <div><strong>Select Base Map</strong></div>
-                    <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open
-                        Street Map</button>
-                    <button class="basemap-option"
-                        data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
-                    <button class="basemap-option"
-                        data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
-                    <button class="basemap-option"
-                        data-url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png">Carto Light</button>
-                    <button class="basemap-option"
-                        data-url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png">Carto Dark</button>
+                    <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open Street Map</button>
+                    <button class="basemap-option" data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
+                    <button class="basemap-option" data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
+                    <button class="basemap-option" data-url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png">Carto Light</button>
+                    <button class="basemap-option" data-url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png">Carto Dark</button>
                 </div>
             </div>
             <!-- Legend -->

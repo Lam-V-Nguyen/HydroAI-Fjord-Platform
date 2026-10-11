@@ -1,6 +1,6 @@
 import { toUTC } from "./projectSaver.js";
 import { origin, setLastProject } from "./constant.js";
-import { getColorFromValue } from "./unstructuredGrid.js";
+import { getColorFromValue, updateColorbar } from "./unstructuredGrid.js";
 
 
 const pendingRequests = new Map();
@@ -200,6 +200,31 @@ export function numberFormatter(num, decimals=3) {
     return n.toFixed(decimals);
 }
 
+export async function displayTerrain(map, tileUrl, bounds = null) {
+    const terrainLayer = L.tileLayer(tileUrl, {
+        minZoom: 0, maxZoom: 22, opacity: 0.8,
+        attribution: 'Terrain data: Kartverket',
+        bounds: bounds || undefined
+    });
+    terrainLayer.addTo(map);
+    if (bounds) { map.fitBounds(bounds); }
+    return terrainLayer;
+}
+
+export async function drawColorbar(colorBar, min_max, title, color) {
+    const min = min_max[0], max = min_max[1];
+    colorbarReset(colorBar, min, max, title, color);
+    if (colorBar) { colorBar.style.display = 'flex'; }
+}
+
+export function colorbarReset(colorBar, vmin, vmax, title, colorKey) {
+    const colorbarTitle = colorBar.querySelector(".colorbar-title");
+    const colorbarColor = colorBar.querySelector(".colorbar-gradient");
+    const colorbarLabel = colorBar.querySelector(".colorbar-labels");
+    updateColorbar(vmin, vmax, title, colorKey, colorbarColor, colorbarTitle, colorbarLabel);
+    colorBar.style.display = 'flex';
+}
+
 export function colorbarTicks(min, max, numStops){
     if (Math.abs(max - min) < 1e-4) return [min];
     const ticks = [], step = (max - min) / (numStops - 1);
@@ -276,6 +301,35 @@ export async function saveCSV(filename, headers, rows) {
     });
     const writable = await handle.createWritable();
     await writable.write(csv); await writable.close();
+}
+
+export async function saveFileSmart(data, suggestedName, zip = false) {
+    // File type configuration
+    const fileType = zip
+        ? { description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }
+        : { description: 'CSV', accept: { 'text/csv': ['.csv'] } };
+    // Try File System Access API
+    if (window.showSaveFilePicker) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName, types: [fileType]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(data);
+            await writable.close(); return true;
+        } catch (err) {
+            if (err.name === 'AbortError') return false; // user cancel
+            alert('Picker failed, fallback to download:', err);
+        }
+    }
+    // Fallback
+    const blob = zip ? data : new Blob([data], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = suggestedName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    return true;
 }
 
 export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
@@ -678,11 +732,7 @@ export function iframeConnector(objBtn, objtarget, requestId, content = null, li
             addRowToTable(table, [name, lat, lon], true);
             const contents = { type: requestId, content: getDataFromTable(table, true) }
             window.parent.postMessage(contents, origin);
-        } else if (requestId === 'pickLatLon') {
-            const lat = objtarget[0], lon = objtarget[1];
-            lat.value = Number(result.lat).toFixed(1);
-            lon.value = Number(result.lng).toFixed(1);
-
+        
 
 
 

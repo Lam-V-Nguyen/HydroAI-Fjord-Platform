@@ -1,7 +1,6 @@
-import os, shutil, traceback, sys, cdsapi, calendar, requests
+import os, shutil, traceback, sys, cdsapi, requests
 from config import PROJECT_ROOT
 from services import flow_functions, functions
-from datetime import datetime
 from pathlib import Path
 import pandas as pd, xarray as xr, numpy as np, geopandas as gpd
 from services.flow_functions import StreamToLogger
@@ -9,88 +8,94 @@ from dateutil.relativedelta import relativedelta
 
 dataset, resolution, delta = 'reanalysis-era5-single-levels', 0.25, 0.125
 
-def meteo_downloader(project_name, source, file_name, processes, process_key, lat, lon, start, end, time_zone, key):
+def meteo_downloader(project_name, source, processes, process_key, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
     logger = flow_functions.setup_logger(key, log_path)
-    CDS_url, CDS_key = os.getenv('CDS_URL'), os.getenv('CDS_API_KEY')
-    config_path = Path.home() / '.cdsapirc'
-    if not config_path.exists():
-        logger.info("Creating .cdsapirc ...")
-        config_path.write_text(f"url: {CDS_url}\nkey: {CDS_key}\n", encoding='utf-8')
-        logger.info(f"Created at: {config_path}")
-    download_dir = os.path.join(project_dir, 'download')
-    if not os.path.exists(download_dir): os.makedirs(download_dir)
-    # Setup variables
-    variables = {
-        '2m_temperature': 't2m', # Air Temperature
-        '2m_dewpoint_temperature': 'd2m', # Dew Point Temperature
-        'total_cloud_cover': 'tcc', # Cloud Cover
-        'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-    }
-    weather, csv_path = pd.DataFrame(), os.path.join(project_dir, f"{key}.csv")
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
+    start_local = pd.Timestamp(start).tz_localize(time_zone)
+    end_local = pd.Timestamp(end).tz_localize(time_zone) + pd.Timedelta(days=1)
+    start_time, end_time = start_local.tz_convert('UTC'), end_local.tz_convert('UTC')
+    if (start_time >= end_time): 
+        logger.info("Start time must be before end time.")
+        processes[process_key] = {"status": "failed", "message": "Start time must be before end time."}
     try:
-        logger.info("Meteo downloader started")
-        logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = functions.local_to_utc(start, time_zone)
-        end_time = functions.local_to_utc(end, time_zone)
-        lat_new = round(float(lat) / resolution) * resolution
-        lon_new = round(float(lon) / resolution) * resolution
-        area = [lat_new + delta, lon_new - delta, lat_new - delta, lon_new + delta]
-        # Download ERA5 data
-        logger.info("Downloading ERA5 data...")
-        client = cdsapi.Client(quiet=False, debug=False)
-        current = start_time.replace(day=1)
-        while current <= end_time:
-            year, month = current.year, current.month
-            last_day = calendar.monthrange(year, month)[1]
-            month_start = datetime(year, month, 1)
-            month_end = datetime(year, month, last_day, 23)
-            # Clip by requested range
-            actual_start = max(start_time, month_start)
-            actual_end = min(end_time, month_end)
-            # Days to download
-            days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
-            df_temp = pd.DataFrame()
-            for id, var in variables.items():
-                logger.info(f"Downloading variable: {id}")
-                request = {
-                    'product_type': 'reanalysis', 'variable': [id],
-                    'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
-                    'time': [f"{h:02d}:00" for h in range(24)], 'area': area,
-                    'data_format': 'netcdf', 'download_format': 'unarchived'
-                }
-                out_file = f"{year}_{month:02d}_{var}.nc"
-                out_path = os.path.normpath(os.path.join(download_dir, out_file))
-                client.retrieve(dataset, request, out_path)
-                logger.info(f"Save data to: {out_path}")
-                with xr.open_dataset(out_path) as ds:
-                    df = pd.DataFrame(index=pd.to_datetime(ds['valid_time'].values, utc=True))
-                    df[var] = ds[var].values.flatten()
-                df_temp = pd.concat([df_temp, df], axis=1)
-                functions.safe_remove(out_path)
-            weather = pd.concat([weather, df_temp], axis=0)
-            current += relativedelta(months=1)
-        weather['t2m'], weather['d2m'] = weather['t2m'] - 273.15, weather['d2m'] - 273.15
-        weather['ssrd'], weather['tcc'] = weather['ssrd']/3600, weather['tcc']*100
-        es = 6.112 * np.exp((17.67 * weather['t2m']) / (weather['t2m'] + 243.5))
-        e = 6.112 * np.exp((17.67 * weather['d2m']) / (weather['d2m'] + 243.5))
-        weather['Humidity [%]'] = np.clip(100 * e / es, 0, 100)
-        weather = weather.drop(columns=['d2m'], axis=0)
-        new_columns = {'t2m':'Air temperature [°C]', 'tcc': 'Cloud coverage [%]', 'ssrd': 'Solar radiation [W/m2]'}
-        weather = weather.rename(columns=new_columns)
-        weather = weather[['Humidity [%]', 'Air temperature [°C]', 'Cloud coverage [%]', 'Solar radiation [W/m2]']]
-        weather.index.name = 'Time'
-        weather.index = functions.utc_to_local(weather.index, time_zone)
-        weather.to_csv(csv_path)
-        logger.info(f"Meteo saved: {csv_path}")
-        if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        logger.info("Temporary monthly files removed")
-        logger.handlers[0].flush()
-        processes[process_key] = {"status": "finished", "message": "\nMeteo download completed.\n\n"}
+        csv_path = os.path.normpath(os.path.join(project_dir, f"{key}.csv"))
+        if (source == "era5"):
+            CDS_url, CDS_key = os.getenv('CDS_URL'), os.getenv('CDS_API_KEY')
+            config_path = Path.home() / '.cdsapirc'
+            if not config_path.exists():
+                logger.info("Creating .cdsapirc ...")
+                config_path.write_text(f"url: {CDS_url}\nkey: {CDS_key}\n", encoding='utf-8')
+                logger.info(f"Created at: {config_path}")
+            download_dir = os.path.join(project_dir, 'download')
+            if not os.path.exists(download_dir): os.makedirs(download_dir)
+            # Setup variables
+            variables = {
+                '2m_temperature': 't2m', # Air Temperature
+                '2m_dewpoint_temperature': 'd2m', # Dew Point Temperature
+                'total_cloud_cover': 'tcc', # Cloud Cover
+                'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
+            }
+            logger.info("Meteo downloader started")
+            logger.info(f"Starting time: {start}   --   Ending time: {end}")
+            lat_new = round(float(lat) / resolution) * resolution
+            lon_new = round(float(lon) / resolution) * resolution
+            area = [lat_new + delta, lon_new - delta, lat_new - delta, lon_new + delta]
+            # Download ERA5 data
+            logger.info("Downloading ERA5 data...")
+            client = cdsapi.Client(quiet=False, debug=False)
+            current = start_time.replace(day=1)
+            weather = pd.DataFrame()
+            while current <= end_time:
+                year, month = current.year, current.month
+                month_start = pd.Timestamp(year=year, month=month, day=1, tz="UTC")
+                month_end = (month_start + pd.offsets.MonthEnd(0)).normalize() + pd.Timedelta(hours=23)
+                # Clip by requested range
+                actual_start = max(start_time, month_start)
+                actual_end = min(end_time, month_end)
+                # Days to download
+                days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
+                df_temp = pd.DataFrame()
+                for id, var in variables.items():
+                    logger.info(f"Downloading variable: {id}")
+                    request = {
+                        'product_type': 'reanalysis', 'variable': [id],
+                        'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
+                        'time': [f"{h:02d}:00" for h in range(24)], 'area': area,
+                        'data_format': 'netcdf', 'download_format': 'unarchived'
+                    }
+                    out_file = f"{year}_{month:02d}_{var}.nc"
+                    out_path = os.path.normpath(os.path.join(download_dir, out_file))
+                    client.retrieve(dataset, request, out_path)
+                    logger.info(f"Save data to: {out_path}")
+                    with xr.open_dataset(out_path) as ds:
+                        df = pd.DataFrame(index=pd.to_datetime(ds['valid_time'].values, utc=True))
+                        df[var] = ds[var].values.flatten()
+                    df_temp = pd.concat([df_temp, df], axis=1)
+                    functions.safe_remove(out_path)
+                weather = pd.concat([weather, df_temp], axis=0)
+                current += relativedelta(months=1)
+            weather.index = pd.to_datetime(weather.index, utc=True)
+            weather = weather[(weather.index >= start_time) & (weather.index <= end_time)].copy()
+            weather['t2m'], weather['d2m'] = weather['t2m'] - 273.15, weather['d2m'] - 273.15
+            weather['ssrd'], weather['tcc'] = weather['ssrd']/3600, weather['tcc']*100
+            es = 6.112 * np.exp((17.67 * weather['t2m']) / (weather['t2m'] + 243.5))
+            e = 6.112 * np.exp((17.67 * weather['d2m']) / (weather['d2m'] + 243.5))
+            weather['Humidity (%)'] = np.clip(100 * e / es, 0, 100)
+            weather = weather.drop(columns=['d2m'], axis=0)
+            new_columns = {'t2m':'Air temperature (°C)', 'tcc': 'Cloud coverage (%)', 'ssrd': 'Solar radiation (W/m²)'}
+            weather = weather.rename(columns=new_columns)
+            weather = weather[['Humidity (%)', 'Air temperature (°C)', 'Cloud coverage (%)', 'Solar radiation (W/m²)']]
+            weather.index = functions.utc_to_local(weather.index, time_zone)
+            weather.to_csv(csv_path, index_label='Time')
+            logger.info(f"Meteo saved: {csv_path}")
+            if os.path.exists(download_dir): shutil.rmtree(download_dir)
+            logger.info("Temporary monthly files removed")
+            logger.handlers[0].flush()
+            processes[process_key] = {"status": "finished", "message": "\nMeteo download completed.\n\n"}
     except Exception as e:
         print('/meteo_downloader:\n==============')
         traceback.print_exc()
@@ -101,7 +106,6 @@ def meteo_downloader(project_name, source, file_name, processes, process_key, la
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
 def wind_downloader(project_name, source, processes, process_key, lat, lon, start, end, time_zone, key):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
@@ -117,6 +121,7 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
         logger.info("Start time must be before end time.")
         processes[process_key] = {"status": "failed", "message": "Start time must be before end time."}
     try:
+        csv_path = os.path.normpath(os.path.join(project_dir, f'{key}.csv'))
         if (source == "nve-gts"):
             logger.info("Wind downloader started from NVE GTS.")
             logger.info(f"Starting time: {start}   --   Ending time: {end}")
@@ -145,9 +150,8 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
             df["Time"] = pd.to_datetime(df["Time"], utc=True)
             df = df[(df["Time"] >= start_time) & (df["Time"] < end_time)].copy()
             df['Time'] = functions.utc_to_local(df['Time'], time_zone)
-            csv_path = os.path.normpath(os.path.join(project_dir, f'{key}.csv'))
             df.to_csv(csv_path, index=False)
-            logger.info(f"Saved CSV to: {csv_path}")
+            logger.info(f"Meteo saved: {csv_path}")
             logger.info(f"Saved weather file successfully.")
             logger.handlers[0].flush()
             processes[process_key] = {"status": "finished", "message": "Weather download completed successfully.\n\n"}
@@ -164,7 +168,6 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
             variables = {
                 '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
             }
-            weather, csv_path = pd.DataFrame(), os.path.join(project_dir, f"{key}.csv")
             logger.info("Wind downloader started.")
             logger.info(f"Starting time: {start}   --   Ending time: {end}")
             lat_new = round(float(lat) / resolution) * resolution
@@ -174,9 +177,9 @@ def wind_downloader(project_name, source, processes, process_key, lat, lon, star
             logger.info("Downloading ERA5 data...")
             client = cdsapi.Client(quiet=False, debug=False)
             current = start_time.replace(day=1)
+            weather = pd.DataFrame()
             while current <= end_time:
                 year, month = current.year, current.month
-                last_day = calendar.monthrange(year, month)[1]
                 month_start = pd.Timestamp(year=year, month=month, day=1, tz="UTC")
                 month_end = (month_start + pd.offsets.MonthEnd(0)).normalize() + pd.Timedelta(hours=23)
                 # Clip by requested range

@@ -1,6 +1,5 @@
 import { CENTER, ZOOM, L, getPendingRequest, clearPendingRequest, origin } from "./constant.js";
 import { signalSender, jsonLoader } from "./commonFunctions.js";
-import { updateColorbar } from "./unstructuredGrid.js";
 import { mapPlotter, buildTooltip, isInvalidNumber } from "./flowFunctions.js";
 
 const layerConfig = {
@@ -154,7 +153,18 @@ export async function renderPreview(request=null) {
     } else if (type === 'flowOptions') {
         const key = request.content.key;
         const content = { requestId: request.content.requestId }
-        if (key === 'hideLayer') {
+        if (key === 'clearAll') {
+            // Hide all layers
+            resetMap(currentMap);
+            currentMap.closeTooltip(hoverTooltip); mapContainer.style.cursor = '';
+            if (markerLayer) markerLayer = clearMap(markerLayer, currentMap);
+            const colorBar = document.querySelector('.custom-colorbar');
+            if (colorBar) colorBar.style.display = 'none';
+        
+        
+        
+        
+        } else if (key === 'hideLayer') {
             const config = layerConfig[request.content.layerKey];
             const existing = config.getLayer();
             if (existing) currentMap.removeLayer(existing);
@@ -207,13 +217,7 @@ export async function renderPreview(request=null) {
                 if (lastLayer) lastLayer = clearMap(lastLayer, currentMap);
                 if (layer) layer.addTo(currentMap); lastLayer = layer; 
             } else { if (lastLayer) lastLayer.addTo(currentMap) }
-        } else if (key === 'clearAll') {
-            // Hide all layers
-            resetMap(currentMap);
-            currentMap.closeTooltip(hoverTooltip); mapContainer.style.cursor = '';
-            if (markerLayer) markerLayer = clearMap(markerLayer, currentMap);
-            const colorBar = document.querySelector('.custom-colorbar');
-            if (colorBar) colorBar.style.display = 'none';
+       
         } else if (key === 'pourpoint') {  
             markerLayer = clearMap(markerLayer, currentMap);
             if (request.content.checked) {
@@ -351,13 +355,13 @@ export async function renderPreview(request=null) {
     }
 }
 
-function colorbarReset(colorBar, vmin, vmax, title, colorKey) {
-    const colorbarTitle = colorBar.querySelector(".colorbar-title");
-    const colorbarColor = colorBar.querySelector(".colorbar-gradient");
-    const colorbarLabel = colorBar.querySelector(".colorbar-labels");
-    updateColorbar(vmin, vmax, title, colorKey, colorbarColor, colorbarTitle, colorbarLabel);
-    colorBar.style.display = 'flex';
-}
+// function colorbarReset(colorBar, vmin, vmax, title, colorKey) {
+//     const colorbarTitle = colorBar.querySelector(".colorbar-title");
+//     const colorbarColor = colorBar.querySelector(".colorbar-gradient");
+//     const colorbarLabel = colorBar.querySelector(".colorbar-labels");
+//     updateColorbar(vmin, vmax, title, colorKey, colorbarColor, colorbarTitle, colorbarLabel);
+//     colorBar.style.display = 'flex';
+// }
 
 export function initMap(mapId='map') { 
     currentMap = L.map(`leaflet-${mapId}`, {
@@ -394,7 +398,6 @@ export function initMap(mapId='map') {
         if (req.requestId === 'waqUpdate' || req.requestId === 'loadsUpdate') return;
         mapContainer.style.cursor = 'crosshair';
         if (req.requestId === 'pickLocation') { html = 'Pick average latitude';
-        } else if (req.requestId === 'pickLatLon') { html = 'Pick average location';
         } else if (req.requestId === 'pickPoint') { html = 'Select an HYD point';
         } else if (req.requestId === 'pickPath') {
             html = `
@@ -425,7 +428,6 @@ export function initMap(mapId='map') {
         const req = getPendingRequest(); if (!req) return;
         if (req.requestId === 'pickLocation') { 
             result = Number(e.latlng.lat).toFixed(2);
-        } else if (req.requestId === 'pickLatLon') { result = e.latlng;
         } else if (req.requestId === 'pickPoint' || req.requestId === 'pickSource'
             || req.requestId === 'waqPoint' || req.requestId === 'loadsPoint') { result = e.latlng;
         } else if (req.requestId === 'pickPath') {

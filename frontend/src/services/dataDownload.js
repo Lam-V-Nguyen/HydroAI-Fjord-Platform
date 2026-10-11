@@ -2,7 +2,7 @@ import { setupTabs } from "./tabManager.js";
 import { initMap, pointPloter, selectStations } from "./visualizationMap.js";
 import { getDataFromTable, signalSender, jsonLoader, fillTable,
     formatDate, moveWindow, closeWindow, deleteTable, getUser, 
-    updateLog, addDataToTable
+    updateLog, addDataToTable, saveFileSmart
 } from "./commonFunctions.js";
 import { L, getLastTimeZone } from "./constant.js";
 
@@ -65,7 +65,7 @@ let plotChecked = true, waterFlowLayer = null, waterLevelLayer = null,
     nveSelected = false, selectedNVELayer = null;
 
 setupTabs(document); await getProject();
-const mapObj = await initMap('leaflet-map-data');
+const mapObj = await initMap('leaflet-map-data'); mapOptions(mapObj);
 savePassword(); await loadClient(key); updateManager();
 
 
@@ -677,7 +677,6 @@ function updateManager() {
         }
         alert(response.message);
     });
-    mapOptions(mapObj);
 }
 
 async function addGISFileToList(container, filename, geojson, map) {
@@ -755,35 +754,6 @@ function toggleGISLayer(id, checked, map) {
     } else {
         if (fileInfo.layer && map) { map.removeLayer(fileInfo.layer); }
     }
-}
-
-async function saveFileSmart(data, suggestedName, zip = false) {
-    // File type configuration
-    const fileType = zip
-        ? { description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }
-        : { description: 'CSV', accept: { 'text/csv': ['.csv'] } };
-    // Try File System Access API
-    if (window.showSaveFilePicker) {
-        try {
-            const handle = await window.showSaveFilePicker({
-                suggestedName, types: [fileType]
-            });
-            const writable = await handle.createWritable();
-            await writable.write(data);
-            await writable.close(); return true;
-        } catch (err) {
-            if (err.name === 'AbortError') return false; // user cancel
-            alert('Picker failed, fallback to download:', err);
-        }
-    }
-    // Fallback
-    const blob = zip ? data : new Blob([data], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = suggestedName;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-    return true;
 }
 
 function mapOptions(map) {

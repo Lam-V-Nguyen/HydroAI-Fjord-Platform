@@ -23,7 +23,6 @@ export function isInvalidNumber(value) {
 
 export async function catchmentDelineation(projectName, flowName, terrainName, lat, lon, snapDistance) {
     if (lat === null || lon === null) { alert('Please set the pourpoint coordinates and create a catchment first.'); return; }
-    if (threshold === '') { alert('Please set the threshold first.'); return; }
     if (snapDistance === '') { alert('Please set the snap distance first.'); return; }
     try {
         signalSender('showOverlay', 'Generating catchment. Please wait ...');

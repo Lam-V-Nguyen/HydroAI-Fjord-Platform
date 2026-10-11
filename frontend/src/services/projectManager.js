@@ -55,12 +55,10 @@ export async function projectRender(objectInput, objectList, fullList) {
     // Update project list
     objectInput.addEventListener('input', (e) => { 
         const value = e.target.value.trim();
-        if (fullList.length === 0) return;
+        if (fullList.length === 0) { objectList.style.display = "none"; return; }
         objectList.innerHTML = "";
         const filtered = fullList.filter(p => p.toLowerCase().includes(value.toLowerCase()));
-        if (filtered.length === 0) {
-            objectList.style.display = "none"; return;
-        }
+        if (filtered.length === 0) { objectList.style.display = "none"; return; }
         filtered.forEach(p => {
             const li = document.createElement("li");
             li.textContent = p;
