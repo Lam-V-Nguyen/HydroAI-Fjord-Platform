@@ -79,8 +79,8 @@ async def delete_project_flow(request: Request, user=Depends(functions.basic_aut
             except asyncio.CancelledError: pass
 
 @router.post("/water_upload")
-async def water_upload(file: UploadFile = File(...), flowName: str = Form(...),
-    projectName: str = Form(...), user=Depends(functions.basic_auth)):
+async def water_upload(projectName: str = Form(...), file: UploadFile = File(...), 
+    flowName: str = Form(...), user=Depends(functions.basic_auth)):
     try:
         project_name, _ = functions.project_definer(projectName, user)
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows"))
@@ -118,6 +118,54 @@ async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form
         print('/upload_terrain_flow:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/geojson_upload")
+async def geojson_upload(file: UploadFile = File(...)):
+    try:
+        catchment = gpd.read_file(file.file)
+        if catchment.empty: 
+            return JSONResponse({'status': 'error', 'message': 'Incorrect catchment file. Please upload another.'})
+        # if not projectName or not flowName:
+        #     return JSONResponse({'status': 'error', 'message': 'Project name and flow name are required.'})
+        # project_name, _ = functions.project_definer(projectName, user)
+        # flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flowName))
+        # raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
+        # os.makedirs(raw_dir, exist_ok=True)
+        # raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
+        # if not os.path.exists(raw_path):
+        #     files = [f for f in os.listdir(flow_dir) if f.endswith("_filled.tif")]
+        #     if len(files) == 0:
+        #         return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain data in the tab 'Topography'."})
+        #     terrain_path = os.path.normpath(os.path.join(flow_dir, f'{files[0].replace("_filled", "")}'))
+        #     terrain = rioxarray.open_rasterio(terrain_path).squeeze()
+        #     catchment_reprojected = catchment.to_crs(terrain.rio.crs)
+        #     buffer = 10*terrain.rio.resolution()[0] if not terrain.rio.crs.is_geographic else 0.001
+        #     catchment_buffer = catchment_reprojected.buffer(buffer)
+        #     minx, miny, maxx, maxy = catchment_buffer.total_bounds
+        #     terrain_clipped = terrain.rio.clip_box(minx, miny, maxx, maxy)
+        #     terrain_values, nodata = terrain_clipped.values, -9999.0
+        #     height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
+        #     crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
+        #     profile = {
+        #         "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
+        #         "height": height, "width": width, "transform": transform
+        #     }
+        #     flow_functions.write_geotif(terrain_values, profile, raw_path, nodata)
+        if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
+        return JSONResponse({'status': 'ok', 'content': json.loads(catchment.to_json())})
+    except Exception as e:
+        print('/geojson_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
+
+
+
+
+
+
 
 
 
@@ -336,44 +384,7 @@ async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/geojson_upload")
-async def geojson_upload(file: UploadFile = File(...), projectName: str = Form(...),
-    flowName: str = Form(...), user=Depends(functions.basic_auth)):
-    try:
-        catchment = gpd.read_file(file.file)
-        if catchment.empty: return JSONResponse({'status': 'error', 'message': 'No data found.'})
-        if not projectName or not flowName:
-            return JSONResponse({'status': 'error', 'message': 'Project name and flow name are required.'})
-        project_name, _ = functions.project_definer(projectName, user)
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flowName))
-        raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
-        os.makedirs(raw_dir, exist_ok=True)
-        raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
-        if not os.path.exists(raw_path):
-            files = [f for f in os.listdir(flow_dir) if f.endswith("_filled.tif")]
-            if len(files) == 0:
-                return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain data in the tab 'Topography'."})
-            terrain_path = os.path.normpath(os.path.join(flow_dir, f'{files[0].replace("_filled", "")}'))
-            terrain = rioxarray.open_rasterio(terrain_path).squeeze()
-            catchment_reprojected = catchment.to_crs(terrain.rio.crs)
-            buffer = 10*terrain.rio.resolution()[0] if not terrain.rio.crs.is_geographic else 0.001
-            catchment_buffer = catchment_reprojected.buffer(buffer)
-            minx, miny, maxx, maxy = catchment_buffer.total_bounds
-            terrain_clipped = terrain.rio.clip_box(minx, miny, maxx, maxy)
-            terrain_values, nodata = terrain_clipped.values, -9999.0
-            height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
-            crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
-            profile = {
-                "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
-                "height": height, "width": width, "transform": transform
-            }
-            flow_functions.write_geotif(terrain_values, profile, raw_path, nodata)
-        if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
-        return JSONResponse({'status': 'ok', 'content': json.loads(catchment.to_json())})
-    except Exception as e:
-        print('/geojson_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 
 # @router.post("/catchment")
 # async def catchment(request: Request, user=Depends(functions.basic_auth)):

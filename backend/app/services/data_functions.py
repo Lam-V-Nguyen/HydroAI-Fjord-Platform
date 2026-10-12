@@ -472,9 +472,9 @@ def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
             h.close()
             logger.removeHandler(h)
 
-def dem_downloader(dir:str, key:str, resolution:int, boundary:gpd.GeoDataFrame):
+def dem_downloader(directory:str, key:str, resolution:int, boundary:gpd.GeoDataFrame):
     try:
-        path = os.path.normpath(os.path.join(dir, f'{key}.tif'))
+        path = os.path.normpath(os.path.join(directory, f'{key}.tif'))
         url, crs = os.getenv('DEM_URL'), 'EPSG:25833'
         [xmin, ymin, xmax, ymax] = boundary.total_bounds
         width = math.ceil((xmax - xmin) / resolution)
@@ -488,12 +488,15 @@ def dem_downloader(dir:str, key:str, resolution:int, boundary:gpd.GeoDataFrame):
         response = requests.get(url, params=params, timeout=180)
         if response.ok and response.content[:4] in (b"II*\x00", b"MM\x00*"):
             with open(path, "wb") as f: f.write(response.content)
-            return 'ok', "Download DEM completed successfully."
-        else: return 'error', 'Download DEM failed. Try again with lower resolution.'
+            return {'status': 'ok', 'message': 'Download DEM completed successfully.'}
+        else:
+            return {
+                'status': 'error', 'message': 'Download DEM failed. Try again with lower resolution.'
+            }
     except Exception as e:
         print('/dem_downloader:\n==============')
         traceback.print_exc()
-        return 'error', f"Error: {str(e)}"
+        return {"status": 'error', "message": str(e)}
 
 def prepare_terrain(project_name:str, dem_path:str):
     # Convert to COG

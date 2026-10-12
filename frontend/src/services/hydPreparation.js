@@ -177,7 +177,7 @@ async function sourceManagement() {
         if (topLeft === '' || bottomRight === '') { alert('Please define the area on map first.'); return; }
         try {
             const content = { projectName: currentProject, resolution: resolution, 
-                topLeft: topLeft, bottomRight: bottomRight, key: key
+                topLeft: topLeft, bottomRight: bottomRight, key: key, folder: 'dems'
             };
             signalSender('showOverlay', 'Downloading DEM for the selected area. Please wait...');
             const request = await jsonLoader('download_dem', content); signalSender('hideOverlay');

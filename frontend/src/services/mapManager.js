@@ -153,25 +153,7 @@ export async function renderPreview(request=null) {
     } else if (type === 'flowOptions') {
         const key = request.content.key;
         const content = { requestId: request.content.requestId }
-        if (key === 'clearAll') {
-            // Hide all layers
-            resetMap(currentMap);
-            currentMap.closeTooltip(hoverTooltip); mapContainer.style.cursor = '';
-            if (markerLayer) markerLayer = clearMap(markerLayer, currentMap);
-            const colorBar = document.querySelector('.custom-colorbar');
-            if (colorBar) colorBar.style.display = 'none';
-        
-        
-        
-        
-        } else if (key === 'hideLayer') {
-            const config = layerConfig[request.content.layerKey];
-            const existing = config.getLayer();
-            if (existing) currentMap.removeLayer(existing);
-        } else if (key === 'hideColorbar') {
-            const colorBar = document.querySelector('.custom-colorbar');
-            if (colorBar) colorBar.style.display = 'none';
-        } else if (key === 'drawLayer') {
+        if (key === 'drawLayer') {
             const layerKey = request.content.layerKey;
             content.checked = null; content.ok = true; content.message = null;
             const config = layerConfig[layerKey];
@@ -218,37 +200,14 @@ export async function renderPreview(request=null) {
                 if (layer) layer.addTo(currentMap); lastLayer = layer; 
             } else { if (lastLayer) lastLayer.addTo(currentMap) }
        
-        } else if (key === 'pourpoint') {  
-            markerLayer = clearMap(markerLayer, currentMap);
-            if (request.content.checked) {
-                isPourpointActive = true; mapContainer.style.cursor = 'crosshair';
-            } else {
-                isPourpointActive = false; lat = null; lon = null;
-                mapContainer.style.cursor = ''; 
-            }
-            clearPendingRequest(); return;
-        } else if (key === 'pourpointCancel') {
-            isPourpointActive = false; mapContainer.style.cursor = ''; 
-            currentMap.closeTooltip(hoverTooltip); clearPendingRequest();
+       
+        
         } else if (key === 'getLayer') {
             const config = layerConfig[request.content.layerKey];
             const data = config.getData();
             content.data = data;
             signalSender('updateUIState', content); return;
-        } else if (key === 'mapPlotter') {
-            const layerKey = request.content.layerKey;
-            const type = request.content.type;
-            const config = layerConfig[layerKey];
-            if (!config) {
-                content.message = 'Layer not found';
-                signalSender('updateUIState', content); return;
-            }
-            if (request.content.reset) resetMap(currentMap);
-            config.setData(request.content.data);
-            lastLayer = await mapPlotter(
-                config.getData(), currentMap, type
-            );
-            config.setLayer(lastLayer);
+        
         } else if (key === 'layerChecker') {
             const layerKey = request.content.layerKey;
             const config = layerConfig[layerKey];

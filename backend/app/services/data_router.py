@@ -613,8 +613,8 @@ async def download_dem(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'dems'))
-        if not os.path.exists(dir): os.mkdir(dir)
+        directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, body.get('folder')))
+        if not os.path.exists(directory): os.mkdir(directory)
         resolution, key = int(body.get('resolution')), body.get('key')
         top_left = ast.literal_eval(body.get('topLeft'))
         bottom_right = ast.literal_eval(body.get('bottomRight'))
@@ -635,8 +635,8 @@ async def download_dem(request: Request, user=Depends(functions.basic_auth)):
         redis, key_process = request.app.state.redis, f"{project_name}:{key}"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
-            status, message = data_functions.dem_downloader(dir, key, resolution, gdf_boundary)
-            return JSONResponse({"status": status, "message": message})
+            content = data_functions.dem_downloader(directory, key, resolution, gdf_boundary)
+            return JSONResponse(content)
     except Exception as e:
         print('/download_dem:\n==============')
         traceback.print_exc()
@@ -700,9 +700,9 @@ async def catchment_definer(request: Request, user=Depends(functions.basic_auth)
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         folder, lat, lon = body.get('folder'), body.get('lat'), body.get('lon')
-        file_name, snap_distance = body.get('fileName'), body.get('snapDistance')
-        dir = os.path.join(PROJECT_ROOT, project_name, folder)
-        content = data_functions.catchment_detector(dir, file_name, lat, lon, snap_distance)
+        dem_name, snap_distance = body.get('fileName'), body.get('snapDistance')
+        directory = os.path.join(PROJECT_ROOT, project_name, folder)
+        content = data_functions.catchment_detector(directory, dem_name, lat, lon, snap_distance)
         return JSONResponse(content)
     except Exception as e:
         print('/catchment_definer:\n==============')

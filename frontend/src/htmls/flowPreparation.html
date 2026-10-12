@@ -38,25 +38,25 @@
                     <div class="grid">
                         <div class="tile" style="grid-column: span 3;"><h3>1. Terrain Import</h3>
                             <div class="row">
-                                <div class="field-inline" style="justify-content: space-between;">
+                                <div class="field-inline" style="justify-content: space-around;">
                                     <div class="row-radio">
                                         <input type="radio" id="terrain-upload" name="terrain-import" value="upload" checked>
-                                        <label for="terrain-upload">Upload Terrain</label>
+                                        <label for="terrain-upload">Upload DEM Locally</label>
                                     </div>
                                     <div class="row-radio">
                                         <input type="radio" id="terrain-download" name="terrain-import" value="download">
-                                        <label for="terrain-download">Download Terrain</label>
+                                        <label for="terrain-download">Download DEM from WCS Server</label>
                                     </div>
                                 </div>
-                                <div class="field-inline" id="upload">
+                                <div class="field-inline" id="upload-container" style="margin-top: -20px;">
                                     <label for="terrain-input">Raw Terrain:</label>
                                     <input type="file" id="terrain-input-file" accept=".tif" hidden>
                                     <input type="file" id="catchment-input-file" accept=".geojson" hidden>
                                     <input type="text" id="terrain-input-text" placeholder="No file selected" readonly>
                                     <button type="button" id="terrain-btn" style="min-width: 100px;">Upload File (*.tif)</button>
                                 </div>
-                                <div class="field-inline" id="download" style="display: none;">
-                                    <div class="field-inline" style="margin-top: 5px;">
+                                <div class="field-inline" id="download-container" style="margin-top: -20px; display: none;">
+                                    <div class="field-inline">
                                         <button type="button" id="flow-draw-btn">Select Area</button>
                                         <input type="text" id="flow-top-left" placeholder="Top-left Corner">
                                         <input type="text" id="flow-bottom-right" placeholder="Bottom-right Corner">
@@ -96,7 +96,7 @@
                                 </div>
                                 <div class="field-inline">
                                     <label for="threshold">Threshold (m):</label>
-                                    <input type="text" id="threshold" value="10000">
+                                    <input type="text" id="threshold" value="100">
                                     <button type="button" id="stream-btn">Extract Streams</button>
                                 </div>
                                 <div class="field-inline">
@@ -119,22 +119,22 @@
                             <div class="row">
                                 <div class="field-inline" style="margin-top: 0;">
                                     <label>Snap distance (m):</label>
-                                    <input type="text" id="pourpoint-dist" value="10.0" style="max-width: 80px;">
+                                    <input type="text" id="snap-dist" value="10.0" style="max-width: 80px;">
                                     <div class="checkbox-group">
-                                        <input type="checkbox" id="pourpoint-checkbox">
-                                        <label for="pourpoint-checkbox">Select Pourpoint</label>
+                                        <input type="checkbox" id="catchment-checkbox">
+                                        <label for="catchment-checkbox">Select Pourpoint</label>
                                     </div>
                                 </div>
                                 <div class="field-inline">
-                                    <input type="text" id="pourpoint-lat" placeholder="Latitude" readonly>
-                                    <input type="text" id="pourpoint-lon" placeholder="Longitude" readonly>
+                                    <input type="text" id="catchment-lat" placeholder="Latitude" readonly>
+                                    <input type="text" id="catchment-lon" placeholder="Longitude" readonly>
                                 </div>
-                                <div class="field-inline">
+                                <div class="field-inline" style="justify-content: space-between;">
                                     <div class="row-radio" data-tab="terrain">
                                         <input type="radio" id="catchment-layer" name="terrain" value="terrain-catchment">
                                         <label for="catchment-layer">Show Catchment</label>
                                     </div>
-                                    <button type="button" id="export-catchment-btn">Export Catchment</button>
+                                    <button type="button" id="export-catchment-btn" style="max-width: 200px;">Export Catchment</button>
                                 </div>
                             </div>
                         </div>
@@ -155,56 +155,50 @@
                         </div>
                     </div>
                 </div>
-
-
-
-
-                
-                
-                
-                
-                
-                <!-- Tab 2: Soil Properties -->
+                <!-- Tab 3: Soil Properties -->
                 <div class="tabpanel main-panel" data-panel="soil-tab">
                     <div class="grid">
-                        <div class="tile"><h3>Soil Import & Download</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Soil Properties</h3>
                             <div class="row">
-                                <label>Upload a Catchment to define the area:</label>
-                                <button type="button" id="soil-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
-                            </div>
-                            <div class="row">
-                                <label for="soil-source">Soil Data Source:</label>
-                                <select id="soil-source">
-                                    <option value="" selected>--- Select a source ---</option>
-                                    <option value="isric">World Soil Information 2017 - ISRIC (250m)</option>
-                                </select>
-                            </div>
-                            <div class="row">
-                                <button type="button" id="check-soil-btn">Check Soil</button>
-                                <button type="button" id="download-soil-btn">Download Soil</button>
-                            </div>
-                            <div class="row">
-                                <label for="soil-source">Soil Layer:</label>
-                                <select id="soil-layer">
-                                    <option value="" selected>--- Select a layer ---</option>
-                                </select>
-                            </div>
-                            <div class="row">
-                                <a style="margin-top: 10px;">References:</a>
-                                <a class="data-link" href="https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_2017.html"
-                                    target="_blank">SoilGrids-2017,
-                                </a>
-                                <a class="data-link" href="https://soilgrids.org/"
-                                    target="_blank">SoilGrids,
-                                </a>
-                                <a class="data-link" href="https://data.isric.org/geonetwork/srv/eng/catalog.search#/home"
-                                    target="_blank">SoilGrids - Data Hub
-                                </a>
+                                <div class="field-inline">
+                                    <label>Upload a Catchment to define the area:</label>
+                                    <button type="button" id="soil-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
+                                </div>
+                                <div class="field-inline">
+                                    <label for="soil-source">Soil Data Source:</label>
+                                    <select id="soil-source">
+                                        <option value="isric" selected>World Soil Information 2017 - ISRIC (250m)</option>
+                                    </select>
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="check-soil-btn">Check Soil</button>
+                                    <button type="button" id="download-soil-btn">Download Soil</button>
+                                </div>
+                                <div class="field-inline">
+                                    <label for="soil-layer">Soil Layer:</label>
+                                    <select id="soil-layer">
+                                        <option value="" selected>--- Select a layer ---</option>
+                                    </select>
+                                </div>
+                                <div class="field-inline" style="margin-top: -15px;">
+                                    <a style="margin-top: 12px;">References:</a>
+                                    <a class="data-link" href="https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_2017.html"
+                                        target="_blank">SoilGrids-2017,
+                                    </a>
+                                    <a class="data-link" href="https://soilgrids.org/"
+                                        target="_blank">SoilGrids,
+                                    </a>
+                                    <a class="data-link" href="https://data.isric.org/geonetwork/srv/eng/catalog.search#/home"
+                                        target="_blank">SoilGrids - Data Hub
+                                    </a>
+                                </div>
                             </div>
                         </div>
-                        <div class="tile" id="soil-attribute-container"><h3>Attribute Table</h3>
-                            <div class="table-container">
-                                <table class="attributes-table" id="soil-attributes-table">
+                        <div class="tile" id="soil-attribute-container" 
+                            style="grid-column: span 5;"><h3>Attribute Table</h3>
+                            <div class="row">
+                                <table class="attributes-table" id="soil-attributes-table" 
+                                    style="margin-top: -5px;">
                                     <thead><tr>
                                         <th>Soil Type</th><th>Depth (cm)</th><th>Value</th>
                                     <tbody>
@@ -215,14 +209,18 @@
                                         </tr>
                                     </tbody>
                                 </table>
+                                <div class="log-container" id="soil-download-container"
+                                    style="height: 230px; display: none;">
+                                    <textarea wrap="off" class="log-text" id="soil-download-text"
+                                        placeholder="Log..." readonly></textarea>
+                                </div>
                             </div>
-                        </div>
-                        <div class="tile" id="soil-download-container"><h3>Download Progress</h3>
-                            <textarea wrap="off" id="soil-download-text" placeholder="Download progress..." readonly></textarea>
-
                         </div>
                     </div>
                 </div>
+
+
+
                 <!-- Tab 3: Land Cover -->
                 <div class="tabpanel main-panel" data-panel="land-tab">
                     <div class="grid">

@@ -39,16 +39,18 @@ body {
 
 ul { line-height: 1.4; font-size: 16px; text-align: center; }
 
-.field-inline[hidden] { display: none !important; }
 .field-inline {
   display: flex; align-items: center; gap: 10px; width: 100%; 
-  flex-wrap: wrap; overflow-x: auto; 
+  flex-wrap: wrap; overflow-x: auto;
 }
 .field-inline label, .field-inline button { flex-shrink: 0; }
 .field-inline input { flex: 1 1 0; min-width: 0; }
 .checkbox-group {
   display: flex; align-items: center;
   gap: 6px; white-space: nowrap;
+}
+.checkbox-group label, .checkbox-group input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .data-link {
@@ -76,14 +78,12 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
   color: var(--text); outline: none; text-align: center; min-width: 0;
 }
 
-.radio-button {
-  display: flex; align-items: center; gap: 10px;
-  justify-content: space-between; width: 100%;
-}
-
-.radio-button .row-radio {
+.row-radio {
   display: inline-flex; align-items: center;
-  gap: 6px; line-height: 1; vertical-align: middle;
+  gap: 6px; line-height: 1; cursor: pointer;
+}
+.row-radio input[type="radio"] {
+  margin: 0; transform: translateY(-1px);
 }
 
 .section-title, .data-list { flex: 0 0 100%; margin: 5px 0 0 0; }
@@ -101,11 +101,11 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
   margin-bottom: 10px; list-style-type: disc; margin-left: 30px;
 }
 
-#weather-download-container, .model-container, #soil-download-container {
+#weather-download-container, .model-container {
   display: none; flex-direction: column; margin-top: -10px; min-width: 0; 
   justify-content: flex-start; align-items: stretch; height: 100%;
 }
-#weather-download-text, #model-text, #soil-download-text,
+#weather-download-text, #model-text,
 #weather-text, #meteo-text { 
   flex: 1 1 auto; width: 100%; resize: none; min-height: 0;
   box-sizing: border-box; font-family: monospace; overflow: auto;

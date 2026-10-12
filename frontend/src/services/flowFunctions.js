@@ -21,22 +21,22 @@ export function isInvalidNumber(value) {
     return !Number.isFinite(Number(str));
 }
 
-export async function catchmentDelineation(projectName, flowName, terrainName, lat, lon, snapDistance) {
-    if (lat === null || lon === null) { alert('Please set the pourpoint coordinates and create a catchment first.'); return; }
-    if (snapDistance === '') { alert('Please set the snap distance first.'); return; }
-    try {
-        signalSender('showOverlay', 'Generating catchment. Please wait ...');
-        const contents = { projectName: projectName, filename: terrainName,
-            lat: lat, lon: lon, snapDistance: snapDistance, flowName: flowName
-        };
-        const response = await jsonLoader('catchment', contents);
-        signalSender('hideOverlay');
-        if (response.status === "error") { alert(response.message); return null; }
-        return response.content;
-    } catch (error) { 
-        alert(`Running catchment algorithm failed: ${error.message}`); return null;
-    }
-}
+// export async function catchmentDelineation(projectName, flowName, terrainName, lat, lon, snapDistance) {
+//     if (lat === null || lon === null) { alert('Please set the pourpoint coordinates and create a catchment first.'); return; }
+//     if (snapDistance === '') { alert('Please set the snap distance first.'); return; }
+//     try {
+//         signalSender('showOverlay', 'Generating catchment. Please wait ...');
+//         const contents = { projectName: projectName, filename: terrainName,
+//             lat: lat, lon: lon, snapDistance: snapDistance, flowName: flowName
+//         };
+//         const response = await jsonLoader('catchment', contents);
+//         signalSender('hideOverlay');
+//         if (response.status === "error") { alert(response.message); return null; }
+//         return response.content;
+//     } catch (error) { 
+//         alert(`Running catchment algorithm failed: ${error.message}`); return null;
+//     }
+// }
 
 export async function geoJSONExporter(data, fileName) {
     try { 
@@ -68,15 +68,14 @@ export async function geoJSONExporter(data, fileName) {
     } catch (error) { alert(`Exporting failed: ${error.message}`); }
 }
 
-export async function mapPlotter(data, map, key) {
+export async function mapPlotter(data, map, key='') {
     const isRiver = key === 'river';
     const resetStyle = (layer) => {
         const id = layer.feature?.properties?.description;
         if (isRiver) {
             layer.setStyle({ 
                 color: 'black', weight: 3, opacity: 1, fill: false
-            });
-            return;
+            }); return;
         }
         layer.setStyle({  // Reset to default style
             color: 'black', weight: 1, opacity: 1,
@@ -110,11 +109,10 @@ export async function mapPlotter(data, map, key) {
                     key: key, ids: [id], data: [result]
                 });
             });
-            featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
+            if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
         }
     }).addTo(map);
-    map.on('click', () => { layer.eachLayer(resetStyle); });
-    return layer;
+    map.on('click', () => { layer.eachLayer(resetStyle); }); return layer;
 }
 
 export function buildTooltip(props, key) {
