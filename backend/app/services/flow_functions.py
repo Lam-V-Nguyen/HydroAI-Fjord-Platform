@@ -137,11 +137,22 @@ def remove_holes(geom):
     else: return geom
 
 def write_geotif(array, profile, output_path, nodata=NODATA_DEM):
-    array[np.isnan(array)] = nodata
-    array = array.astype(profile["dtype"])
-    profile.update(nodata=nodata)
-    with rasterio.open(output_path, 'w', **profile) as dst:
-        dst.write(array, 1)
+    temp_path = output_path + ".tmp.tif"
+    try:
+        array[np.isnan(array)] = nodata
+        array = array.astype(profile["dtype"])
+        output_profile = profile.copy()
+        output_profile.update({
+            "driver": "GTiff", "count": 1,
+            "dtype": array.dtype, "nodata": nodata
+        })
+        with rasterio.open(temp_path, "w", **output_profile) as dst:
+            dst.write(array, 1)
+        os.replace(temp_path, output_path)
+    finally:
+        if os.path.exists(temp_path):
+            try: functions.safe_remove(temp_path)
+            except OSError: traceback.print_exc()
 
 def create_LAI(arr_2D, terrain, out_path, nodata=255):
     # Compute LAI
@@ -538,13 +549,12 @@ def soil_downloader(project_name, processes, process_key, flow_name, catchment, 
     except Exception as e:
         print('/soil_downloader:\n==============')
         traceback.print_exc()
-        logger.exception("Data download failed")
+        logger.exception("Data download failed.")
         processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
 def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))

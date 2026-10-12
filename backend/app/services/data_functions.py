@@ -498,9 +498,12 @@ def dem_downloader(directory:str, key:str, resolution:int, boundary:gpd.GeoDataF
         traceback.print_exc()
         return {"status": 'error', "message": str(e)}
 
-def prepare_terrain(project_name:str, dem_path:str):
+def prepare_terrain(project_name:str, dem_path:str, raw_path:str=None):
     # Convert to COG
     dst_crs, base_path = "EPSG:3857", os.path.splitext(dem_path)[0]
+    fill_path = dem_path.replace(".tif", "_filled.tif")
+    wtb.fill_depressions(dem=dem_path, output=fill_path)
+    if raw_path is not None: wtb.fill_depressions(dem=dem_path, output=raw_path)
     temp_path, cog_path = base_path + "_temp.tif", base_path + "_cog.tif"
     with rasterio.open(dem_path) as src:
         if src.crs is None:

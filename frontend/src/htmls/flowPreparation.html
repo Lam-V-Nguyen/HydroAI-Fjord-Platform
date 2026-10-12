@@ -112,6 +112,10 @@
                                         <input type="radio" id="terrain-stream" name="terrain" value="terrain-stream">
                                         <label for="terrain-stream">Show Stream</label>
                                     </div>
+                                    <div class="row-radio" data-tab="terrain" id="catchment-radio" style="display: none;">
+                                        <input type="radio" id="catchment-layer" name="terrain" value="terrain-catchment">
+                                        <label for="catchment-layer">Show Catchment</label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -129,12 +133,9 @@
                                     <input type="text" id="catchment-lat" placeholder="Latitude" readonly>
                                     <input type="text" id="catchment-lon" placeholder="Longitude" readonly>
                                 </div>
-                                <div class="field-inline" style="justify-content: space-between;">
-                                    <div class="row-radio" data-tab="terrain">
-                                        <input type="radio" id="catchment-layer" name="terrain" value="terrain-catchment">
-                                        <label for="catchment-layer">Show Catchment</label>
-                                    </div>
-                                    <button type="button" id="export-catchment-btn" style="max-width: 200px;">Export Catchment</button>
+                                <div class="field-inline">
+                                    <button type="button" id="clip-catchment-btn">3.1. Clip DEM to Catchment</button>
+                                    <button type="button" id="export-catchment-btn">3.2. Export Catchment</button>
                                 </div>
                             </div>
                         </div>
@@ -161,13 +162,14 @@
                         <div class="tile" style="grid-column: span 3;"><h3>Soil Properties</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label>Upload a Catchment to define the area:</label>
-                                    <button type="button" id="soil-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
+                                    <label>Upload the Catchment to define the area:</label>
+                                    <button type="button" id="soil-btn" style="min-width: 100px;">Upload the Catchment (*.geojson)</button>
                                 </div>
                                 <div class="field-inline">
                                     <label for="soil-source">Soil Data Source:</label>
                                     <select id="soil-source">
-                                        <option value="isric" selected>World Soil Information 2017 - ISRIC (250m)</option>
+                                        <option value="" selected>--- Select a source ---</option>
+                                        <option value="isric">World Soil Information 2017 - ISRIC (250m)</option>
                                     </select>
                                 </div>
                                 <div class="field-inline">
@@ -194,13 +196,10 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" id="soil-attribute-container" 
-                            style="grid-column: span 5;"><h3>Attribute Table</h3>
+                        <div class="tile" style="grid-column: span 5;"><h3>Attribute Table</h3>
                             <div class="row">
-                                <table class="attributes-table" id="soil-attributes-table" 
-                                    style="margin-top: -5px;">
-                                    <thead><tr>
-                                        <th>Soil Type</th><th>Depth (cm)</th><th>Value</th>
+                                <table class="attributes-table" id="soil-attributes-table" style="margin-top: -5px;">
+                                    <thead><tr><th>Soil Type</th><th>Depth (cm)</th><th>Value</th></tr></thead>
                                     <tbody>
                                         <tr>
                                             <td><input type="text" placeholder="Soil type"></td>
@@ -209,7 +208,7 @@
                                         </tr>
                                     </tbody>
                                 </table>
-                                <div class="log-container" id="soil-download-container"
+                                <div class="log-container" id="soil-download"
                                     style="height: 230px; display: none;">
                                     <textarea wrap="off" class="log-text" id="soil-download-text"
                                         placeholder="Log..." readonly></textarea>
@@ -218,30 +217,26 @@
                         </div>
                     </div>
                 </div>
-
-
-
                 <!-- Tab 3: Land Cover -->
                 <div class="tabpanel main-panel" data-panel="land-tab">
                     <div class="grid">
-                        <div class="tile"><h3>Land Cover Import</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Land Cover Import</h3>
                             <div class="row">
-                                <label>Upload a Catchment to define the area:</label>
-                                <button type="button" id="land-btn" style="min-width: 100px;">Upload a Catchment (*.geojson)</button>
-                            </div>
-                            <div class="row">
-                                <label for="land-source">Land Cover Source:</label>
-                                <select id="land-source">
-                                    <option value="" selected>--- Select a source ---</option>
-                                    <!-- <option value="esa">ESA WorldCover 2021 - 10m</option> -->
-                                    <option value="corine">CORINE Land Cover 2018 - 100m</option>
-                                </select>
-                            </div>
-                            <div class="row">
+                                <div class="field-inline">
+                                    <label>Upload the Catchment to define the area:</label>
+                                    <button type="button" id="land-btn" style="min-width: 100px;">Upload the Catchment (*.geojson)</button>
+                                </div>
+                                <div class="field-inline">
+                                    <label for="land-source">Land Cover Source:</label>
+                                    <select id="land-source">
+                                        <!-- <option value="esa">ESA WorldCover 2021 - 10m</option> -->
+                                        <option value="corine">CORINE Land Cover 2018 - 100m</option>
+                                    </select>
+                                </div>
                                 <button type="button" id="land-load-btn">Load Land Cover Data</button>
                             </div>
                         </div>
-                        <div class="tile"><h3>Data Source Description</h3>
+                        <div class="tile" style="grid-column: span 2;"><h3>Data Source Description</h3>
                             <!-- <div class="row">
                                 <h4 class="section-title">• ESA WorldCover</h4>
                                 <ul class="data-list">
@@ -261,22 +256,15 @@
                             <div class="row">
                                 <h4 class="section-title">• Copernicus Land Monitoring Service (CLMS)</h4>
                                 <ul class="data-list">
-                                    <li>
-                                        <a class="data-link" href="https://land.copernicus.eu/en/products/corine-land-cover"
-                                            target="_blank">CORINE Land Cover
-                                        </a>
-                                        
+                                    <li><a class="data-link" href="https://land.copernicus.eu/en/products/corine-land-cover"
+                                        target="_blank">CORINE Land Cover</a>
                                     </li>
-                                    <li>
-                                        <a class="data-link" href="https://search.earthdata.nasa.gov"
-                                            target="_blank">Leaf Area Index (LAI) - EarthData Search
-                                        </a>
+                                    <li><a class="data-link" href="https://search.earthdata.nasa.gov"
+                                        target="_blank">Leaf Area Index (LAI) - EarthData Search</a>
                                     </li>
-                                    <!-- <li>
-                                        <a class="data-link" href="https://land.copernicus.eu/en/map-viewer"
-                                            target="_blank">CLMS - Data Viewer
-                                        </a>
-                                    </li> -->
+                                    <li><a class="data-link" href="https://land.copernicus.eu/en/map-viewer"
+                                        target="_blank">CLMS - Data Viewer</a>
+                                    </li>
                                 </ul>
                             </div>
                         </div>

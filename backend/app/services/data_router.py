@@ -440,8 +440,8 @@ async def download_nve(request: Request, user=Depends(functions.basic_auth)):
     async with lock:
         # Check if process already running
         if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+            return JSONResponse({"status": "running", "message": 'Data downloading is in progress.'})
+        processes[key_process] = {"status": "running", "message": "Preparing NVE data download..."}
         threading.Thread(
             target=data_functions.nve_downloader, 
             args=(key, api_key, url, dir, processes, key_process, ids, 
@@ -463,7 +463,7 @@ async def download_met(request: Request, user=Depends(functions.basic_auth)):
     async with lock:
         # Check if process already running
         if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+            return JSONResponse({"status": "running", "message": 'Data downloading is in progress.'})
         processes[key_process] = {"status": "running", "message": "Preparing download..."}
         threading.Thread(
             target=data_functions.met_downloader, 
@@ -485,7 +485,7 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
         async with lock:
             # Check if process already running
             if key_process in processes and processes[key_process]["status"] == "running":
-                return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
+                return JSONResponse({"status": "running", "message": 'Data downloading is in progress.'})
             processes[key_process] = {"status": "running", "message": "Preparing download meteo..."}
             if key == 'meteo': target = hyd_functions.meteo_downloader
             elif key == 'wind': target = hyd_functions.wind_downloader
@@ -499,6 +499,136 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
         print('/start_meteo:\n==============')
         traceback.print_exc()
         return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
+
+@router.post("/download_dem")
+async def download_dem(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, body.get('folder')))
+        if not os.path.exists(directory): os.mkdir(directory)
+        resolution, key = int(body.get('resolution')), body.get('key')
+        top_left = ast.literal_eval(body.get('topLeft'))
+        bottom_right = ast.literal_eval(body.get('bottomRight'))
+        wgs84_crs, crs = "EPSG:4326", "EPSG:25833"
+        gdf_top_left = gpd.GeoDataFrame(
+            geometry=gpd.points_from_xy(x=[float(top_left[1])], y=[float(top_left[0])]), crs=wgs84_crs
+        )
+        gdf_bottom_right = gpd.GeoDataFrame(
+            geometry=gpd.points_from_xy(x=[float(bottom_right[1])], y=[float(bottom_right[0])]), crs=wgs84_crs
+        )
+        gdf_top_left, gdf_bottom_right = gdf_top_left.to_crs(crs), gdf_bottom_right.to_crs(crs)
+        gdf_top = gdf_top_left.geometry.iloc[0]
+        gdf_bottom = gdf_bottom_right.geometry.iloc[0]
+        xmin, xmax = sorted([gdf_top.x, gdf_bottom.x])
+        ymin, ymax = sorted([gdf_top.y, gdf_bottom.y])
+        boundary = box(xmin, ymin, xmax, ymax)
+        gdf_boundary = gpd.GeoDataFrame(geometry=[boundary], crs=crs)
+        redis, key_process = request.app.state.redis, f"{project_name}:{key}"
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            content = data_functions.dem_downloader(directory, key, resolution, gdf_boundary)
+            return JSONResponse(content)
+    except Exception as e:
+        print('/download_dem:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
+
+@router.post("/upload_terrain")
+async def upload_terrain(projectName: str = Form(...), folder: str = Form(...), 
+    fileName: str = Form(...), user=Depends(functions.basic_auth)):
+    try:
+        project_name, _ = functions.project_definer(projectName, user)
+        dem_dir = os.path.join(PROJECT_ROOT, project_name, folder)
+        if not os.path.exists(dem_dir): os.mkdir(dem_dir, exist_ok=True)
+        terrain_path = os.path.normpath(os.path.join(dem_dir, f"{fileName}.tif"))
+        raw_dir = os.path.normpath(os.path.join(dem_dir, 'raw'))
+        os.makedirs(raw_dir, exist_ok=True)
+        raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
+        content = data_functions.prepare_terrain(project_name, terrain_path, raw_path)
+        return JSONResponse(content)
+    except Exception as e:
+        print('/upload_terrain:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.get("/{project_name}/{file_path:path}/{z}/{x}/{y}.png")
+def hyd_terrain_tiles(project_name: str, file_path: str, z: int, x: int, y: int):
+    cog_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, file_path))
+    project_root = os.path.abspath(os.path.join(PROJECT_ROOT, project_name))
+    cog_path = os.path.abspath(cog_path)
+    if os.path.commonpath([project_root, cog_path]) != project_root:
+        return JSONResponse({"status": "error", "message": "Invalid file path."}, status_code=400)
+    if not os.path.isfile(cog_path):
+        return JSONResponse({"status": "error", "message": f"File not found: {cog_path}"}, status_code=404)
+    try:
+        with Reader(cog_path) as src:
+            try: tile = src.tile(x, y, z)
+            except TileOutsideBounds:
+                empty_data = np.zeros((1, 256, 256), dtype=np.uint8)
+                empty_mask = np.zeros((256, 256), dtype=np.uint8)
+                image = render(empty_data, mask=empty_mask)
+                return Response(content=image, media_type="image/png")
+            image = render(tile.data, mask=tile.mask, img_format="png", colormap=cmap.get("terrain"))
+        return Response(content=image, media_type="image/png")
+    except Exception as e:
+        print('/hyd_terrain_tiles:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/hyd_stream_upload")
+async def hyd_stream_upload(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        folder, file_name, threshold = body.get('folder'), body.get('fileName'), float(body.get('threshold'))
+        content = data_functions.stream_detector(project_name, folder, file_name, threshold)
+        return JSONResponse(content)
+    except Exception as e:
+        print('/hyd_stream_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/catchment_definer")
+async def catchment_definer(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        folder, lat, lon = body.get('folder'), body.get('lat'), body.get('lon')
+        dem_name, snap_distance = body.get('fileName'), body.get('snapDistance')
+        directory = os.path.join(PROJECT_ROOT, project_name, folder)
+        content = data_functions.catchment_detector(directory, dem_name, lat, lon, snap_distance)
+        return JSONResponse(content)
+    except Exception as e:
+        print('/catchment_definer:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/start_download_soil")
+async def start_download_soil(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    flow_name, catchment, water_area = body.get('flowName'), body.get('catchment'), body.get('waterArea')
+    terrain_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'dem.tif'))
+    if not os.path.exists(terrain_path):
+        return JSONResponse({'status': 'error', 'message': "Cannot find terrain data in the scenario.\nUpload terrain first."})
+    redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        # Check if simulation already running
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Soil downloading is in progress.'})
+        catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
+        processes[key_process] = {"status": "running", "message": "Preparing soil data download ..."}
+        threading.Thread(
+            target=flow_functions.soil_downloader, 
+            args=(project_name, processes, key_process, flow_name, catchment_WGS84, water_area, terrain_path), daemon=True
+        ).start()
+    return JSONResponse({'status': 'ok', 'message': "Soil downloading started."})
+
+
+
+
 
 # @router.post("/wflow_model")
 # async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
@@ -566,27 +696,7 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
 #         traceback.print_exc()
 #         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-# @router.post("/start_download_soil")
-# async def start_download_soil(request: Request, user=Depends(functions.basic_auth)):
-#     body = await request.json()
-#     project_name, _ = functions.project_definer(body.get('projectName'), user)
-#     flow_name, data, water_area = body.get('flowName'), body.get('data'), body.get('waterArea')
-#     terrain_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'raw', 'dtm_raw.tif'))
-#     if not os.path.exists(terrain_path):
-#         return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Process terrain data in the tab 'Topography' first."})
-#     redis, process_key = request.app.state.redis, f"{project_name}:{body.get('key')}"
-#     lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
-#     async with lock:
-#         # Check if simulation already running
-#         if project_name in processes and processes[project_name]["status"] == "running":
-#             return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-#         catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
-#         processes[project_name] = {"status": "running", "message": "Preparing download..."}
-#         threading.Thread(
-#             target=flow_functions.soil_downloader, 
-#             args=(project_name, processes, process_key, flow_name, catchment_WGS84, water_area, terrain_path), daemon=True
-#         ).start()
-#     return JSONResponse({'status': 'ok', 'message': "Soil downloading started"})
+
 
 # @router.post("/start_download_weather")
 # async def start_download_weather(request: Request, user=Depends(functions.basic_auth)):
@@ -608,106 +718,6 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
 #         ).start()
 #     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
 
-@router.post("/download_dem")
-async def download_dem(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, body.get('folder')))
-        if not os.path.exists(directory): os.mkdir(directory)
-        resolution, key = int(body.get('resolution')), body.get('key')
-        top_left = ast.literal_eval(body.get('topLeft'))
-        bottom_right = ast.literal_eval(body.get('bottomRight'))
-        wgs84_crs, crs = "EPSG:4326", "EPSG:25833"
-        gdf_top_left = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(x=[float(top_left[1])], y=[float(top_left[0])]), crs=wgs84_crs
-        )
-        gdf_bottom_right = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(x=[float(bottom_right[1])], y=[float(bottom_right[0])]), crs=wgs84_crs
-        )
-        gdf_top_left, gdf_bottom_right = gdf_top_left.to_crs(crs), gdf_bottom_right.to_crs(crs)
-        gdf_top = gdf_top_left.geometry.iloc[0]
-        gdf_bottom = gdf_bottom_right.geometry.iloc[0]
-        xmin, xmax = sorted([gdf_top.x, gdf_bottom.x])
-        ymin, ymax = sorted([gdf_top.y, gdf_bottom.y])
-        boundary = box(xmin, ymin, xmax, ymax)
-        gdf_boundary = gpd.GeoDataFrame(geometry=[boundary], crs=crs)
-        redis, key_process = request.app.state.redis, f"{project_name}:{key}"
-        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
-        async with lock:
-            content = data_functions.dem_downloader(directory, key, resolution, gdf_boundary)
-            return JSONResponse(content)
-    except Exception as e:
-        print('/download_dem:\n==============')
-        traceback.print_exc()
-        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
-
-@router.post("/upload_terrain")
-async def upload_terrain(projectName: str = Form(...), folder: str = Form(...), 
-    fileName: str = Form(...), user=Depends(functions.basic_auth)):
-    try:
-        project_name, _ = functions.project_definer(projectName, user)
-        dem_dir = os.path.join(PROJECT_ROOT, project_name, folder)
-        if not os.path.exists(dem_dir): os.mkdir(dem_dir, exist_ok=True)
-        terrain_path = os.path.normpath(os.path.join(dem_dir, f"{fileName}.tif"))
-        content = data_functions.prepare_terrain(project_name, terrain_path)
-        return JSONResponse(content)
-    except Exception as e:
-        print('/upload_terrain:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.get("/{project_name}/{file_path:path}/{z}/{x}/{y}.png")
-def hyd_terrain_tiles(project_name: str, file_path: str, z: int, x: int, y: int):
-    cog_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, file_path))
-    project_root = os.path.abspath(os.path.join(PROJECT_ROOT, project_name))
-    cog_path = os.path.abspath(cog_path)
-    if os.path.commonpath([project_root, cog_path]) != project_root:
-        return JSONResponse({"status": "error", "message": "Invalid file path."}, status_code=400)
-    if not os.path.isfile(cog_path):
-        return JSONResponse({"status": "error", "message": f"File not found: {cog_path}"}, status_code=404)
-    try:
-        with Reader(cog_path) as src:
-            try: tile = src.tile(x, y, z)
-            except TileOutsideBounds:
-                empty_data = np.zeros((1, 256, 256), dtype=np.uint8)
-                empty_mask = np.zeros((256, 256), dtype=np.uint8)
-                image = render(empty_data, mask=empty_mask)
-                return Response(content=image, media_type="image/png")
-            image = render(tile.data, mask=tile.mask, img_format="png", colormap=cmap.get("terrain"))
-        return Response(content=image, media_type="image/png")
-    except Exception as e:
-        print('/hyd_terrain_tiles:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.post("/hyd_stream_upload")
-async def hyd_stream_upload(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder, file_name, threshold = body.get('folder'), body.get('fileName'), float(body.get('threshold'))
-        content = data_functions.stream_detector(project_name, folder, file_name, threshold)
-        return JSONResponse(content)
-    except Exception as e:
-        print('/hyd_stream_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.post("/catchment_definer")
-async def catchment_definer(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder, lat, lon = body.get('folder'), body.get('lat'), body.get('lon')
-        dem_name, snap_distance = body.get('fileName'), body.get('snapDistance')
-        directory = os.path.join(PROJECT_ROOT, project_name, folder)
-        content = data_functions.catchment_detector(directory, dem_name, lat, lon, snap_distance)
-        return JSONResponse(content)
-    except Exception as e:
-        print('/catchment_definer:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 
 

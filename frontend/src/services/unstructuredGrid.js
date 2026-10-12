@@ -109,9 +109,7 @@ export function updateColorbar(min, max, title, colorbarKey, bar_color, bar_titl
     for (let i = 0; i < numStops; i++) {
         const t = i / (numStops - 1);
         const value = getValueAt(t);
-        const color = getColorFromValue(
-            value, min, max, colorbarKey
-        );
+        const color = getColorFromValue(value, min, max, colorbarKey);
         colorStops.push(
             `rgb(${color.r}, ${color.g}, ${color.b}) ${(t * 100).toFixed(1)}%`
         );

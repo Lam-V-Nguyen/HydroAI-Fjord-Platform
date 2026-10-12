@@ -6,6 +6,7 @@ import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
 from rasterio.features import shapes
+from rasterio.warp import transform_bounds
 from shapely.geometry import LineString
 from shapely.ops import unary_union, linemerge
 from shapely import force_2d
@@ -25,17 +26,36 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
     try:
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_name, content = body.get('flowName'), {}
+        content['water'] = content['dtm'] = ''
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
         if not os.path.exists(flow_dir):
             os.makedirs(flow_dir, exist_ok=True)
             return JSONResponse({'status': 'create', 'message': f"Project '{flow_name}' created successfully."})
         water_dir = os.path.join(flow_dir, 'water_area')
-        file_water = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
-        content['water'] = file_water[0] if len(file_water) > 0 else ''
+        if os.path.exists(water_dir):
+            file_water = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
+            content['water'] = file_water[0] if len(file_water) > 0 else ''
         files = [f for f in os.listdir(flow_dir) if f.endswith("_filled.tif")]
-        dtm_file = files[0].replace("_filled", "") if len(files) > 0 else ''
-        dtm_path = os.path.join(flow_dir, dtm_file)
-        content['dtm'] = dtm_file if os.path.exists(dtm_path) else ''
+        content['dtm'] = ''
+        if len(files) > 0 and os.path.exists(os.path.join(flow_dir, files[0].replace("_filled", ""))):
+            content['dtm'] = files[0].replace("_filled", "")
+        soil_dir, soil_dict = os.path.join(flow_dir, 'soil'), []
+        if os.path.exists(soil_dir):
+            soils = [f for f in os.listdir(soil_dir) if f.endswith(".tif") and f != 'soilthickness.tif']
+            if len(soils) > 0:
+                for soil in soils:
+                    soil_type, soil_depth = soil.split('.')[0].split('_')
+                    temp = [
+                        flow_functions.soil_type_reverse[soil_type],
+                        flow_functions.soil_depth_reverse[soil_depth]
+                    ]
+                    soil_dict.append({
+                        'value': soil.removesuffix('.tif'), 'label': (' - ').join(temp)
+                    })
+                soil_dict.append({'value': 'soilthickness', 'label': 'soilthickness'})
+                content['soil'] = soil_dict
+        
+
         # elif key == 'open':
             #  time_zone = body.get('timeZone')
         #     forcing_path = os.path.normpath(os.path.join(dir, 'forcing', 'weather_forcing.nc'))
@@ -111,11 +131,46 @@ async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form
         terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem.tif'))
         with open(terrain_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
+        os.makedirs(raw_dir, exist_ok=True)
+        raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
         file.file.close()
-        content = data_functions.prepare_terrain(project_name, terrain_path)
+        content = data_functions.prepare_terrain(project_name, terrain_path, raw_path)
         return JSONResponse(content)
     except Exception as e:
         print('/upload_terrain_flow:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/clip_dem")
+async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, catchment = body.get('flowName'), body.get('catchment')
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
+        if not os.path.exists(terrain_path):
+            return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain first."})
+        catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
+        with rioxarray.open_rasterio(terrain_path) as src:
+            terrain = src.squeeze(drop=True).load()
+        catchment_reprojected = catchment_WGS84.to_crs(terrain.rio.crs)
+        buffer = 10*terrain.rio.resolution()[0] if not terrain.rio.crs.is_geographic else 0.001
+        catchment_buffer = catchment_reprojected.buffer(buffer)
+        minx, miny, maxx, maxy = catchment_buffer.total_bounds
+        terrain_clipped = terrain.rio.clip_box(minx, miny, maxx, maxy)
+        terrain_values, nodata = terrain_clipped.values, -9999.0
+        height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
+        crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
+        profile = {
+            "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
+            "height": height, "width": width, "transform": transform
+        }
+        flow_functions.write_geotif(terrain_values, profile, terrain_path, nodata)
+        return JSONResponse({"status": "ok", "message": f"DEM was clipped successfully."})
+    except Exception as e:
+        print('/clip_dem:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
@@ -125,32 +180,6 @@ async def geojson_upload(file: UploadFile = File(...)):
         catchment = gpd.read_file(file.file)
         if catchment.empty: 
             return JSONResponse({'status': 'error', 'message': 'Incorrect catchment file. Please upload another.'})
-        # if not projectName or not flowName:
-        #     return JSONResponse({'status': 'error', 'message': 'Project name and flow name are required.'})
-        # project_name, _ = functions.project_definer(projectName, user)
-        # flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flowName))
-        # raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
-        # os.makedirs(raw_dir, exist_ok=True)
-        # raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
-        # if not os.path.exists(raw_path):
-        #     files = [f for f in os.listdir(flow_dir) if f.endswith("_filled.tif")]
-        #     if len(files) == 0:
-        #         return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain data in the tab 'Topography'."})
-        #     terrain_path = os.path.normpath(os.path.join(flow_dir, f'{files[0].replace("_filled", "")}'))
-        #     terrain = rioxarray.open_rasterio(terrain_path).squeeze()
-        #     catchment_reprojected = catchment.to_crs(terrain.rio.crs)
-        #     buffer = 10*terrain.rio.resolution()[0] if not terrain.rio.crs.is_geographic else 0.001
-        #     catchment_buffer = catchment_reprojected.buffer(buffer)
-        #     minx, miny, maxx, maxy = catchment_buffer.total_bounds
-        #     terrain_clipped = terrain.rio.clip_box(minx, miny, maxx, maxy)
-        #     terrain_values, nodata = terrain_clipped.values, -9999.0
-        #     height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
-        #     crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
-        #     profile = {
-        #         "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
-        #         "height": height, "width": width, "transform": transform
-        #     }
-        #     flow_functions.write_geotif(terrain_values, profile, raw_path, nodata)
         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
         return JSONResponse({'status': 'ok', 'content': json.loads(catchment.to_json())})
     except Exception as e:
@@ -158,11 +187,139 @@ async def geojson_upload(file: UploadFile = File(...)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/data_upload")
+async def data_upload(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        key = body.get('key')
+        if key == "soil":
+            status, content = "ok", []
+            soil_type, soil_depth = flow_functions.soils[0], flow_functions.soils[1]
+            for soil in soil_type:
+                for depth in soil_depth:
+                    content.append([soil, depth, 'cm'])
+        elif key == "land":
+            project_name, _ = functions.project_definer(body.get('projectName'), user)
+            flow_name, catchment, land_source = body.get('flowName'), body.get('catchment'), body.get('landSource')
+            if land_source == "corine":
+                flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+                terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
+                if not os.path.exists(terrain_path):
+                    return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain first."})
+                with rioxarray.open_rasterio(terrain_path) as src:
+                    terrain = src.squeeze(drop=True).load()
+                with rasterio.open(terrain_path) as src:
+                    nodata, profile, dem_array = src.nodata, src.profile, src.read(1)
+                profile_writer, NODATA_FLWDR = profile.copy(), 255
+                mask_nan = np.isnan(dem_array) | (dem_array == nodata)
+                catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
+                catchment_buffer = catchment_WGS84.buffer(0.001)
+                # Create land cover nc file
+                land_dir = os.path.normpath(os.path.join(flow_dir, 'landcover'))
+                if not os.path.exists(land_dir): os.makedirs(land_dir)
+                # Land cover data from CORINE 2018
+                corine_path = os.path.normpath(
+                    os.path.join(SOURCE_BACKEND, 'flow_samples', 'landcover', 'U2018_CLC2018_V2020_20u1.zip')
+                )
+                with zipfile.ZipFile(corine_path, "r") as zip_ref:
+                    name = os.path.basename(corine_path).replace(".zip", ".tif")
+                    with zip_ref.open(name) as f:
+                        with MemoryFile(f.read()) as memfile:
+                            corine = rioxarray.open_rasterio(memfile).squeeze()
+                            corine_match = corine.rio.reproject_match(terrain, resampling=Resampling.nearest)
+                land_corine = corine_match.values.astype(np.uint8)
+                land_corine[mask_nan] = NODATA_FLWDR
+                land_path = os.path.normpath(os.path.join(land_dir, 'corine.tif'))
+                profile_writer.update(dtype=np.uint8)
+                flow_functions.write_geotif(land_corine, profile_writer, land_path, NODATA_FLWDR)
+                # Save look up table
+                df = pd.read_csv(os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'landcover', 'corine_mapping.csv')))
+                mask_csv = df['corine'] != 999
+                df.loc[~mask_csv, 'corine'], df.loc[~mask_csv, 'landuse'] = 48, -999.0
+                df.loc[mask_csv, 'corine'] = np.arange(1, len(df.loc[mask_csv, 'corine']) + 1).astype(np.uint8)
+                df.to_csv(os.path.normpath(os.path.join(land_dir, 'corine.csv')), index=False)
+                # Compute LAI
+                lai_path = os.path.normpath(os.path.join(land_dir, "corine_lai.csv"))
+                flow_functions.create_LAI(land_corine, terrain, lai_path, NODATA_FLWDR)
+                # Convert raster to GeoDataFrame
+                with rioxarray.open_rasterio(land_path) as src:
+                    land = src.squeeze(drop=True).load()
+                data, transform = land.values, land.rio.transform()
+                results = (
+                    {'geometry': geom, 'properties': {'value': value}}
+                    for geom, value in shapes(data, transform=transform)
+                )
+                gdf = gpd.GeoDataFrame.from_features(list(results))
+                if len(gdf) == 0: return JSONResponse({'status': 'error', 'message': 'No Land Cover data found.'})
+                gdf.set_crs(land.rio.crs, inplace=True)
+                gdf['value'] = gdf['value'].astype(int)
+                # Remove nodata
+                gdf = gdf[~gdf.value.isin([land.rio.nodata])].reset_index(drop=True)
+                # Assign values to landcover
+                gdf = gdf.merge(df, left_on='value', right_on='corine', how='left')
+                gdf = gdf.rename(columns={'value': 'id'})
+                if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
+                # Clip to catchment
+                gdf = gpd.clip(gdf, catchment_buffer)
+                content = json.loads(gdf.to_json())
+        return JSONResponse({'status': 'ok', 'content': content})
+    except Exception as e:
+        print('/data_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/check_soil")
+async def check_soil(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        projectName, flow_name = body.get('projectName'), body.get('flowName')
+        project_name, _ = functions.project_definer(projectName, user)
+        flow_dir, content = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name)), []
+        directory = os.path.normpath(os.path.join(flow_dir, "soil"))
+        if not os.path.exists(directory): 
+            return JSONResponse({'status': 'error', 'message': 'No soil data found. Please download soil data first.'})
+        files = [f for f in os.listdir(directory) if f.endswith('.tif') and f != 'soilthickness.tif']
+        for file in files:
+            soil_type, soil_depth = file.split('.')[0].split('_')
+            temp = [
+                flow_functions.soil_type_reverse[soil_type],
+                flow_functions.soil_depth_reverse[soil_depth]
+            ]
+            content.append({
+                'value': file.removesuffix('.tif'), 'label': (' - ').join(temp)
+            })
+        content.append({'value': 'soilthickness', 'label': 'soilthickness'})
+        if len(content) != 43: 
+            return JSONResponse({
+                'status': 'error', 'message': 'Not all soil data found. Please check your soil data.'
+            })
+        return JSONResponse({'status': 'ok', 'content': content})
+    except Exception as e:
+        print('/check_soil:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-
-
-
+@router.post("/soil_upload")
+async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, layer = body.get('flowName'), body.get('layerName')
+        file_name = f"flows/{flow_name}/soil/{layer}.tif"
+        soil_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, file_name))
+        soil = rioxarray.open_rasterio(soil_path).squeeze()
+        min = int(soil.where(soil != soil.rio.nodata).min().item())
+        max = int(soil.max().values)
+        with rasterio.open(soil_path) as src:
+            west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+        bounds = [[south, west], [north, east]]
+        tile_url = f"/{project_name}/{file_name}/{{z}}/{{x}}/{{y}}.png"
+        contents = {"tile_url": tile_url, "bounds": bounds, "min_max": [min, max]}
+        return JSONResponse({'status': 'ok', 'content': contents})
+    except Exception as e:
+        print('/soil_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 
 
@@ -255,134 +412,11 @@ async def geojson_upload(file: UploadFile = File(...)):
 #         traceback.print_exc()
 #         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/data_upload")
-async def data_upload(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        key = body.get('key')
-        if key == "soil":
-            content, soil_type, soil_depth = [], flow_functions.soils[0], flow_functions.soils[1]
-            for soil in soil_type:
-                for depth in soil_depth:
-                    content.append([soil, depth, 'cm'])
-            if len(content) == 0: return JSONResponse({'status': 'error', 'message': 'No data found.'})
-            return JSONResponse({'status': 'ok', 'content': content})
-        elif key == "land":
-            project_name, _ = functions.project_definer(body.get('projectName'), user)
-            flow_name, data = body.get('flowName'), body.get('data')
-            flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-            raw_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
-            if not os.path.exists(raw_path): 
-                return JSONResponse({'status': 'error', 'message': "Cannot find DTM data. Please upload DTM data first."})
-            terrain_da = rioxarray.open_rasterio(raw_path).squeeze()
-            with rasterio.open(raw_path) as src:
-                nodata, profile, dem_array = src.nodata, src.profile, src.read(1)
-            profile_writer, NODATA_FLWDR = profile.copy(), 255
-            mask_nan = np.isnan(dem_array) | (dem_array == nodata)
-            catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
-            catchment_buffer = catchment_WGS84.buffer(0.001)
-            # Create land cover nc file
-            land_dir = os.path.normpath(os.path.join(flow_dir, 'landcover'))
-            if not os.path.exists(land_dir): os.makedirs(land_dir)
-            # Land cover data from CORINE 2018
-            corine_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'landcover', 'U2018_CLC2018_V2020_20u1.zip'))
-            with zipfile.ZipFile(corine_path, "r") as zip_ref:
-                name = os.path.basename(corine_path).replace(".zip", ".tif")
-                with zip_ref.open(name) as f:
-                    with MemoryFile(f.read()) as memfile:
-                        corine = rioxarray.open_rasterio(memfile).squeeze()
-                        corine_match = corine.rio.reproject_match(terrain_da, resampling=Resampling.nearest)
-            land_corine = corine_match.values.astype(np.uint8)
-            land_corine[mask_nan] = NODATA_FLWDR
-            land_path = os.path.normpath(os.path.join(land_dir, 'corine.tif'))
-            profile_writer.update(dtype=np.uint8)
-            flow_functions.write_geotif(land_corine, profile_writer, land_path, NODATA_FLWDR)
-            # Save look up table
-            df = pd.read_csv(os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'landcover', 'corine_mapping.csv')))
-            mask_csv = df['corine'] != 999
-            df.loc[~mask_csv, 'corine'], df.loc[~mask_csv, 'landuse'] = 48, -999.0
-            df.loc[mask_csv, 'corine'] = np.arange(1, len(df.loc[mask_csv, 'corine']) + 1).astype(np.uint8)
-            df.to_csv(os.path.normpath(os.path.join(land_dir, 'corine.csv')), index=False)
-            # Compute LAI
-            lai_path = os.path.normpath(os.path.join(land_dir, "corine_lai.csv"))
-            flow_functions.create_LAI(land_corine, terrain_da, lai_path, NODATA_FLWDR)
-            # Convert raster to GeoDataFrame
-            land = rioxarray.open_rasterio(land_path).squeeze()
-            data, transform = land.values, land.rio.transform()
-            results = (
-                {'geometry': geom, 'properties': {'value': value}}
-                for geom, value in shapes(data, transform=transform)
-            )
-            gdf = gpd.GeoDataFrame.from_features(list(results))
-            if len(gdf) == 0: return JSONResponse({'status': 'error', 'message': 'No Land Cover data found.'})
-            gdf.set_crs(land.rio.crs, inplace=True)
-            gdf['value'] = gdf['value'].astype(int)
-            # Remove nodata
-            gdf = gdf[~gdf.value.isin([land.rio.nodata])].reset_index(drop=True)
-            # Assign values to landcover
-            gdf = gdf.merge(df, left_on='value', right_on='corine', how='left')
-            gdf = gdf.rename(columns={'value': 'id'})
-            if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
-            # Clip to catchment
-            gdf = gpd.clip(gdf, catchment_buffer)
-            return JSONResponse({'status': 'ok', 'content': json.loads(gdf.to_json())})
-    except Exception as e:
-        print('/data_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/check_soil")
-async def check_soil(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        projectName, flow_name = body.get('projectName'), body.get('flowName')
-        project_name, _ = functions.project_definer(projectName, user)
-        flow_dir, content = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name)), []
-        dir = os.path.normpath(os.path.join(flow_dir, "soil"))
-        if not os.path.exists(dir): return JSONResponse({'status': 'error', 'message': 'No soil data found'})
-        files = [f for f in os.listdir(dir) if f.endswith('.tif') and f != 'soilthickness.tif']
-        for file in files:
-            soil_type, soil_depth = file.split('.')[0].split('_')
-            temp = [
-                flow_functions.soil_type_reverse[soil_type],
-                flow_functions.soil_depth_reverse[soil_depth]
-            ]
-            content.append({
-                'value': file.removesuffix('.tif'), 'label': (' - ').join(temp)
-            })
-        content.append({'value': 'soilthickness', 'label': 'soilthickness'})
-        if len(content) != 43: 
-            return JSONResponse({
-                'status': 'error', 'message': 'Not all soil data found. Please check your soil data.'
-            })
-        return JSONResponse({'status': 'ok', 'content': content})
-    except Exception as e:
-        print('/check_soil:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/soil_upload")
-async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        key, flow_name, layer = "soil", body.get('flowName'), body.get('layerName')
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, key))
-        file_name, json_name = layer + ".tif", 'soil.json'
-        soil_path = os.path.normpath(os.path.join(flow_dir, file_name))
-        soil = rioxarray.open_rasterio(soil_path).squeeze()
-        min = int(soil.where(soil != soil.rio.nodata).min().item())
-        max = int(soil.max().values)
-        meta_path, meta = os.path.normpath(os.path.join(flow_dir, json_name)), {}
-        meta[key] = {"min": min, "max": max}
-        with open(meta_path, "w") as f: json.dump(meta, f)
-        tile_url = f"/{project_name}/terrain/{key}/{flow_name}/{file_name}/{{z}}/{{x}}/{{y}}.png"
-        contents = {"tile_url": tile_url, "min": min, "max": max}
-        return JSONResponse({'status': 'ok', 'content': contents})
-    except Exception as e:
-        print('/soil_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
 
 
 

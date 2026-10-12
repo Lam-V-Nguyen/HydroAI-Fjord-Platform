@@ -1,4 +1,4 @@
-import { jsonLoader, signalSender } from "./commonFunctions.js";
+import { signalSender } from "./commonFunctions.js";
 import { highlightColor } from "./constant.js";
 
 export function setElementsEnabled(enabled, ...elements) { 
@@ -20,23 +20,6 @@ export function isInvalidNumber(value) {
     if (str === '' || str.toLowerCase() === 'none') return true;
     return !Number.isFinite(Number(str));
 }
-
-// export async function catchmentDelineation(projectName, flowName, terrainName, lat, lon, snapDistance) {
-//     if (lat === null || lon === null) { alert('Please set the pourpoint coordinates and create a catchment first.'); return; }
-//     if (snapDistance === '') { alert('Please set the snap distance first.'); return; }
-//     try {
-//         signalSender('showOverlay', 'Generating catchment. Please wait ...');
-//         const contents = { projectName: projectName, filename: terrainName,
-//             lat: lat, lon: lon, snapDistance: snapDistance, flowName: flowName
-//         };
-//         const response = await jsonLoader('catchment', contents);
-//         signalSender('hideOverlay');
-//         if (response.status === "error") { alert(response.message); return null; }
-//         return response.content;
-//     } catch (error) { 
-//         alert(`Running catchment algorithm failed: ${error.message}`); return null;
-//     }
-// }
 
 export async function geoJSONExporter(data, fileName) {
     try { 
@@ -69,50 +52,87 @@ export async function geoJSONExporter(data, fileName) {
 }
 
 export async function mapPlotter(data, map, key='') {
+    // const isRiver = key === 'river';
+    // const resetStyle = (layer) => {
+    //     const id = layer.feature?.properties?.description;
+    //     if (isRiver) {
+    //         layer.setStyle({ 
+    //             color: 'black', weight: 3, opacity: 0.5, fill: false
+    //         }); return;
+    //     }
+    //     layer.setStyle({  // Reset to default style
+    //         color: 'black', weight: 1, opacity: 0.5,
+    //         fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
+    //     });
+    // };
+    // const layer = L.geoJSON(data, { 
+    //     style: feature => { 
+    //         const id = feature.properties.id;
+    //         if (isRiver) { 
+    //             return { color: 'black', weight: 3, opacity: 1, fill: false };
+    //         }
+    //         return { 
+    //             color: 'black', weight: 1, opacity: 1,
+    //             fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
+    //         };
+    //     },
+    //     onEachFeature: (feature, featureLayer) => { 
+    //         const id = feature.properties.description;
+    //         featureLayer.on('click', (e) => { 
+    //             L.DomEvent.stopPropagation(e);
+    //             // Reset the color of all features
+    //             layer.eachLayer(resetStyle);
+    //             // Highlight the clicked feature
+    //             featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 7 : 5 });
+    //             if (isRiver) { 
+    //                 featureLayer.setStyle({ fillOpacity: 0.8 }); 
+    //             }
+    //             const result = tableAdjust(feature.properties, key);
+    //             signalSender('updateUIState', { 
+    //                 key: key, ids: [id], data: [result]
+    //             });
+    //         });
+    //         if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
+    //     }
+    // }).addTo(map);
+    // map.on('click', () => { layer.eachLayer(resetStyle); }); return layer;
+
     const isRiver = key === 'river';
-    const resetStyle = (layer) => {
-        const id = layer.feature?.properties?.description;
-        if (isRiver) {
-            layer.setStyle({ 
-                color: 'black', weight: 3, opacity: 1, fill: false
-            }); return;
-        }
-        layer.setStyle({  // Reset to default style
-            color: 'black', weight: 1, opacity: 1,
-            fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
-        });
-    };
-    const layer = L.geoJSON(data, { 
-        style: feature => { 
+    let selectedLayer = null, layer;
+    layer = L.geoJSON(data, {
+        style: feature => {
             const id = feature.properties.id;
-            if (isRiver) { 
-                return { color: 'black', weight: 3, opacity: 1, fill: false };
+            if (isRiver) {
+                return { color: 'black', weight: 3, opacity: 0.6, fill: false };
             }
-            return { 
-                color: 'black', weight: 1, opacity: 1,
-                fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
+            return {
+                color: 'black', weight: 1, opacity: 1, fillOpacity: 0.8,
+                fillColor: highlightColor(id ?? 0)
             };
         },
-        onEachFeature: (feature, featureLayer) => { 
-            const id = feature.properties.description;
-            featureLayer.on('click', (e) => { 
-                L.DomEvent.stopPropagation(e);
-                // Reset the color of all features
-                layer.eachLayer(resetStyle);
-                // Highlight the clicked feature
-                featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 7 : 5 });
-                if (isRiver) { 
-                    featureLayer.setStyle({ fillOpacity: 0.8 }); 
-                }
-                const result = tableAdjust(feature.properties, key);
-                signalSender('updateUIState', { 
-                    key: key, ids: [id], data: [result]
+        onEachFeature: (feature, featureLayer) => {
+            if (key !== '') {
+                const content = buildTooltip(feature.properties, key);
+                // Show tooltip when hovering
+                featureLayer.bindTooltip(content, {
+                    sticky: true, direction: 'bottom', maxHeight: 100,
                 });
+            }
+            featureLayer.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                if (selectedLayer && selectedLayer !== featureLayer) {
+                    layer.resetStyle(selectedLayer);
+                }
+                featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 5 : 3 });
+                selectedLayer = featureLayer;
+                // Open the tooltip on click
+                if (key !== '') {
+                    featureLayer.openPopup(e.latlng);
+                }
             });
-            if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
         }
     }).addTo(map);
-    map.on('click', () => { layer.eachLayer(resetStyle); }); return layer;
+    return layer;
 }
 
 export function buildTooltip(props, key) {
