@@ -463,7 +463,7 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
             logger.removeHandler(h)
         if os.path.exists(log_path): functions.safe_remove(log_path)
 
-def soil_downloader(project_name, processes, process_key, flow_name, catchment, water, dtm_path, buffer=BUFFER):
+def soil_downloader(project_name, processes, process_key, flow_name, soil_source, water, dtm_path, catchment_path):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     flow_dir = os.path.join(project_dir, "flows", flow_name)
     # Work with log
@@ -476,74 +476,89 @@ def soil_downloader(project_name, processes, process_key, flow_name, catchment, 
         soil_dir = os.path.join(flow_dir, "soil")
         if os.path.exists(soil_dir): shutil.rmtree(soil_dir)
         os.makedirs(soil_dir, exist_ok=True)
-        catchment_WGS84 = catchment.copy()
-        if catchment_WGS84.crs != "EPSG:4326": catchment_WGS84 = catchment_WGS84.to_crs('EPSG:4326')
-        catchment_buffer = catchment_WGS84.buffer(buffer)
-        min_lon, min_lat, max_lon, max_lat = catchment_buffer.total_bounds
-        soil_depths = flow_functions.soil_depths
-        soil_types, depths = flow_functions.soil_types, list(soil_depths.values())
-        logger.info("Reading dtm data...")
         with rasterio.open(dtm_path) as src:
             nodata, profile = src.nodata, src.profile
             crs, transform = src.crs, src.transform
             height, width = src.height, src.width
-        base_url = "https://files.isric.org/soilgrids/former/2017-03-10/data/"
-        # Soil thickness
-        logger.info("Creating soil thickness data...")
-        soil_thickness_url, NODATA_SOIL_THICKNESS = f"{base_url}BDRICM_M_250m_ll.tif", -99999
-        # Get raster information
-        ref = rioxarray.open_rasterio(dtm_path).squeeze()
-        with rioxarray.open_rasterio(soil_thickness_url) as src:
-            data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
-            data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
-            nodata = data_xr.rio.nodata
-        soil_thickness_array = data_xr[0].values
-        # Interpolate data
-        logger.info("Interpolating soil thickness data...")
-        mask_valid = soil_thickness_array != nodata
-        soil_thickness_values = flow_functions.interpolate_extrapolate(soil_thickness_array, ~mask_valid, True)
-        soil_thickness_values = soil_thickness_values.astype(np.int32)
-        # Clip to lake
-        water_path, mask_lake = os.path.join(flow_dir, 'water_area', water), None
-        if os.path.exists(water_path) and os.path.getsize(water_path) > 0:
-            lake = gpd.read_file(water_path)
-            lake_reproj = lake.to_crs(crs)
-            lake_array = rasterize(
-                shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
+            resolution_x, resolution_y = src.res
+            dem_bounds = src.bounds
+        mask_catchment = None
+        if os.path.exists(catchment_path) and os.path.getsize(catchment_path) > 0:
+            catchment = gpd.read_file(catchment_path)
+            catchment_projected = catchment.to_crs(crs)
+            buffer = max(abs(resolution_x), abs(resolution_y))
+            catchment_buffer = catchment_projected.buffer(buffer)
+            catch_array = rasterize(
+                shapes=[geom for geom in catchment_buffer.geometry], dtype=np.float32,
                 out_shape=(height, width), transform=transform, fill=nodata
             )
-            mask_lake = (lake_array != nodata)
-        if mask_lake is not None: soil_thickness_values[mask_lake] = NODATA_SOIL_THICKNESS
-        soil_thickness_path = os.path.join(soil_dir, 'soilthickness.tif')
-        profile_writer = profile.copy()
-        profile_writer.update(dtype=np.int32)
-        flow_functions.write_geotif(soil_thickness_values, profile_writer, soil_thickness_path, NODATA_SOIL_THICKNESS)
-        logger.info(f"Saving soil thickness data to: {soil_thickness_path}")
-        # Download soil data
-        for _, values in soil_types.items():
-            file, name, scale, dtype, nodata_soil, bulk_density = values[0], values[1], values[2], values[3], values[4], None
-            for depth in depths:
-                file_url = f'{base_url}{file}_{depth}_250m_ll.tif'
-                logger.info(f"Downloading: {file}_{depth}_250m_ll.tif...")
-                with rioxarray.open_rasterio(file_url) as src:
-                    data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
-                    data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
-                    nodata = data_xr.rio.nodata
-                soil_array = data_xr[0].values
-                # Interpolate data
-                mask_valid = soil_array != nodata
-                logger.info(f"Interpolating {file}_{depth}_250m_ll.tif...")
-                soil_values = flow_functions.interpolate_extrapolate(soil_array, ~mask_valid, True)
-                if name == 'BLDFIE_M': bulk_density = soil_values + 1e-6
-                if name == 'OCDENS_M':
-                    # Convert Organic Carbon Density (kg/m³) to Organic Carbon Content (%)
-                    soil_values = soil_values / bulk_density * 100
-                soil_values = soil_values / scale
-                if mask_lake is not None: soil_values[mask_lake] = nodata_soil
-                path = os.path.join(soil_dir, f'{name}_{depth}.tif')
-                profile_writer.update(dtype=dtype)
-                flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil)
-                logger.info(f"Saved downloaded data to: {path}")
+            mask_catchment = (catch_array != nodata)
+        catchment_buffer_wgs84 = catchment_buffer.to_crs("EPSG:4326")
+        min_lon, min_lat, max_lon, max_lat = catchment_buffer_wgs84.total_bounds
+        if soil_source == "isric":
+            soil_depths = flow_functions.soil_depths
+            soil_types, depths = flow_functions.soil_types, list(soil_depths.values())
+            logger.info("Reading dtm data...")
+            base_url = "https://files.isric.org/soilgrids/former/2017-03-10/data/"
+            # Soil thickness
+            logger.info("Creating soil thickness data...")
+            soil_thickness_url, NODATA_SOIL_THICKNESS = f"{base_url}BDRICM_M_250m_ll.tif", -99999
+            # Get raster information
+            ref = rioxarray.open_rasterio(dtm_path).squeeze()
+            with rioxarray.open_rasterio(soil_thickness_url) as src:
+                data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
+                data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
+                nodata = data_xr.rio.nodata
+            soil_thickness_array = data_xr[0].values
+            # Interpolate data
+            logger.info("Interpolating soil thickness data...")
+            mask_valid = soil_thickness_array != nodata
+            soil_thickness_values = flow_functions.interpolate_extrapolate(soil_thickness_array, ~mask_valid, True)
+            soil_thickness_values = soil_thickness_values.astype(np.int32)
+            # Clip to catchment
+            if mask_catchment is not None: soil_thickness_values[~mask_catchment] = NODATA_SOIL_THICKNESS
+            # Clip to lake
+            water_path, mask_lake = os.path.join(flow_dir, 'water_area', water), None
+            if os.path.exists(water_path) and os.path.getsize(water_path) > 0:
+                lake = gpd.read_file(water_path)
+                lake_reproj = lake.to_crs(crs)
+                lake_array = rasterize(
+                    shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
+                    out_shape=(height, width), transform=transform, fill=nodata
+                )
+                mask_lake = (lake_array != nodata)
+            if mask_lake is not None: soil_thickness_values[mask_lake] = NODATA_SOIL_THICKNESS
+            soil_thickness_path = os.path.join(soil_dir, 'soilthickness.tif')
+            profile_writer = profile.copy()
+            profile_writer.update(dtype=np.int32)
+            flow_functions.write_geotif(soil_thickness_values, profile_writer, soil_thickness_path, NODATA_SOIL_THICKNESS)
+            logger.info(f"Saving soil thickness data to: {soil_thickness_path}")
+            # Download soil data
+            for _, values in soil_types.items():
+                file, name, scale, dtype, nodata_soil, bulk_density = values[0], values[1], values[2], values[3], values[4], None
+                for depth in depths:
+                    file_url = f'{base_url}{file}_{depth}_250m_ll.tif'
+                    logger.info(f"Downloading: {file}_{depth}_250m_ll.tif...")
+                    with rioxarray.open_rasterio(file_url) as src:
+                        data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
+                        data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
+                        nodata = data_xr.rio.nodata
+                    soil_array = data_xr[0].values
+                    # Interpolate data
+                    mask_valid = soil_array != nodata
+                    logger.info(f"Interpolating {file}_{depth}_250m_ll.tif...")
+                    soil_values = flow_functions.interpolate_extrapolate(soil_array, ~mask_valid, True)
+                    if name == 'BLDFIE_M': bulk_density = soil_values + 1e-6
+                    if name == 'OCDENS_M':
+                        # Convert Organic Carbon Density (kg/m³) to Organic Carbon Content (%)
+                        soil_values = soil_values / bulk_density * 100
+                    soil_values = soil_values / scale
+                    if mask_lake is not None: soil_values[mask_lake] = nodata_soil
+                    if mask_catchment is not None: soil_values[~mask_catchment] = nodata_soil
+                    path = os.path.join(soil_dir, f'{name}_{depth}.tif')
+                    profile_writer.update(dtype=dtype)
+                    flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil)
+                    logger.info(f"Saved downloaded data to: {path}")
         logger.handlers[0].flush()
         processes[process_key] = {"status": "finished", "message": "\nSoil data downloaded successfully.\n\n"}
     except Exception as e:

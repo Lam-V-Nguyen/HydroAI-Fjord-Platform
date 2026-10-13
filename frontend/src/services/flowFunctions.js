@@ -1,4 +1,3 @@
-import { signalSender } from "./commonFunctions.js";
 import { highlightColor } from "./constant.js";
 
 export function setElementsEnabled(enabled, ...elements) { 
@@ -99,6 +98,18 @@ export async function mapPlotter(data, map, key='') {
 
     const isRiver = key === 'river';
     let selectedLayer = null, layer;
+    // const resetStyle = (layer) => {
+    //     const id = layer.feature?.properties?.description;
+    //     if (isRiver) {
+    //         layer.setStyle({ 
+    //             color: 'black', weight: 3, opacity: 0.5, fill: false
+    //         }); return;
+    //     }
+    //     layer.setStyle({  // Reset to default style
+    //         color: 'black', weight: 1, opacity: 0.5,
+    //         fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
+    //     });
+    // };
     layer = L.geoJSON(data, {
         style: feature => {
             const id = feature.properties.id;
@@ -118,18 +129,23 @@ export async function mapPlotter(data, map, key='') {
                     sticky: true, direction: 'bottom', maxHeight: 100,
                 });
             }
+            const id = feature.properties.description;
             featureLayer.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
                 if (selectedLayer && selectedLayer !== featureLayer) {
                     layer.resetStyle(selectedLayer);
                 }
                 featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 5 : 3 });
+                if (isRiver) { featureLayer.setStyle({ fillOpacity: 0.8 }); }
+                const result = tableAdjust(feature.properties, key);
+
                 selectedLayer = featureLayer;
                 // Open the tooltip on click
                 if (key !== '') {
                     featureLayer.openPopup(e.latlng);
                 }
             });
+            if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
         }
     }).addTo(map);
     return layer;

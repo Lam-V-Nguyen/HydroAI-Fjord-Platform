@@ -565,14 +565,14 @@ def stream_detector(project_name:str, folder:str, dem_name:str, threshold:float)
     contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
     return {'status': 'ok', 'content': contents}
 
-def catchment_detector(dir:str, dem_name:str, lat:float, lon:float, snap_distance:float):
-    if not os.path.exists(dir): os.makedirs(dir, exist_ok=True)
-    flw_path = os.path.normpath(os.path.join(dir, f"{dem_name}_flowdir.tif"))
-    stream_path = os.path.normpath(os.path.join(dir, f"{dem_name}_streams.tif"))
+def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_distance:float):
+    if not os.path.exists(directory): os.makedirs(directory, exist_ok=True)
+    flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
+    stream_path = os.path.normpath(os.path.join(directory, f"{dem_name}_streams.tif"))
     with rasterio.open(stream_path) as src:
         crs = src.crs
     # Create outlet point for catchment
-    outlet_dir = os.path.normpath(os.path.join(dir, "outlet"))
+    outlet_dir = os.path.normpath(os.path.join(directory, "outlet"))
     if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
     outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
     if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
@@ -582,7 +582,7 @@ def catchment_detector(dir:str, dem_name:str, lat:float, lon:float, snap_distanc
     # Create pour point
     snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
     if os.path.exists(snap_path): functions.safe_remove(snap_path)
-    catchment_path = os.path.normpath(os.path.join(dir, "catchment.tif"))
+    catchment_path = os.path.normpath(os.path.join(directory, "catchment.tif"))
     if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
     wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
     wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
@@ -592,9 +592,12 @@ def catchment_detector(dir:str, dem_name:str, lat:float, lon:float, snap_distanc
     results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
     geom = flow_functions.remove_holes(unary_union(results))
     catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-    catchment.to_file(os.path.normpath(os.path.join(outlet_dir, "catchment.geojson")), driver="GeoJSON")
+    catchment_dir = os.path.normpath(os.path.join(directory, "catchment"))
+    os.makedirs(catchment_dir, exist_ok=True)
+    catchment.to_file(os.path.normpath(os.path.join(catchment_dir, "catchment.geojson")), driver="GeoJSON")
     # Delete temporary files
     functions.safe_remove(catchment_path)
+    functions.safe_remove(outlet_path)
     if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
     area = round(catchment["geometry"].area.sum() / 1000000, 6)
     if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")

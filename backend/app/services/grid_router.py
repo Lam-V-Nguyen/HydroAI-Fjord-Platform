@@ -391,6 +391,7 @@ async def grid_interpolation_upload(file: UploadFile = File(...)):
         print('/grid_interpolation_upload:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    finally: await file.close()
 
 @router.post("/grid_interpolation")
 async def grid_interpolation(request: Request):
@@ -471,3 +472,4 @@ async def grid_rechecker(file: UploadFile = File(...)):
         print('/grid_rechecker:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    finally: await file.close()

@@ -194,60 +194,7 @@ export async function renderPreview(request=null) {
                 config.max = request.content.max; lastLayer.addTo(currentMap);
             }
             signalSender('updateUIState', content); return;
-        } else if (key === 'reCheck') {
-            if (request.content.ok) {
-                if (lastLayer) lastLayer = clearMap(lastLayer, currentMap);
-                if (layer) layer.addTo(currentMap); lastLayer = layer; 
-            } else { if (lastLayer) lastLayer.addTo(currentMap) }
-       
-       
         
-        } else if (key === 'getLayer') {
-            const config = layerConfig[request.content.layerKey];
-            const data = config.getData();
-            content.data = data;
-            signalSender('updateUIState', content); return;
-        
-        } else if (key === 'layerChecker') {
-            const layerKey = request.content.layerKey;
-            const config = layerConfig[layerKey];
-            const existing = config.getLayer();
-            content.exist = existing !== null ? true : false;
-        } else if (key === 'invalidCheck') {
-            const layerKey = request.content.layerKey;
-            const config = layerConfig[layerKey];
-            if (!config) {
-                content.message = 'Layer not found';
-                signalSender('updateUIState', content); return;
-            }
-            const existing = config.getLayer();
-            signalSender('showOverlay', 'Checking for invalid polygons.\nPlease wait...');
-            const validContent = [], invalidContent = [], invalidIDs = [];
-            setTimeout(() => { 
-                existing.eachLayer((layer) => { 
-                    const props = layer.feature?.properties;
-                    const widthInvalid = isInvalidNumber(props?.Width);
-                    const depthInvalid = isInvalidNumber(props?.Depth);
-                    const check = widthInvalid || depthInvalid;
-                    // Highlight invalid polygons
-                    if (check) {
-                        layer.setStyle({ color: 'red', weight: 3 });
-                        const id = props?.description;
-                        const values = [id, props?.Width ?? 'None', props?.Depth ?? 'None']
-                        invalidContent.push(values); invalidIDs.push(id);
-                    } else {
-                        layer.setStyle({ color: 'green', weight: 1 });
-                        const values = [props.description, props.Width, props.Depth]
-                        validContent.push(values);
-                    }
-                }); signalSender('hideOverlay');
-                content.key = request.content.type; content.invalidIDs = invalidIDs;
-                content.inValidData = invalidContent; content.validData = validContent;
-                if (invalidIDs.length === 0) { alert(`All ${request.content.type} polygons are valid.`); 
-                } else { alert(`Number of invalid polygons: ${invalidIDs.length}.`); }
-                signalSender('showOverlay', 'Sending invalid polygons and updating table.\nPlease wait...');
-                signalSender('updateUIState', content); return;
-            }, 500);
         } else if (key === 'assignType') {
             const config = layerConfig[request.content.layerKey];
             const id = request.content.id, type = request.content.type;
@@ -370,12 +317,6 @@ export function initMap(mapId='map') {
         } else if (req.requestId === 'loadsPoint') { 
             html = 'Select a WAQ load point.<br>Point must be inside the area covered by the grid.';
         } else if (req.requestId === 'drawChecked') { html = 'Draw a polygon using the left mouse button.';
-        } else if (req.type === 'flowOptions') { 
-            if (req.content.key === 'pourpoint' && isPourpointActive) html = "Click to set the pourpoint.";
-            if (req.content.key === 'pourpointCancel' || isPourpointActive === false) {
-                mapContainer.style.cursor = ''; 
-                currentMap.closeTooltip(hoverTooltip); clearPendingRequest();
-            }
         } else if (req.requestId === 'updateObsPoint') { 
             mapContainer.style.cursor = 'grab'; return;
         }

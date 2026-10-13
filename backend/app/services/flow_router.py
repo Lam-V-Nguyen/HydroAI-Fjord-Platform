@@ -1,4 +1,4 @@
-import os, json, traceback, rasterio, shutil, asyncio
+import os, json, traceback, rasterio, shutil, asyncio, tempfile
 import sknw, rioxarray, zipfile, pyflwdir, threading
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
@@ -54,6 +54,7 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
                     })
                 soil_dict.append({'value': 'soilthickness', 'label': 'soilthickness'})
                 content['soil'] = soil_dict
+        else: content['soil'] = []
         
 
         # elif key == 'open':
@@ -121,6 +122,22 @@ async def water_upload(projectName: str = Form(...), file: UploadFile = File(...
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/water_delete")
+async def water_delete(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name = body.get('flowName')
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'water_area'))
+        if not os.path.exists(flow_dir):
+            return JSONResponse({'status': 'ok', 'message': "Water area has already been deleted."})
+        shutil.rmtree(flow_dir)
+        return JSONResponse({'status': 'ok', 'message': "Water area is deleted successfully."})
+    except Exception as e:
+        print('/water_delete:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
 @router.post("/upload_terrain_flow")
 async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form(...),
     projectName: str = Form(...), user=Depends(functions.basic_auth)):
@@ -134,13 +151,13 @@ async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form
         raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
         os.makedirs(raw_dir, exist_ok=True)
         raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
-        file.file.close()
         content = data_functions.prepare_terrain(project_name, terrain_path, raw_path)
         return JSONResponse(content)
     except Exception as e:
         print('/upload_terrain_flow:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    finally: await file.close()
 
 @router.post("/clip_dem")
 async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
@@ -186,6 +203,7 @@ async def geojson_upload(file: UploadFile = File(...)):
         print('/geojson_upload:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    finally: await file.close()
 
 @router.post("/data_upload")
 async def data_upload(request: Request, user=Depends(functions.basic_auth)):
@@ -200,20 +218,27 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
                     content.append([soil, depth, 'cm'])
         elif key == "land":
             project_name, _ = functions.project_definer(body.get('projectName'), user)
-            flow_name, catchment, land_source = body.get('flowName'), body.get('catchment'), body.get('landSource')
+            flow_name, land_source = body.get('flowName'), body.get('landSource')
             if land_source == "corine":
                 flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
                 terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
                 if not os.path.exists(terrain_path):
                     return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain first."})
+                catchment_path = os.path.normpath(os.path.join(flow_dir, 'catchment', 'catchment.geojson'))
+                if not os.path.exists(catchment_path):
+                    return JSONResponse({'status': 'error', 'message': "Cannot find catchment data in the scenario.\nDefine catchment first."})
+                catchment = gpd.read_file(catchment_path)
                 with rioxarray.open_rasterio(terrain_path) as src:
                     terrain = src.squeeze(drop=True).load()
                 with rasterio.open(terrain_path) as src:
                     nodata, profile, dem_array = src.nodata, src.profile, src.read(1)
+                    resolution_x, resolution_y = src.res
+                    buffer = max(abs(resolution_x), abs(resolution_y))
+                    catchment_projected = catchment.to_crs(src.crs)
+                    catchment_buffer = catchment_projected.buffer(buffer)
+                
                 profile_writer, NODATA_FLWDR = profile.copy(), 255
                 mask_nan = np.isnan(dem_array) | (dem_array == nodata)
-                catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
-                catchment_buffer = catchment_WGS84.buffer(0.001)
                 # Create land cover nc file
                 land_dir = os.path.normpath(os.path.join(flow_dir, 'landcover'))
                 if not os.path.exists(land_dir): os.makedirs(land_dir)
@@ -261,7 +286,18 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
                 if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
                 # Clip to catchment
                 gdf = gpd.clip(gdf, catchment_buffer)
+                print(gdf)
                 content = json.loads(gdf.to_json())
+        elif key == "water-body":
+            project_name, _ = functions.project_definer(body.get('projectName'), user)
+            flow_name, file_name = body.get('flowName'), body.get('waterArea')
+            flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'water_area'))
+            water_path = os.path.normpath(os.path.join(flow_dir, file_name))
+            if not os.path.exists(water_path):
+                return JSONResponse({'status': 'error', 'message': 'No water area data found. Please upload water area first.'})
+            gdf = gpd.read_file(water_path)
+            if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
+            content = json.loads(gdf.to_json())
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/data_upload:\n==============')
@@ -307,9 +343,10 @@ async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
         flow_name, layer = body.get('flowName'), body.get('layerName')
         file_name = f"flows/{flow_name}/soil/{layer}.tif"
         soil_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, file_name))
-        soil = rioxarray.open_rasterio(soil_path).squeeze()
-        min = int(soil.where(soil != soil.rio.nodata).min().item())
-        max = int(soil.max().values)
+        with rioxarray.open_rasterio(soil_path) as src:
+            soil = src.squeeze(drop=True)
+            min = int(soil.where(soil != src.rio.nodata).min())
+            max = int(soil.where(soil != src.rio.nodata).max())
         with rasterio.open(soil_path) as src:
             west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
         bounds = [[south, west], [north, east]]
@@ -321,9 +358,92 @@ async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/river_upload")
+async def river_upload(file: UploadFile = File(...), key: str = Form(...), threshold: float = Form(...)):
+    river_path = None
+    try:
+        filename = file.filename or ""
+        ext = os.path.splitext(filename)[1].lower()
+        if key == "river-raster" and ext != ".tif":
+            return JSONResponse({'status': 'error', 'message': 'Raster data must be in *.tif format.'})
+        if key == "river-vector" and ext != ".geojson":
+            return JSONResponse({'status': 'error', 'message': 'Vector data must be in *.geojson format.'})
+        if key not in ("river-raster", "river-vector"):
+            return JSONResponse({"status": "error", "message": "Invalid river data type."})
+        if ext == ".tif":
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".tif") as temp_file:
+                temp_file.write(file.file.read())
+                river_path = temp_file.name
+            with rasterio.open(river_path) as src:
+                dem_array = src.read(1).astype(np.float32)
+                crs, transform = src.crs, src.transform
+            filled_array, _ = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
+            flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
+            flwacc = flw.accuflux(filled_array)
+            mask = (flwacc >= float(threshold)).astype(np.uint8)
+            skeleton = skeletonize(mask).astype(np.uint8)
+            graph = sknw.build_sknw(skeleton, multi=False) 
+            del skeleton, mask, flwacc
+            lines = []
+            for s, e in graph.edges():
+                pts = graph[s][e]['pts']  # Nx2 array: row, col
+                # Convert row, col to x, y CRS
+                xy_pts = [transform * (c, r) for r, c in pts]
+                lines.append(LineString(xy_pts))
+            merged = linemerge(unary_union(lines))
+            if merged.geom_type == "LineString": lines = [merged]
+            else: lines = list(merged.geoms)
+            gdf = gpd.GeoDataFrame(geometry=lines, crs=crs)
+            gdf = gdf.reindex(columns=['Width', 'Depth', 'geometry'])
+            gdf = gdf[gdf.is_valid].reset_index(drop=True)
+            # Process river
+            gdf["geometry"] = gdf.geometry.apply(lambda g: force_2d(g))
+        elif ext == ".geojson":
+            gdf = gpd.read_file(file.file)
+            columns = {col.lower(): col for col in gdf.columns}
+            if 'width' not in columns or 'depth' not in columns:
+                return JSONResponse({'status': 'error', 'message': 'River data must have "Width" and "Depth" columns.'})
+            width_col, depth_col = columns['width'], columns['depth']
+            gdf = gdf.rename(columns={width_col: 'Width', depth_col: 'Depth'})
+            gdf = gdf[['Width', 'Depth', 'geometry']]
+        # functions.safe_remove(river_path)
+        if gdf.empty: 
+            message = "No river is detected.\nPlease check the input vector."
+            return JSONResponse({'status': 'error', 'message': message})
+        if 'description' not in gdf.columns: gdf.insert(0, 'description', range(1, len(gdf) + 1))
+        if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
+        return JSONResponse({'status': 'ok', 'content': json.loads(gdf.to_json())})
+    except Exception as e:
+        print('/river_upload:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    finally:
+        if river_path and os.path.isfile(river_path):
+            try: functions.safe_remove(river_path)
+            except OSError: traceback.print_exc()
+        await file.close()
 
-
-
+@router.post("/polygon_clip")
+async def polygon_clip(request: Request):
+    try:
+        body = await request.json()
+        base_layer, clip_layer = body.get('baseLayer'), body.get('clipLayer')
+        base_layer = gpd.GeoDataFrame.from_features(base_layer, crs="EPSG:4326")
+        clip_layer = gpd.GeoDataFrame.from_features(clip_layer, crs="EPSG:4326")
+        get_area = body.get('getArea')
+        # Clip the base layer to the clip layer
+        if get_area == 'inside': clipped_layer = gpd.clip(base_layer, clip_layer)
+        elif get_area == 'outside': clipped_layer = base_layer.overlay(clip_layer, how='difference')
+        if clipped_layer.empty: return JSONResponse({'status': 'error', 'message': 'No data found.'})
+        clip_layer = clip_layer.explode(index_parts=False)
+        clipped_layer = clipped_layer[clipped_layer.geometry.geom_type == 'LineString']
+        clipped_layer = clipped_layer.reset_index(drop=True)
+        clipped_layer['description'] = clipped_layer.index + 1
+        return JSONResponse({'status': 'ok', 'content': json.loads(clipped_layer.to_json())})
+    except Exception as e:
+        print('/polygon_clip:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
 
 
@@ -465,87 +585,9 @@ async def soil_upload(request: Request, user=Depends(functions.basic_auth)):
 #         traceback.print_exc()
 #         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/polygon_clip")
-async def polygon_clip(request: Request):
-    try:
-        body = await request.json()
-        base_layer, clip_layer = body.get('baseLayer'), body.get('clipLayer')
-        base_layer = gpd.GeoDataFrame.from_features(base_layer, crs="EPSG:4326")
-        clip_layer = gpd.GeoDataFrame.from_features(clip_layer, crs="EPSG:4326")
-        get_area = body.get('getArea')
-        # Clip the base layer to the clip layer
-        if get_area == 'inside': clipped_layer = gpd.clip(base_layer, clip_layer)
-        elif get_area == 'outside': clipped_layer = base_layer.overlay(clip_layer, how='difference')
-        if clipped_layer.empty: return JSONResponse({'status': 'error', 'message': 'No data found.'})
-        clipped_layer = clipped_layer.reset_index(drop=True)
-        clipped_layer['description'] = clipped_layer.index + 1
-        return JSONResponse({'status': 'ok', 'content': json.loads(clipped_layer.to_json())})
-    except Exception as e:
-        print('/polygon_clip:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/river_upload")
-async def river_upload(file: UploadFile = File(...), projectName: str = Form(...),
-    key: str = Form(...), threshold: float = Form(...), 
-    flowName: str = Form(...), user=Depends(functions.basic_auth)):
-    try:
-        project_name, _ = functions.project_definer(projectName, user)
-        river_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flowName, 'river'))
-        os.makedirs(river_dir, exist_ok=True)
-        file_ext = file.filename.split(".")
-        ext = file_ext[-1].lower()
-        if key == "river-raster" and not ext in ["tif"]:
-            return JSONResponse({'status': 'error', 'message': 'Flow accumulation data must be in *.tif format.'})
-        if key == "river-vector" and not ext in ["geojson"]:
-            return JSONResponse({'status': 'error', 'message': 'Vector data must be in *.geojson format.'})
-        river_path = os.path.normpath(os.path.join(river_dir, file.filename))
-        with open(river_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        if file_ext[-1].lower() in ["tif"]:
-            with rasterio.open(river_path) as src:
-                dem_array = src.read(1).astype(np.float32)
-                crs, transform = src.crs, src.transform
-            filled_array, _ = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
-            flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
-            flwacc = flw.accuflux(filled_array)
-            mask = (flwacc >= float(threshold)).astype(np.uint8)
-            skeleton = skeletonize(mask).astype(np.uint8)
-            graph = sknw.build_sknw(skeleton, multi=False) 
-            del skeleton, mask, flwacc
-            lines = []
-            for s, e in graph.edges():
-                pts = graph[s][e]['pts']  # Nx2 array: row, col
-                # Convert row, col to x, y CRS
-                xy_pts = [transform * (c, r) for r, c in pts]
-                lines.append(LineString(xy_pts))
-            merged = linemerge(unary_union(lines))
-            if merged.geom_type == "LineString": lines = [merged]
-            else: lines = list(merged.geoms)
-            gdf = gpd.GeoDataFrame(geometry=lines, crs=src.crs)
-            gdf = gdf.reindex(columns=['Width', 'Depth', 'geometry'])
-            gdf = gdf[gdf.is_valid].reset_index(drop=True)
-            # Process river
-            gdf["geometry"] = gdf.geometry.apply(lambda g: force_2d(g))
-        elif file_ext[-1].lower() in ["geojson"]: 
-            gdf = gpd.read_file(river_path)
-            columns = {col.lower(): col for col in gdf.columns}
-            if 'width' not in columns or 'depth' not in columns:
-                return JSONResponse({'status': 'error', 'message': 'River data must have "Width" and "Depth" columns.'})
-            width_col, depth_col = columns['width'], columns['depth']
-            gdf = gdf.rename(columns={width_col: 'Width', depth_col: 'Depth'})
-            gdf = gdf[['Width', 'Depth', 'geometry']]
-        functions.safe_remove(river_path)
-        if gdf.empty: 
-            message = "No river is detected.\nPlease check the input raster."
-            return JSONResponse({'status': 'error', 'message': message})
-        if 'description' not in gdf.columns: gdf.insert(0, 'description', range(1, len(gdf) + 1))
-        if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
-        return JSONResponse({'status': 'ok', 'content': json.loads(gdf.to_json())})
-    except Exception as e:
-        print('/river_upload:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
 
 @router.post("/river_saver")
 async def river_saver(request: Request, user=Depends(functions.basic_auth)):

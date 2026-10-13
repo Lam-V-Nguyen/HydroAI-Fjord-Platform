@@ -63,7 +63,7 @@
                                     </div>
                                     <div class="field-inline" style="margin-top: 5px;">
                                         <label for="flow-terrain-resolution">Resolution:</label>
-                                        <select id="flow-terrain-resolution">
+                                        <select id="flow-terrain-resolution" style="max-width: 200px;">
                                             <option value="1">1 m</option>
                                             <option value="5" selected>5 m</option>
                                             <option value="10">10 m</option>
@@ -88,7 +88,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 3;"><h3>2. Terrain Processing</h3>
+                        <div class="tile" style="grid-column: span 2;"><h3>2. Terrain Processing</h3>
                             <div class="row">
                                 <div class="field-inline" style="margin-top: 0;">
                                     <label for="dem-text">Used DEM:</label>
@@ -96,34 +96,34 @@
                                 </div>
                                 <div class="field-inline">
                                     <label for="threshold">Threshold (m):</label>
-                                    <input type="text" id="threshold" value="100">
+                                    <input type="text" id="threshold" value="100" style="max-width: 150px;">
                                     <button type="button" id="stream-btn">Extract Streams</button>
                                 </div>
                                 <div class="field-inline">
                                     <div class="row-radio" data-tab="terrain">
                                         <input type="radio" id="hide-all" name="terrain" value="hide-all" checked=true>
-                                        <label for="hide-all">Hide All</label>
+                                        <label for="hide-all">Hide Layers</label>
                                     </div>
                                     <div class="row-radio" data-tab="terrain">
                                         <input type="radio" id="terrain-raw" name="terrain" value="terrain-raw">
-                                        <label for="terrain-raw">Show Terrain</label>
+                                        <label for="terrain-raw">Terrain</label>
                                     </div>
                                     <div class="row-radio" data-tab="terrain">
                                         <input type="radio" id="terrain-stream" name="terrain" value="terrain-stream">
-                                        <label for="terrain-stream">Show Stream</label>
+                                        <label for="terrain-stream">Stream</label>
                                     </div>
                                     <div class="row-radio" data-tab="terrain" id="catchment-radio" style="display: none;">
                                         <input type="radio" id="catchment-layer" name="terrain" value="terrain-catchment">
-                                        <label for="catchment-layer">Show Catchment</label>
+                                        <label for="catchment-layer">Catchment</label>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 2;"><h3>3. Catchment</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>3. Catchment</h3>
                             <div class="row">
                                 <div class="field-inline" style="margin-top: 0;">
                                     <label>Snap distance (m):</label>
-                                    <input type="text" id="snap-dist" value="10.0" style="max-width: 80px;">
+                                    <input type="text" id="snap-dist" value="10.0" style="max-width: 200px;">
                                     <div class="checkbox-group">
                                         <input type="checkbox" id="catchment-checkbox">
                                         <label for="catchment-checkbox">Select Pourpoint</label>
@@ -134,8 +134,8 @@
                                     <input type="text" id="catchment-lon" placeholder="Longitude" readonly>
                                 </div>
                                 <div class="field-inline">
-                                    <button type="button" id="clip-catchment-btn">3.1. Clip DEM to Catchment</button>
-                                    <button type="button" id="export-catchment-btn">3.2. Export Catchment</button>
+                                    <button type="button" id="clip-catchment-btn">Clip DEM to Catchment</button>
+                                    <button type="button" id="export-catchment-btn">Export Catchment</button>
                                 </div>
                             </div>
                         </div>
@@ -144,13 +144,14 @@
                 <!-- Tab 2: Water Area -->
                 <div class="tabpanel main-panel" data-panel="water-tab">
                     <div class="grid">
-                        <div class="tile" style="grid-column: span 3;"><h3>Water Area</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Water Bodies</h3>
                             <div class="row">
                                 <div class="field-inline">
                                     <label for="water-area">Lake/Pond etc.,:</label>
                                     <input type="text" id="water-input-text" placeholder="Water area">
                                     <input type="file" id="water-input-file" accept=".geojson" hidden>
-                                    <button id="water-btn">Upload File (*.geojson)</button>
+                                    <button id="water-upload-btn">Upload File (*.geojson)</button>
+                                    <button id="water-delete-btn" style="color:yellow; font-weight: bold;">Delete</button>
                                 </div>
                             </div>
                         </div>
@@ -159,12 +160,8 @@
                 <!-- Tab 3: Soil Properties -->
                 <div class="tabpanel main-panel" data-panel="soil-tab">
                     <div class="grid">
-                        <div class="tile" style="grid-column: span 3;"><h3>Soil Properties</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Soil Preparation</h3>
                             <div class="row">
-                                <div class="field-inline">
-                                    <label>Upload the Catchment to define the area:</label>
-                                    <button type="button" id="soil-btn" style="min-width: 100px;">Upload the Catchment (*.geojson)</button>
-                                </div>
                                 <div class="field-inline">
                                     <label for="soil-source">Soil Data Source:</label>
                                     <select id="soil-source">
@@ -181,6 +178,10 @@
                                     <select id="soil-layer">
                                         <option value="" selected>--- Select a layer ---</option>
                                     </select>
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="soil-checkbox">
+                                        <label for="soil-checkbox">Show/Hide Soil</label>
+                                    </div>
                                 </div>
                                 <div class="field-inline" style="margin-top: -15px;">
                                     <a style="margin-top: 12px;">References:</a>
@@ -196,7 +197,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 5;"><h3>Attribute Table</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Attribute Table</h3>
                             <div class="row">
                                 <table class="attributes-table" id="soil-attributes-table" style="margin-top: -5px;">
                                     <thead><tr><th>Soil Type</th><th>Depth (cm)</th><th>Value</th></tr></thead>
@@ -223,17 +224,19 @@
                         <div class="tile" style="grid-column: span 3;"><h3>Land Cover Import</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label>Upload the Catchment to define the area:</label>
-                                    <button type="button" id="land-btn" style="min-width: 100px;">Upload the Catchment (*.geojson)</button>
-                                </div>
-                                <div class="field-inline">
                                     <label for="land-source">Land Cover Source:</label>
                                     <select id="land-source">
                                         <!-- <option value="esa">ESA WorldCover 2021 - 10m</option> -->
                                         <option value="corine">CORINE Land Cover 2018 - 100m</option>
                                     </select>
                                 </div>
-                                <button type="button" id="land-load-btn">Load Land Cover Data</button>
+                                <div class="field-inline">
+                                    <button type="button" id="land-load-btn">Load Land Cover Data</button>
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="land-checkbox">
+                                        <label for="land-checkbox">Show/Hide Land Cover</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 2;"><h3>Data Source Description</h3>
@@ -273,85 +276,68 @@
                 <!-- Tab 4: River Network -->
                 <div class="tabpanel main-panel" data-panel="river-network-tab">
                     <div class="grid">
-                        <div class="tile"><h3>River Import</h3>
-                            <div class="row-radio">
-                                <input type="radio" name="river" value="river-vector" id="river-vector" checked>
-                                <label for="river-vector">Upload River (Vector)</label>
-                                <input type="radio" name="river" value="river-raster" id="river-raster">
-                                <label for="river-raster">Use DEM (Raster)</label>
-                            </div>
+                        <div class="tile" style="grid-column: span 2;"><h3>River Import</h3>
                             <div class="row">
-                                <div class="row" id="river-container" style="display: none;">
-                                    <label for="river-threshold">Threshold:</label>
-                                    <input type="text" id="river-threshold" value="100000.0" style="max-width: 100px;">
+                                <div class="field-inline" style="justify-content: space-around; margin: -10px 0 -10px 0;">
+                                    <div class="row-radio">
+                                        <input type="radio" name="river" value="river-vector" id="river-vector" checked>
+                                        <label for="river-vector">Upload River (Vector)</label>
+                                    </div>
+                                    <div class="row-radio">
+                                        <input type="radio" name="river" value="river-raster" id="river-raster">
+                                        <label for="river-raster">Use DEM (Raster)</label>
+                                    </div>
                                 </div>
-                                <input type="file" id="river-input-file" accept=".tif,.geojson" hidden>
-                                <button type="button" id="river-upload-btn" style="min-width: 50px;">Upload File (*.tif, *.geojson)</button>
-                            </div>
-                            <div class="row">
-                                <label for="river-input-text">River Data:</label>
-                                <input type="text" id="river-input-text" placeholder="No file selected" readonly>
+                                <div class="field-inline" id="river-container" style="display: none;">
+                                    <label for="river-threshold">Threshold to define Streams:</label>
+                                    <input type="text" id="river-threshold" value="100000.0">
+                                    <input type="file" id="river-input-file" accept=".tif,.geojson" hidden>
+                                </div>
+                                <button type="button" id="river-upload-btn">Upload River (*.geojson)</button>
                             </div>
                         </div>
-                        <div class="tile"><h3>River Processing</h3>
+                        <div class="tile" style="grid-column: span 2;"><h3>River Processing</h3>
                             <div class="row">
-                                <input type="file" id="lake-input-file" accept=".geojson" hidden>
-                                <button type="button" id="lake-upload-btn"
-                                    style="pointer-events: none; opacity: 0.4;">Upload Lake Boundary</button>
-                                <button type="button" id="river-clip-lake-btn"
-                                    style="pointer-events: none; opacity: 0.4;">Clip River to Lake</button>
+                                <div class="field-inline" style="margin-top: 0;">
+                                    <button type="button" id="lake-catchment-upload-btn"
+                                        style="pointer-events: none; opacity: 0.4;">Upload Catchment</button>
+                                    <button type="button" id="river-clip-catchment-btn"
+                                        style="pointer-events: none; opacity: 0.4;">Clip River to Catchment</button>
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="river-clip-lake-btn"
+                                        style="pointer-events: none; opacity: 0.4;">Clip River to Water Area</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: 0;">
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="river-checker-checkbox">
+                                        <label for="river-checker-checkbox">River Layer</label>
+                                    </div>
+                                    <button type="button" id="river-invalid-btn">Check invalid segments</button>
+                                </div>
                             </div>
+                        </div>
+                        <div class="tile" style="grid-column: span 2;"><h3>River Options</h3>
                             <div class="row">
-                                <button type="button" id="lake-catchment-upload-btn"
-                                    style="pointer-events: none; opacity: 0.4;">Upload Catchment Boundary</button>
-                                <button type="button" id="river-clip-catchment-btn"
-                                    style="pointer-events: none; opacity: 0.4;">Clip River to Catchment</button>
-                            </div>
-                            <div class="radio-button">
-                                <label class="row-radio">
-                                    <input type="checkbox" id="river-checker-checkbox">Show/Hide River Layer
-                                </label>
-                                <div class="row">
-                                    <button type="button" id="river-invalid-checker-btn" style="display: block; width: 300px;">
-                                        Check invalid river segments
+                                <div class="field-inline" style="margin-top: 0;">
+                                    <label for="invalid-river-id">Selected segment:</label>
+                                    <select id="invalid-river-id"></select>
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="river-delete-btn" 
+                                        style="background-color: azure; color: rgb(255, 2, 2);">Delete selected segment
                                     </button>
+                                    <button type="button" id="river-assign-btn">Save selected segment</button>
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="river-save-project-btn">Save Valid Segments to Project</button>
+                                    <button type="button" id="river-save-file-btn">Export Valid Segments</button>
                                 </div>
                             </div>
                         </div>
-                        <div class="tile"><h3>Invalid Segments</h3>
+                        <div class="tile" id="river-table-container" style="grid-column: span 2;"><h3>Invalid River Segments</h3>
                             <div class="row">
-                                <label for="invalid-river-id">Selected segment:</label>
-                                <select style="max-width: 100px; margin-right: 10px;" id="invalid-river-id"></select>
-                                <button type="button" id="river-delete-btn" 
-                                    style="background-color: azure; color: rgb(255, 2, 2); max-width: 250px;">
-                                    Delete selected segment
-                                </button>
-                                <button type="button" id="river-assign-btn" style="max-width: 200px;">
-                                    Save selected segment
-                                </button>
-                            </div>
-                            <div class="table-container">
-                                <table class="attributes-table" id="invalid-river-table">
-                                    <thead><tr>
-                                        <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
-                                    </tr></thead>
-                                    <tbody>
-                                        <tr>
-                                            <td><input type="text" placeholder="Segment ID"></td>
-                                            <td><input type="text" placeholder="Width"></td>
-                                            <td><input type="text" placeholder="Depth"></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="tile"><h3>Valid Segments</h3>
-                            <div class="row">
-                                <button type="button" id="river-save-project-btn">Save Valid Segments to Project</button>
-                                <button type="button" id="river-save-file-btn">Export Valid Segments</button>
-                            </div>
-                            <div class="table-container">
-                                <table class="attributes-table" id="valid-river-table">
+                                <table class="attributes-table" id="invalid-river-table" style="margin-top: -5px;">
                                     <thead><tr>
                                         <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
                                     </tr></thead>

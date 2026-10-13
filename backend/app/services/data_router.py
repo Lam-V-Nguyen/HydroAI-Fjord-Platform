@@ -193,8 +193,7 @@ async def data_upload_gis(file: UploadFile = File(...)):
         print('/data_upload_gis:\n==============')
         traceback.print_exc()
         return JSONResponse({"status": "error", "message": str(e)})
-    finally: 
-        await file.close()
+    finally: await file.close()
 
 @router.post("/download_era5")
 async def download_era5(request: Request, user=Depends(functions.basic_auth)):
@@ -608,21 +607,24 @@ async def catchment_definer(request: Request, user=Depends(functions.basic_auth)
 async def start_download_soil(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    flow_name, catchment, water_area = body.get('flowName'), body.get('catchment'), body.get('waterArea')
-    terrain_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'dem.tif'))
+    flow_name, water_area, soil_source = body.get('flowName'), body.get('waterArea'), body.get('soilSource')
+    flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+    terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
     if not os.path.exists(terrain_path):
         return JSONResponse({'status': 'error', 'message': "Cannot find terrain data in the scenario.\nUpload terrain first."})
+    catchment_path = os.path.normpath(os.path.join(flow_dir, "catchment", 'catchment.geojson'))
+    if not os.path.exists(catchment_path):
+        return JSONResponse({'status': 'error', 'message': "Cannot find catchment data in the scenario.\nDefine catchment first."})
     redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
         # Check if simulation already running
         if key_process in processes and processes[key_process]["status"] == "running":
             return JSONResponse({"status": "running", "message": 'Soil downloading is in progress.'})
-        catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
         processes[key_process] = {"status": "running", "message": "Preparing soil data download ..."}
         threading.Thread(
             target=flow_functions.soil_downloader, 
-            args=(project_name, processes, key_process, flow_name, catchment_WGS84, water_area, terrain_path), daemon=True
+            args=(project_name, processes, key_process, flow_name, soil_source, water_area, terrain_path, catchment_path), daemon=True
         ).start()
     return JSONResponse({'status': 'ok', 'message': "Soil downloading started."})
 
