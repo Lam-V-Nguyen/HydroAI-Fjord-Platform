@@ -24,7 +24,7 @@
             <div class="tab-header" id="main-tabs">
                 <div class="tabs-list">
                     <button class="tab-btn" data-tab="terrain-tab">Topography</button>
-                    <button class="tab-btn" data-tab="water-tab">Water Area</button>
+                    <button class="tab-btn" data-tab="water-tab">Water Bodies</button>
                     <button class="tab-btn" data-tab="soil-tab">Soil</button>
                     <button class="tab-btn" data-tab="land-tab">Land Cover</button>
                     <button class="tab-btn" data-tab="river-network-tab">River Network</button>
@@ -144,14 +144,23 @@
                 <!-- Tab 2: Water Area -->
                 <div class="tabpanel main-panel" data-panel="water-tab">
                     <div class="grid">
-                        <div class="tile" style="grid-column: span 3;"><h3>Water Bodies</h3>
+                        <div class="tile" style="grid-column: span 4;"><h3>Water Bodies</h3>
                             <div class="row">
                                 <div class="field-inline">
                                     <label for="water-area">Lake/Pond etc.,:</label>
                                     <input type="text" id="water-input-text" placeholder="Water area">
                                     <input type="file" id="water-input-file" accept=".geojson" hidden>
+                                    
+                                </div>
+                                <div class="field-inline" style="gap: 20px;">
                                     <button id="water-upload-btn">Upload File (*.geojson)</button>
-                                    <button id="water-delete-btn" style="color:yellow; font-weight: bold;">Delete</button>
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="water-checkbox">
+                                        <label for="water-checkbox">Show/Hide Water Layer</label>
+                                    </div>
+                                    <button id="water-delete-btn" 
+                                        style="color:yellow; font-weight: bold;">Delete
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -320,8 +329,8 @@
                         <div class="tile" style="grid-column: span 2;"><h3>River Options</h3>
                             <div class="row">
                                 <div class="field-inline" style="margin-top: 0;">
-                                    <label for="invalid-river-id">Selected segment:</label>
-                                    <select id="invalid-river-id"></select>
+                                    <label for="river-id">Selected segment:</label>
+                                    <select id="river-id"></select>
                                 </div>
                                 <div class="field-inline">
                                     <button type="button" id="river-delete-btn" 
@@ -335,9 +344,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" id="river-table-container" style="grid-column: span 2;"><h3>Invalid River Segments</h3>
+                        <div class="tile" id="river-table-container" style="grid-column: span 2;"><h3>River Segments</h3>
                             <div class="row">
-                                <table class="attributes-table" id="invalid-river-table" style="margin-top: -5px;">
+                                <table class="attributes-table" id="river-table" style="margin-top: -5px;">
                                     <thead><tr>
                                         <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
                                     </tr></thead>

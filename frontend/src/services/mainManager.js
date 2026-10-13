@@ -191,18 +191,11 @@ function updateComponent() {
                 source: event.source, requestId: event.data.requestId, 
                 content: event.data.content
             });
-        } else if (event.data.type === 'flowOptions') { 
-            const { requestId } = event.data.content;
-            pendingRequests.set(requestId, { source: event.source });
-            const req = { 
-                source: event.source, requestId: requestId,
-                content: event.data.content, type: event.data.type
-            };
-            renderPreview(req); setPendingRequest(req);
         } else if (event.data.type === 'showNote') {
             showNotes(event.data.content);
         } else if (event.data.type === 'updateUIState') {
             const { requestId } = event.data.content;
+            console.log(event.data.content);
             if (requestId && pendingRequests.has(requestId)) {
                 const { source } = pendingRequests.get(requestId);
                 prevSource = source;

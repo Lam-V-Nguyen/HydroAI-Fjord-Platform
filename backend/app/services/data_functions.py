@@ -1,4 +1,4 @@
-import os, dotenv, base64, requests, math, rasterio
+import os, dotenv, base64, requests, math, rasterio, rioxarray
 import traceback, sys, shutil, cdsapi, calendar, json
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.shutil import copy as rio_copy
@@ -602,3 +602,28 @@ def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_d
     area = round(catchment["geometry"].area.sum() / 1000000, 6)
     if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
     return {'status': 'ok', 'content': json.loads(catchment.to_json()), 'area': area}
+
+def raster_vector(raster_path:str, lookup_table:pd.DataFrame, catchment:gpd.GeoDataFrame):
+    with rioxarray.open_rasterio(raster_path) as src:
+        land = src.squeeze(drop=True).load()
+    data, transform = land.values, land.rio.transform()
+    results = (
+        {'geometry': geom, 'properties': {'value': value}}
+        for geom, value in shapes(data, transform=transform)
+    )
+    gdf = gpd.GeoDataFrame.from_features(list(results))
+    if len(gdf) == 0: return gpd.GeoDataFrame()
+    gdf.set_crs(land.rio.crs, inplace=True)
+    gdf['value'] = gdf['value'].astype(int)
+    # Remove nodata
+    gdf = gdf[~gdf.value.isin([land.rio.nodata])].reset_index(drop=True)
+    # Assign values to landcover
+    gdf = gdf.merge(lookup_table, left_on='value', right_on='corine', how='left')
+    gdf = gdf.rename(columns={'value': 'id'})
+    # Clip to catchment
+    gdf = gpd.clip(gdf, catchment)
+    if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
+    gdf = gdf.explode(index_parts=False)
+    gdf = gdf[gdf.geometry.geom_type == 'Polygon']
+    gdf = gdf.reset_index(drop=True)
+    return gdf

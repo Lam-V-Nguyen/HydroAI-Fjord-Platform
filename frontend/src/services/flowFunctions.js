@@ -1,4 +1,5 @@
 import { highlightColor } from "./constant.js";
+import { signalSender } from "./commonFunctions.js";
 
 export function setElementsEnabled(enabled, ...elements) { 
     elements.forEach(e => {
@@ -50,66 +51,8 @@ export async function geoJSONExporter(data, fileName) {
     } catch (error) { alert(`Exporting failed: ${error.message}`); }
 }
 
-export async function mapPlotter(data, map, key='') {
-    // const isRiver = key === 'river';
-    // const resetStyle = (layer) => {
-    //     const id = layer.feature?.properties?.description;
-    //     if (isRiver) {
-    //         layer.setStyle({ 
-    //             color: 'black', weight: 3, opacity: 0.5, fill: false
-    //         }); return;
-    //     }
-    //     layer.setStyle({  // Reset to default style
-    //         color: 'black', weight: 1, opacity: 0.5,
-    //         fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
-    //     });
-    // };
-    // const layer = L.geoJSON(data, { 
-    //     style: feature => { 
-    //         const id = feature.properties.id;
-    //         if (isRiver) { 
-    //             return { color: 'black', weight: 3, opacity: 1, fill: false };
-    //         }
-    //         return { 
-    //             color: 'black', weight: 1, opacity: 1,
-    //             fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
-    //         };
-    //     },
-    //     onEachFeature: (feature, featureLayer) => { 
-    //         const id = feature.properties.description;
-    //         featureLayer.on('click', (e) => { 
-    //             L.DomEvent.stopPropagation(e);
-    //             // Reset the color of all features
-    //             layer.eachLayer(resetStyle);
-    //             // Highlight the clicked feature
-    //             featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 7 : 5 });
-    //             if (isRiver) { 
-    //                 featureLayer.setStyle({ fillOpacity: 0.8 }); 
-    //             }
-    //             const result = tableAdjust(feature.properties, key);
-    //             signalSender('updateUIState', { 
-    //                 key: key, ids: [id], data: [result]
-    //             });
-    //         });
-    //         if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
-    //     }
-    // }).addTo(map);
-    // map.on('click', () => { layer.eachLayer(resetStyle); }); return layer;
-
-    const isRiver = key === 'river';
-    let selectedLayer = null, layer;
-    // const resetStyle = (layer) => {
-    //     const id = layer.feature?.properties?.description;
-    //     if (isRiver) {
-    //         layer.setStyle({ 
-    //             color: 'black', weight: 3, opacity: 0.5, fill: false
-    //         }); return;
-    //     }
-    //     layer.setStyle({  // Reset to default style
-    //         color: 'black', weight: 1, opacity: 0.5,
-    //         fillOpacity: 0.8, fillColor: highlightColor(id ?? 0) 
-    //     });
-    // };
+export async function mapPlotter(data, map, key) {
+    let selectedLayer = null, layer; const isRiver = key === 'River';
     layer = L.geoJSON(data, {
         style: feature => {
             const id = feature.properties.id;
@@ -122,30 +65,33 @@ export async function mapPlotter(data, map, key='') {
             };
         },
         onEachFeature: (feature, featureLayer) => {
-            if (key !== '') {
-                const content = buildTooltip(feature.properties, key);
-                // Show tooltip when hovering
-                featureLayer.bindTooltip(content, {
-                    sticky: true, direction: 'bottom', maxHeight: 100,
-                });
+            const description = feature.properties.description ?? key;
+            let content = '';
+            if (key === 'Land Cover') {
+                content = `<div style="font-size: 13px;">
+                    <div style="font-weight: bold; text-align: center;">Type: ${description}</div>
+                    <hr style="margin: 5px 0 5px 0;">
+                    <div style="display: block; text-align: center;">Click to see details</div>
+                `;
+                const popupContent = buildTooltip(feature.properties, key);
+                featureLayer.bindPopup(
+                    `<div class="popup-content">${popupContent}</div>`,
+                    { maxWidth: 400, maxHeight: 200 }
+                );
+            } else { content = buildTooltip(feature.properties, key); }
+            if (isRiver) { 
+                content += `<hr style="margin: 5px 0 5px 0;">
+                    <div style="display: block; text-align: center; font-size: 14px;">Click to edit river's properties</div>
+                `; 
             }
-            const id = feature.properties.description;
+            // Show tooltip when hovering
+            featureLayer.bindTooltip(content, { sticky: true, direction: 'bottom' });
             featureLayer.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
-                if (selectedLayer && selectedLayer !== featureLayer) {
-                    layer.resetStyle(selectedLayer);
-                }
+                if (selectedLayer && selectedLayer !== featureLayer) { layer.resetStyle(selectedLayer); }
                 featureLayer.setStyle({ color: 'yellow', weight: isRiver ? 5 : 3 });
-                if (isRiver) { featureLayer.setStyle({ fillOpacity: 0.8 }); }
-                const result = tableAdjust(feature.properties, key);
-
                 selectedLayer = featureLayer;
-                // Open the tooltip on click
-                if (key !== '') {
-                    featureLayer.openPopup(e.latlng);
-                }
             });
-            if (key !== '') featureLayer.bindTooltip(`${buildTooltip(feature.properties, key)}`, {sticky: true});
         }
     }).addTo(map);
     return layer;
@@ -153,33 +99,13 @@ export async function mapPlotter(data, map, key='') {
 
 export function buildTooltip(props, key) {
     let html = `<div style="font-size: 15px;">
-        <div style="font-weight: bold; text-align: center;">Type: ${props.description || 'Unknown'}</div>
+        <div style="font-weight: bold; text-align: center;">Type: ${props.description || key}</div>
         <hr style="margin: 5px 0 5px 0;">
-    `;
-    let unit = '';
-    if (key === 'river') { unit = ' (m)'; }
+    `, unit = '';
+    if (key === 'River') { unit = ' (m)'; }
     Object.entries(props).forEach(([k, v]) => {
         if (k === "description" || k === "geometry" || k === "id") return;
         html += `<strong>• ${k}:</strong> ${v}${unit}<br>`;
-    });
-    // if (key === 'eklima' || key === 'ntnu' || key === 'nve') {
-    //     html += `
-    //         <div style="font-weight: bold; text-align: center;">Name: ${props.name || 'Unknown'}</div>
-    //         <hr style="margin: 5px 0 5px 0;">
-    //         <strong>• ID:</strong> ${props.id ?? 'Unknown'}<br>
-    //         <strong>• County:</strong> ${props.county ?? 'Unknown'}<br>
-    //         <strong>• Municipality:</strong> ${props.municipality ?? 'Unknown'}<br>
-    //         <strong>• Station Holders:</strong> ${props.stationHolders ?? 'Unknown'}<br>
-    //         <hr style="margin: 5px 0 5px 0;">
-    //         <strong>Click to get weather data</strong>
-    //     `;
-    // }
-    html += `</div>`;
+    }); html += `</div>`;
     return html;
-}
-
-function tableAdjust(props) {
-    return Object.entries(props)
-        .filter(([k]) => k !== "geometry")
-        .map(([_, v]) => v ?? 'Unknown');
 }

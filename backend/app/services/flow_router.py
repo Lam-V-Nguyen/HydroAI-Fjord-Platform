@@ -209,18 +209,45 @@ async def geojson_upload(file: UploadFile = File(...)):
 async def data_upload(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
-        key = body.get('key')
-        if key == "soil":
-            status, content = "ok", []
-            soil_type, soil_depth = flow_functions.soils[0], flow_functions.soils[1]
+        status, key = 'ok', body.get('key')
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_dir = os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName'))
+        if key == "water":
+            water_path = os.path.normpath(os.path.join(flow_dir, 'water_area', body.get('water')))
+            if not os.path.exists(water_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find water area data. Please upload water area first."})
+            gdf = gpd.read_file(water_path)
+            content = json.loads(gdf.to_json())
+        elif key == "soil":
+            soil_type, soil_depth, content = flow_functions.soils[0], flow_functions.soils[1], []
             for soil in soil_type:
                 for depth in soil_depth:
                     content.append([soil, depth, 'cm'])
-        elif key == "land":
-            project_name, _ = functions.project_definer(body.get('projectName'), user)
-            flow_name, land_source = body.get('flowName'), body.get('landSource')
-            if land_source == "corine":
-                flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        elif key == "land-open":
+            land_path = os.path.normpath(os.path.join(flow_dir, 'landcover', 'corine.tif'))
+            if not os.path.exists(land_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find land cover data. Please upload land cover first."})
+            table_path = os.path.normpath(os.path.join(flow_dir, 'landcover', 'corine.csv'))
+            if not os.path.exists(table_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find look up table for land cover data. Please upload land cover first."})
+            df = pd.read_csv(table_path)
+            catchment_path = os.path.normpath(os.path.join(flow_dir, 'catchment', 'catchment.geojson'))
+            if not os.path.exists(catchment_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find catchment data. Please define catchment first."})
+            catchment = gpd.read_file(catchment_path)
+            terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
+            if not os.path.exists(terrain_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."})
+            with rasterio.open(terrain_path) as src:
+                resolution_x, resolution_y = src.res
+                buffer = max(abs(resolution_x), abs(resolution_y))
+                catchment_projected = catchment.to_crs(src.crs)
+                catchment_buffer = catchment_projected.buffer(buffer)
+            gdf = data_functions.raster_vector(land_path, df, catchment_buffer)
+            if len(gdf) == 0: return JSONResponse({'status': 'error', 'message': 'No Land Cover data found.'})
+            content = json.loads(gdf.to_json())
+        elif key == "land-load":
+            if body.get('landSource') == "corine":
                 terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
                 if not os.path.exists(terrain_path):
                     return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain first."})
@@ -236,7 +263,6 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
                     buffer = max(abs(resolution_x), abs(resolution_y))
                     catchment_projected = catchment.to_crs(src.crs)
                     catchment_buffer = catchment_projected.buffer(buffer)
-                
                 profile_writer, NODATA_FLWDR = profile.copy(), 255
                 mask_nan = np.isnan(dem_array) | (dem_array == nodata)
                 # Create land cover nc file
@@ -267,38 +293,17 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
                 lai_path = os.path.normpath(os.path.join(land_dir, "corine_lai.csv"))
                 flow_functions.create_LAI(land_corine, terrain, lai_path, NODATA_FLWDR)
                 # Convert raster to GeoDataFrame
-                with rioxarray.open_rasterio(land_path) as src:
-                    land = src.squeeze(drop=True).load()
-                data, transform = land.values, land.rio.transform()
-                results = (
-                    {'geometry': geom, 'properties': {'value': value}}
-                    for geom, value in shapes(data, transform=transform)
-                )
-                gdf = gpd.GeoDataFrame.from_features(list(results))
+                gdf = data_functions.raster_vector(land_path, df, catchment_buffer)
                 if len(gdf) == 0: return JSONResponse({'status': 'error', 'message': 'No Land Cover data found.'})
-                gdf.set_crs(land.rio.crs, inplace=True)
-                gdf['value'] = gdf['value'].astype(int)
-                # Remove nodata
-                gdf = gdf[~gdf.value.isin([land.rio.nodata])].reset_index(drop=True)
-                # Assign values to landcover
-                gdf = gdf.merge(df, left_on='value', right_on='corine', how='left')
-                gdf = gdf.rename(columns={'value': 'id'})
-                if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
-                # Clip to catchment
-                gdf = gpd.clip(gdf, catchment_buffer)
-                print(gdf)
                 content = json.loads(gdf.to_json())
         elif key == "water-body":
-            project_name, _ = functions.project_definer(body.get('projectName'), user)
-            flow_name, file_name = body.get('flowName'), body.get('waterArea')
-            flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, 'water_area'))
-            water_path = os.path.normpath(os.path.join(flow_dir, file_name))
+            water_path = os.path.normpath(os.path.join(flow_dir, 'water_area', body.get('waterArea')))
             if not os.path.exists(water_path):
                 return JSONResponse({'status': 'error', 'message': 'No water area data found. Please upload water area first.'})
             gdf = gpd.read_file(water_path)
             if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
             content = json.loads(gdf.to_json())
-        return JSONResponse({'status': 'ok', 'content': content})
+        return JSONResponse({'status': status, 'content': content})
     except Exception as e:
         print('/data_upload:\n==============')
         traceback.print_exc()

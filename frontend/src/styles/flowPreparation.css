@@ -173,3 +173,8 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
   padding: 4px; border: 1px solid #ccc;
   box-sizing: border-box; resize: none; overflow: auto;
 }
+
+.popup-content {
+  max-height: 200px; overflow-y: auto; overflow-x: auto;
+  overflow-wrap: anywhere; padding-right: 5px;
+}
