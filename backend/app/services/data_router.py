@@ -1,15 +1,13 @@
-import os, pickle, json, traceback, threading, requests
-import shutil, rasterio, ast
+import os, pickle, json, traceback, threading, requests, ast
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions, hyd_functions, flow_functions
-from config import PROJECT_ROOT, SOURCE_BACKEND, WHITEBOX_DIR
+from config import PROJECT_ROOT, WHITEBOX_DIR
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
 from shapely.geometry import box
-from rasterio.warp import transform_bounds
 from rio_tiler.io import Reader
 from rio_tiler.colormap import cmap
 from rio_tiler.utils import render
@@ -539,7 +537,7 @@ async def upload_terrain(projectName: str = Form(...), folder: str = Form(...),
     try:
         project_name, _ = functions.project_definer(projectName, user)
         dem_dir = os.path.join(PROJECT_ROOT, project_name, folder)
-        if not os.path.exists(dem_dir): os.mkdir(dem_dir, exist_ok=True)
+        if not os.path.exists(dem_dir): os.makedirs(dem_dir, exist_ok=True)
         terrain_path = os.path.normpath(os.path.join(dem_dir, f"{fileName}.tif"))
         raw_dir = os.path.normpath(os.path.join(dem_dir, 'raw'))
         os.makedirs(raw_dir, exist_ok=True)

@@ -141,15 +141,13 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
 }
 .field-row label {
   flex: 0 0 110px; font-weight: 500; width: 100px;
-  color: #333; text-align: left; margin: 0 0 0 20px;
+  color: #333; text-align: left;
 }
 .field-row .input-with-icon {
   flex: 1; position: relative;
   min-width: 0; margin-bottom: 0;
 }
-.field-row .input-with-icon input {
-  width: 100%; padding-right: 38px;  box-sizing: border-box;
-}
+
 .field-row .input-with-icon .toggle-password {
   position: absolute; right: 8px; top: 50%;
   transform: translateY(-50%);

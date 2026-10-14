@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
     <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
     <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
 </head>
+
 <body>
     <div class="wrapper">
         <div class="page-title">
@@ -29,7 +31,7 @@
                     <button class="tab-btn" data-tab="land-tab">Land Cover</button>
                     <button class="tab-btn" data-tab="river-network-tab">River Network</button>
                     <button class="tab-btn" data-tab="weather-data-tab">Weather Data</button>
-                    
+
                 </div>
             </div>
             <div class="tabs-content">
@@ -55,7 +57,8 @@
                                     <input type="text" id="terrain-input-text" placeholder="No file selected" readonly>
                                     <button type="button" id="terrain-btn" style="min-width: 100px;">Upload File (*.tif)</button>
                                 </div>
-                                <div class="field-inline" id="download-container" style="margin-top: -20px; display: none;">
+                                <div class="field-inline" id="download-container"
+                                    style="margin-top: -20px; display: none;">
                                     <div class="field-inline">
                                         <button type="button" id="flow-draw-btn">Select Area</button>
                                         <input type="text" id="flow-top-left" placeholder="Top-left Corner">
@@ -79,10 +82,12 @@
                                     <div class="field-inline" style="margin-top: 5px;">
                                         <a style="margin-top: 0; font-size: 13px;">References:</a>
                                         <a class="data-link" style="font-size: 13px; color: aqua; margin-top: 0;"
-                                            href="https://kartkatalog.geonorge.no/metadata?DistributionProtocols=WCS-tjeneste&organizations=Kartverket&theme=H%C3%B8ydedata&type=service" target="_blank">WCS Services,
+                                            href="https://kartkatalog.geonorge.no/metadata?DistributionProtocols=WCS-tjeneste&organizations=Kartverket&theme=H%C3%B8ydedata&type=service"
+                                            target="_blank">WCS Services,
                                         </a>
                                         <a class="data-link" style="font-size: 13px; color: aqua; margin-top: 0;"
-                                            href="https://www.kartverket.no/programoppdatering/Fysak_main/Fysak_Hjelp_Beta/Fysak_pdf_1.html" target="_blank">FYSAK Beta manual
+                                            href="https://www.kartverket.no/programoppdatering/Fysak_main/Fysak_Hjelp_Beta/Fysak_pdf_1.html"
+                                            target="_blank">FYSAK Beta manual
                                         </a>
                                     </div>
                                 </div>
@@ -150,7 +155,6 @@
                                     <label for="water-area">Lake/Pond etc.,:</label>
                                     <input type="text" id="water-input-text" placeholder="Water area">
                                     <input type="file" id="water-input-file" accept=".geojson" hidden>
-                                    
                                 </div>
                                 <div class="field-inline" style="gap: 20px;">
                                     <button id="water-upload-btn">Upload File (*.geojson)</button>
@@ -158,9 +162,7 @@
                                         <input type="checkbox" id="water-checkbox">
                                         <label for="water-checkbox">Show/Hide Water Layer</label>
                                     </div>
-                                    <button id="water-delete-btn" 
-                                        style="color:yellow; font-weight: bold;">Delete
-                                    </button>
+                                    <button id="water-delete-btn" style="color:yellow; font-weight: bold;">Delete</button>
                                 </div>
                             </div>
                         </div>
@@ -194,40 +196,35 @@
                                 </div>
                                 <div class="field-inline" style="margin-top: -15px;">
                                     <a style="margin-top: 12px;">References:</a>
-                                    <a class="data-link" href="https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_2017.html"
-                                        target="_blank">SoilGrids-2017,
+                                    <a class="data-link"
+                                        href="https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_2017.html" target="_blank">SoilGrids-2017,
                                     </a>
-                                    <a class="data-link" href="https://soilgrids.org/"
-                                        target="_blank">SoilGrids,
-                                    </a>
-                                    <a class="data-link" href="https://data.isric.org/geonetwork/srv/eng/catalog.search#/home"
-                                        target="_blank">SoilGrids - Data Hub
+                                    <a class="data-link" href="https://soilgrids.org/" target="_blank">SoilGrids,</a>
+                                    <a class="data-link"
+                                        href="https://data.isric.org/geonetwork/srv/eng/catalog.search#/home" target="_blank">SoilGrids - Data Hub
                                     </a>
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 3;"><h3>Attribute Table</h3>
+                        <div class="tile" style="grid-column: span 3;">
+                            <h3>Attribute Table</h3>
                             <div class="row">
                                 <table class="attributes-table" id="soil-attributes-table" style="margin-top: -5px;">
                                     <thead><tr><th>Soil Type</th><th>Depth (cm)</th><th>Value</th></tr></thead>
-                                    <tbody>
-                                        <tr>
-                                            <td><input type="text" placeholder="Soil type"></td>
-                                            <td><input type="text" placeholder="Soil depth"></td>
-                                            <td><input type="text" placeholder="Value"></td>
-                                        </tr>
-                                    </tbody>
+                                    <tbody><tr>
+                                        <td><input type="text" placeholder="Soil type"></td>
+                                        <td><input type="text" placeholder="Soil depth"></td>
+                                        <td><input type="text" placeholder="Value"></td>
+                                    </tr></tbody>
                                 </table>
-                                <div class="log-container" id="soil-download"
-                                    style="height: 230px; display: none;">
-                                    <textarea wrap="off" class="log-text" id="soil-download-text"
-                                        placeholder="Log..." readonly></textarea>
+                                <div class="log-container" id="soil-download" style="height: 230px; display: none;">
+                                    <textarea wrap="off" class="log-text" id="soil-download-text" placeholder="Log..." readonly></textarea>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <!-- Tab 3: Land Cover -->
+                <!-- Tab 4: Land Cover -->
                 <div class="tabpanel main-panel" data-panel="land-tab">
                     <div class="grid">
                         <div class="tile" style="grid-column: span 3;"><h3>Land Cover Import</h3>
@@ -268,7 +265,8 @@
                             <div class="row">
                                 <h4 class="section-title">• Copernicus Land Monitoring Service (CLMS)</h4>
                                 <ul class="data-list">
-                                    <li><a class="data-link" href="https://land.copernicus.eu/en/products/corine-land-cover"
+                                    <li><a class="data-link"
+                                        href="https://land.copernicus.eu/en/products/corine-land-cover"
                                         target="_blank">CORINE Land Cover</a>
                                     </li>
                                     <li><a class="data-link" href="https://search.earthdata.nasa.gov"
@@ -282,12 +280,13 @@
                         </div>
                     </div>
                 </div>
-                <!-- Tab 4: River Network -->
+                <!-- Tab 5: River Network -->
                 <div class="tabpanel main-panel" data-panel="river-network-tab">
                     <div class="grid">
                         <div class="tile" style="grid-column: span 2;"><h3>River Import</h3>
                             <div class="row">
-                                <div class="field-inline" style="justify-content: space-around; margin: -10px 0 -10px 0;">
+                                <div class="field-inline"
+                                    style="justify-content: space-around; margin: -10px 0 -10px 0;">
                                     <div class="row-radio">
                                         <input type="radio" name="river" value="river-vector" id="river-vector" checked>
                                         <label for="river-vector">Upload River (Vector)</label>
@@ -333,30 +332,26 @@
                                     <select id="river-id"></select>
                                 </div>
                                 <div class="field-inline">
-                                    <button type="button" id="river-delete-btn" 
+                                    <button type="button" id="river-delete-btn"
                                         style="background-color: azure; color: rgb(255, 2, 2);">Delete selected segment
                                     </button>
                                     <button type="button" id="river-assign-btn">Save selected segment</button>
                                 </div>
                                 <div class="field-inline">
-                                    <button type="button" id="river-save-project-btn">Save Valid Segments to Project</button>
-                                    <button type="button" id="river-save-file-btn">Export Valid Segments</button>
+                                    <button type="button" id="river-save-btn">Save River to Project</button>
+                                    <button type="button" id="river-export-file-btn">Export Rivers</button>
                                 </div>
                             </div>
                         </div>
                         <div class="tile" id="river-table-container" style="grid-column: span 2;"><h3>River Segments</h3>
                             <div class="row">
                                 <table class="attributes-table" id="river-table" style="margin-top: -5px;">
-                                    <thead><tr>
-                                        <th>Segment</th><th>Width (m)</th><th>Depth (m)</th>
-                                    </tr></thead>
-                                    <tbody>
-                                        <tr>
-                                            <td><input type="text" placeholder="Segment ID"></td>
-                                            <td><input type="text" placeholder="Width"></td>
-                                            <td><input type="text" placeholder="Depth"></td>
-                                        </tr>
-                                    </tbody>
+                                    <thead><tr><th>Segment</th><th>Width (m)</th><th>Depth (m)</th></tr></thead>
+                                    <tbody><tr>
+                                        <td><input type="text" placeholder="Segment ID"></td>
+                                        <td><input type="text" placeholder="Width"></td>
+                                        <td><input type="text" placeholder="Depth"></td>
+                                    </tr></tbody>
                                 </table>
                             </div>
                         </div>
@@ -366,53 +361,65 @@
                 <div class="tabpanel main-panel" data-panel="weather-data-tab">
                     <div class="grid">
                         <div class="tile" style="grid-column: span 2;"><h3 style="margin-top: 10px;">Weather Data Import</h3>
-                            <label class="row-radio">
-                                <input type="radio" name="weather" value="weather-csv" checked>Upload from CSV file
-                            </label>
-                            <label class="row-radio">
-                                <input type="radio" name="weather" value="weather-station">Get from a Weather Station
-                            </label>
-                            <div class="row" id="weather-csv-container">
-                                <label for="weather-input">CSV Data:</label>
-                                <input type="file" id="weather-input-file" accept=".csv" hidden>
-                                <input type="text" id="weather-input-text" placeholder="No file selected" readonly>
-                                <button type="button" id="weather-btn" style="min-width: 100px;">Select File (*.csv)</button>
-                            </div>
-                            <div class="row" id="weather-station-container" style="display: none;">
-                                <label for="weather-station">Source:</label>
-                                <select id="weather-station" style="width: 100%;">
-                                    <option value="" selected>--- Select a source ---</option>
-                                    <option value="era5">Climate Data Store - ERA5</option>
-                                </select>
-                            </div>
-                            <div class="row" id="weather-catchment-container" style="display: none;">
-                                <button type="button" id="weather-catchment-btn">Upload Catchment (*.geojson)</button>
-                            </div>
-                            <div class="row" id="weather-station-start" style="display: none;">
-                                <label for="weather-start-date">Start Time:</label>
-                                <input type="text" class="datetime" id="weather-start-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
-                            </div>
-                            <div class="row" id="weather-station-end" style="display: none;">
-                                <label for="weather-end-date">End Time:</label>
-                                <input type="text" class="datetime" id="weather-end-date" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
-                            </div>
                             <div class="row">
-                                <button type="button" id="weather-download-btn" 
-                                    style="margin-left: 10px; display: none; justify-content: center;">Download Weather Data
-                                </button>
-                            </div>
-                            <div class="row" id="weather-source-container">
-                                <a style="margin-top: 8px;">References:</a>
-                                <a class="data-link" href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
-                                    target="_blank">ERA5 - Hourly Data
-                                </a>
+                                <div class="field-inline" style="justify-content: space-around; margin-top: -10px;">
+                                    <div class="row-radio">
+                                        <input type="radio" id="weather-station" name="weather" value="weather-station" checked>
+                                        <label for="weather-station">Get from a Weather Station</label>
+                                    </div>
+                                    <div class="row-radio">
+                                        <input type="radio" id="weather-csv" name="weather" value="weather-csv">
+                                        <label for="weather-csv">Upload from CSV file</label>
+                                    </div>
+                                </div>
+                                <div class="field-inline" style="margin-top: -10px;" id="weather-station-container">
+                                    <div class="field-inline">
+                                        <label for="weather-station">Source:</label>
+                                        <select id="weather-station" style="width: 100%;">
+                                            <option value="" selected>--- Please select---</option>
+                                            <option value="era5">Climate Data Store - ERA5</option>
+                                        </select>
+                                    </div>
+                                    <div class="field-row">
+                                        <label for="era5-api-key">API Key:</label>
+                                        <div class="input-with-icon">
+                                            <input type="password" id="era5-api-key">
+                                            <button type="button" data-target="era5-api-key"
+                                                class="toggle-password">👁️</button>
+                                        </div>
+                                    </div>
+                                    <div class="field-inline">
+                                        <label for="weather-start-date">Start Time:</label>
+                                        <input type="text" class="datetime" id="weather-start-date"
+                                            placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                    </div>
+                                    <div class="field-inline">
+                                        <label for="weather-end-date">End Time:</label>
+                                        <input type="text" class="datetime" id="weather-end-date"
+                                            placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                    </div>
+                                    <button type="button" id="weather-download-btn">Download Weather Data</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: -10px; display: none;" id="weather-csv-container">
+                                    <label for="weather-input">CSV Data:</label>
+                                    <input type="file" id="weather-input-file" accept=".csv" hidden>
+                                    <input type="text" id="weather-input-text" placeholder="No file selected" readonly>
+                                    <button type="button" id="weather-btn" style="min-width: 100px;">Select File (*.csv)</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: -10px;">
+                                    <a style="margin-top: 10px;">References:</a>
+                                    <a class="data-link"
+                                        href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
+                                        target="_blank">ERA5 - Hourly Data
+                                    </a>
+                                </div>
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 6;">
                             <div class="row" id="weather-table-container" style="margin-top: -5px;">
                                 <div class="row"><h3 style="margin-top: 5px;">Attribute Table</h3>
-                                    <div style="margin-top: -10px;">
-                                        <label for="weather-interval">Interval:</label>
+                                    <div style="margin-top: -10px;" id="interval-container">
+                                        <label for="weather-interval" style="margin-top: 10px;">Interval:</label>
                                         <select id="weather-interval" style="max-width: 300px;">
                                             <option value="1H" selected>Hourly</option>
                                             <option value="1D">Daily</option>
@@ -420,40 +427,40 @@
                                             <option value="1M">Monthly</option>
                                         </select>
                                     </div>
-                                    <button type="button" id="weather-save-btn" 
+                                    <button type="button" id="weather-save-btn"
                                         style="max-width: 250px; margin-left: 10px; margin-top: -10px;">Save Data to netcdf (*.nc)
                                     </button>
                                 </div>
-                                <div class="table-container">
-                                    <table class="attributes-table" id="weather-table" style="margin-top: -10px;">
-                                        <thead><tr>
-                                            <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th><th>Shortwave Radiation (W/m²)</th>
-                                            <th>Longwave Radiation (W/m²)</th><th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
-                                        </tr></thead>
-                                        <tbody>
-                                            <tr>
-                                                <td><input type="text" placeholder="Time"></td>
-                                                <td><input type="text" placeholder="Precipitation"></td>
-                                                <td><input type="text" placeholder="Temperature"></td>
-                                                <td><input type="text" placeholder="Shortwave Radiation"></td>
-                                                <td><input type="text" placeholder="Longwave Radiation"></td>
-                                                <td><input type="text" placeholder="Wind Speed"></td>
-                                                <td><input type="text" placeholder="Pressure"></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
                             </div>
-                            <div class="row" id="weather-download-container">
-                                <h3 style="margin: 10px 0 -20px 0;">Download Progress</h3>
-                                <div class="row">
-                                    <a style="margin-top: 10px;">References:</a>
+                            <div class="table-container" id="weather-table">  
+                                <table class="attributes-table">
+                                    <thead> <tr>
+                                        <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th>
+                                        <th>Shortwave Radiation (W/m²)</th><th>Longwave Radiation (W/m²)</th>
+                                        <th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
+                                    </tr></thead>
+                                    <tbody><tr>
+                                        <td><input type="text" placeholder="YYYY-mm-dd HH:mm:ss"></td>
+                                        <td><input type="text" placeholder="Precipitation"></td>
+                                        <td><input type="text" placeholder="Temperature"></td>
+                                        <td><input type="text" placeholder="Shortwave Radiation"></td>
+                                        <td><input type="text" placeholder="Longwave Radiation"></td>
+                                        <td><input type="text" placeholder="Wind Speed"></td>
+                                        <td><input type="text" placeholder="Pressure"></td>
+                                    </tr></tbody>
+                                </table>
+                            </div>
+                            <div class="log-container" id="weather-download-container" style="display: none;">
+                                <div class="field-inline">
+                                    <a style="margin: 20px 0 5px 0;">References:</a>
                                     <a class="data-link" href="#"
                                         onclick="window.open('/src_frontend/pdfs/CropEvapotranspiration.pdf', '_blank'); return false;"
                                         target="_blank">Allen et al., (1998): Crop Evapotranspiration – FAO Irrigation and Drainage Paper 56
                                     </a>
                                 </div>
-                                <textarea wrap="off" id="weather-download-text" placeholder="Download progress..." readonly></textarea>
+                                <textarea wrap="off" class="log-text" id="weather-download-text"
+                                    style="margin-top: 10px; height: 250px;" placeholder="Download progress..." readonly>
+                                </textarea>
                             </div>
                         </div>
                     </div>
@@ -508,4 +515,5 @@
     </script>
     <script type="module" src="/src_frontend/services/flowManager.js"></script>
 </body>
+
 </html>

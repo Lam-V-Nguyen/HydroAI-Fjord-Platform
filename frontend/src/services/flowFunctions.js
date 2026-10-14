@@ -1,14 +1,13 @@
 import { highlightColor } from "./constant.js";
-import { signalSender } from "./commonFunctions.js";
 
-export function setElementsEnabled(enabled, ...elements) { 
+export function setElementsEnabled(enabled, ...elements) {
     elements.forEach(e => {
         e.style.pointerEvents = enabled ? 'auto' : 'none';
         e.style.opacity = enabled ? '1' : '0.4';
     });
 }
 
-export function setElementsDisplayed(display, ...elements) { 
+export function setElementsDisplayed(display, ...elements) {
     elements.forEach(e => {
         e.style.display = display ? 'flex' : 'none';
     });
@@ -22,7 +21,7 @@ export function isInvalidNumber(value) {
 }
 
 export async function geoJSONExporter(data, fileName) {
-    try { 
+    try {
         const json = JSON.stringify(data, null, 2);
         if ('showSaveFilePicker' in window) {
             // --- Chrome/Edge/Opera ---
@@ -42,7 +41,7 @@ export async function geoJSONExporter(data, fileName) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url; a.download = fileName;
-            document.body.appendChild(a); 
+            document.body.appendChild(a);
             setTimeout(() => a.click(), 0);
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
@@ -79,10 +78,10 @@ export async function mapPlotter(data, map, key) {
                     { maxWidth: 400, maxHeight: 200 }
                 );
             } else { content = buildTooltip(feature.properties, key); }
-            if (isRiver) { 
+            if (isRiver) {
                 content += `<hr style="margin: 5px 0 5px 0;">
                     <div style="display: block; text-align: center; font-size: 14px;">Click to edit river's properties</div>
-                `; 
+                `;
             }
             // Show tooltip when hovering
             featureLayer.bindTooltip(content, { sticky: true, direction: 'bottom' });

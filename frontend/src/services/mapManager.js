@@ -1,6 +1,6 @@
 import { CENTER, ZOOM, L, getPendingRequest, clearPendingRequest, origin } from "./constant.js";
 import { signalSender, jsonLoader } from "./commonFunctions.js";
-import { mapPlotter, buildTooltip, isInvalidNumber } from "./flowFunctions.js";
+import { mapPlotter, buildTooltip } from "./flowFunctions.js";
 
 const layerConfig = {
     terrainLayer: {
@@ -10,12 +10,12 @@ const layerConfig = {
     },
     streamLayer: {
         getLayer: () => streamLayer, setLayer: (l) => streamLayer = l,
-        title: 'Streams', colorKey: 'terrain', min: 0, max: 1, 
+        title: 'Streams', colorKey: 'terrain', min: 0, max: 1,
         alert: 'Please upload terrain data first.'
     },
     soilLayer: {
         getLayer: () => streamLayer, setLayer: (l) => streamLayer = l,
-        title: 'Soil', colorKey: 'terrain', min: 0, max: 0, 
+        title: 'Soil', colorKey: 'terrain', min: 0, max: 0,
         alert: 'Please upload soil data first.'
     },
     catchmentLayer_Vector: {
@@ -40,23 +40,23 @@ const layerConfig = {
     }
 }
 
-const mapping = {river: {key: 'river', fields: ['Width','Depth']}};
+const mapping = { river: { key: 'river', fields: ['Width', 'Depth'] } };
 
 
 export let currentMap;
-let currentTileLayer = null, timeCounter = null, html='', markersObs = [], 
-    markerCrossSection = [], currentPoints = [], markerBoundary = [], 
-    pathCrossSection = null, pathBoundary = null, currentPointsCross = [], 
+let currentTileLayer = null, timeCounter = null, html = '', markersObs = [],
+    markerCrossSection = [], currentPoints = [], markerBoundary = [],
+    pathCrossSection = null, pathBoundary = null, currentPointsCross = [],
     currentPointsBoundary = [], waqObs = [], waqLoads = [], mapContainer = null,
     markerLayer = null, terrainLayer = null, streamLayer = null, gridLayer = null,
     isPourpointActive = false, lastLayer = null, layer = null;
-const configCrossSectionPoint = { color: 'blue', fillColor: 'yellow', radius: 4, fill: true, fillOpacity: 1 }, 
-    configBoundaryPoint = { color: 'red', fillColor: 'green', radius: 4, fill: true, fillOpacity: 1 }, 
-    configCrossSectionPath = { color: 'blue', weight: 2, dashArray: '5,5' }, 
-    configBoundaryPath = {color: 'red', weight: 2};
+const configCrossSectionPoint = { color: 'blue', fillColor: 'yellow', radius: 4, fill: true, fillOpacity: 1 },
+    configBoundaryPoint = { color: 'red', fillColor: 'green', radius: 4, fill: true, fillOpacity: 1 },
+    configCrossSectionPath = { color: 'blue', weight: 2, dashArray: '5,5' },
+    configBoundaryPath = { color: 'red', weight: 2 };
 
 const hoverTooltip = L.tooltip({
-    permanent: false, direction: 'bottom', sticky: true, 
+    permanent: false, direction: 'bottom', sticky: true,
     offset: [0, 10], className: 'custom-tooltip'
 });
 
@@ -86,16 +86,16 @@ function lineAdd(pointContainer, map, lineType) {
         })
         .filter(Boolean);
     if (latlngs.length < 2) return;
-    if (lineType === 'crossSection') { 
+    if (lineType === 'crossSection') {
         pathCrossSection = L.polyline(latlngs, configCrossSectionPath).addTo(map);
         currentMap.fitBounds(pathCrossSection.getBounds());
-    } else if (lineType === 'boundary') { 
-        pathBoundary = L.polyline(latlngs, configBoundaryPath).addTo(map); 
+    } else if (lineType === 'boundary') {
+        pathBoundary = L.polyline(latlngs, configBoundaryPath).addTo(map);
         currentMap.fitBounds(pathBoundary.getBounds());
     }
 }
 
-export async function renderPreview(request=null) {
+export async function renderPreview(request = null) {
     currentPoints.length = 0; if (!request) return;
     const type = request.type, requestId = request.requestId;
     if (requestId === 'updateObsPoint') {
@@ -111,7 +111,7 @@ export async function renderPreview(request=null) {
             pathCrossSection.remove(); pathCrossSection = null;
         }
         if (markerCrossSection.length > 0) {
-            markerCrossSection.forEach(marker => marker.remove()); 
+            markerCrossSection.forEach(marker => marker.remove());
             markerCrossSection.length = 0;
         }
         currentPointsCross.length = 0; currentPoints.length = 0;
@@ -120,19 +120,19 @@ export async function renderPreview(request=null) {
             pathBoundary.remove(); pathBoundary = null;
         }
         if (markerBoundary.length > 0) {
-            markerBoundary.forEach(marker => marker.remove()); 
+            markerBoundary.forEach(marker => marker.remove());
             markerBoundary.length = 0;
         }
-        currentPointsBoundary.length = 0; currentPoints.length = 0;    
+        currentPointsBoundary.length = 0; currentPoints.length = 0;
     } else if (requestId === 'waqPoint' || requestId === 'loadsPoint') {
         let iconUrl = null;
         if (requestId === 'waqPoint') {
-            iconUrl =`/src_frontend/images/waq_obs.png?v=${Date.now()}`;
+            iconUrl = `/src_frontend/images/waq_obs.png?v=${Date.now()}`;
             waqObs.forEach(marker => marker.remove()); waqObs.length = 0;
             iconAdd(iconUrl, waqObs, currentMap, request.content.rows);
         } else {
-            iconUrl =`/src_frontend/images/waq_loads.png?v=${Date.now()}`;
-            waqLoads.forEach(marker => marker.remove()); waqLoads.length = 0; 
+            iconUrl = `/src_frontend/images/waq_loads.png?v=${Date.now()}`;
+            waqLoads.forEach(marker => marker.remove()); waqLoads.length = 0;
             iconAdd(iconUrl, waqLoads, currentMap, request.content.rows);
         }
     } else if (requestId === 'gridPlot') {
@@ -145,191 +145,81 @@ export async function renderPreview(request=null) {
         signalSender('hideOverlay'); gridLayer = clearMap(gridLayer, currentMap);
         if (data.status === "error") { alert(data.message); return; }
         gridLayer = L.geoJSON(data.content, {
-            style: { 
-                color: 'black', weight: 1, fillColor: 'transparent', 
-                fillOpacity: 0.2 , opacity: request.content.opacity
+            style: {
+                color: 'black', weight: 1, fillColor: 'transparent',
+                fillOpacity: 0.2, opacity: request.content.opacity
             },
-        }).addTo(currentMap); 
-    } else if (type === 'flowOptions') {
-        const key = request.content.key;
-        const content = { requestId: request.content.requestId }
-        if (key === 'drawLayer') {
-            const layerKey = request.content.layerKey;
-            content.checked = null; content.ok = true; content.message = null;
-            const config = layerConfig[layerKey];
-            const colorBar = document.querySelector('.custom-colorbar');
-            if (!colorBar) { 
-                content.message = 'Colorbar not found'; 
-                signalSender('updateUIState', content); return; 
-            }
-            if (!config) {
-                content.message = 'Layer not found';
-                signalSender('updateUIState', content); return;
-            }
-            if (layerKey.includes('_Vector')) config.setData(request.content.data);
-            // Hide all layers
-            if (request.content.reset) resetMap(currentMap);
-            const existing = config.getLayer();
-            if (existing && !request.content.data) {
-                existing.addTo(currentMap);
-                if (layerKey.includes('_Vector')) { colorBar.style.display = 'none';
-                } else { 
-                    colorbarReset(colorBar, config.min, config.max, config.title, config.colorKey);
-                    colorBar.style.display = 'flex'; 
-                }
-            } else {
-                if (layerKey.includes('_Vector')) {
-                    lastLayer = L.geoJSON(
-                        config.getData(), { style: { color: 'red', weight: 2, opacity: 1 }}
-                    );
-                    colorBar.style.display = 'none';
-                } else {
-                    lastLayer = L.tileLayer(request.content.data, {tileSize: 256, opacity: 1 })
-                    colorbarReset(
-                        colorBar, request.content.min, request.content.max, config.title, config.colorKey
-                    );
-                    colorBar.style.display = 'flex';
-                }
-                config.setLayer(lastLayer); config.min = request.content.min; 
-                config.max = request.content.max; lastLayer.addTo(currentMap);
-            }
-            signalSender('updateUIState', content); return;
-        
-        } else if (key === 'assignType') {
-            const config = layerConfig[request.content.layerKey];
-            const id = request.content.id, type = request.content.type;
-            const objType = mapping[type];
-            if (!config) {
-                content.message = 'Layer not found';
-                signalSender('updateUIState', content); return;
-            }
-            signalSender('showOverlay', `Assigning river attribute to the selected polygon.\nPlease wait...`);
-            let data = JSON.parse(JSON.stringify(config.getData()));
-            data.features = data.features.map(f => {
-                if (Number(f.properties.description) === Number(id)) {
-                    const values = request.content.data.slice(1).map(v => Number(v));
-                    if (objType) {
-                        objType.fields.forEach((field, i) => {
-                            f.properties[field] = values[i];
-                        });
-                    }
-                    values.unshift(id); content.ids = [id]; content.data = [values];
-                    alert(`River "${id}" was registered successfully.`);
-                }
-                return f;
-            }); config.setData(data);
-            const oldLayer = config.getLayer();
-            if (oldLayer) currentMap.removeLayer(oldLayer);
-            lastLayer = await mapPlotter(data, currentMap, type);
-            config.setLayer(lastLayer);
-            const existing = config.getLayer();
-            existing.eachLayer((layer) => { 
-                if (Number(layer.feature.properties.description) === Number(id)) {
-                    layer.setStyle({ color: 'green', weight: 3, fillOpacity: 0.8, fillColor: 'green' });
-                }
-                if (layer.getTooltip()) {
-                    layer.getTooltip().setContent(buildTooltip(layer.feature.properties, type));
-                }
-            }); 
-            config.setLayer(existing); existing.addTo(currentMap);
-            signalSender('hideOverlay'); signalSender('updateUIState', content); return;
-        } else if (key === 'deleteItem') {
-            const layerKey = request.content.layerKey;
-            const id = request.content.id, type = request.content.type;
-            const config = layerConfig[layerKey]; let checked = false;
-            if (!config) {
-                content.message = 'Layer not found';
-                signalSender('updateUIState', content); return;
-            }
-            const existing = config.getLayer();
-            existing.eachLayer((layer) => { 
-                if (Number(layer.feature.properties.description) === Number(id)) {
-                    layer.remove(); existing.removeLayer(layer); checked = true;
-                }
-                if (layer.getTooltip()) {
-                    layer.getTooltip().setContent(buildTooltip(layer.feature.properties, type));
-                }
-            });
-            if (checked) { alert(`Segment "${id}" was deleted from the river layer.`); }
-            config.setLayer(existing);
-            signalSender('updateUIState', content); return;
-        }
-
-
-
-        signalSender('updateUIState', content);
+        }).addTo(currentMap);
+    
     }
 }
 
-// function colorbarReset(colorBar, vmin, vmax, title, colorKey) {
-//     const colorbarTitle = colorBar.querySelector(".colorbar-title");
-//     const colorbarColor = colorBar.querySelector(".colorbar-gradient");
-//     const colorbarLabel = colorBar.querySelector(".colorbar-labels");
-//     updateColorbar(vmin, vmax, title, colorKey, colorbarColor, colorbarTitle, colorbarLabel);
-//     colorBar.style.display = 'flex';
-// }
-
-export function initMap(mapId='map') { 
+export function initMap(mapId = 'map') {
     currentMap = L.map(`leaflet-${mapId}`, {
-        center:CENTER, zoom: ZOOM, zoomControl: false, attributionControl: true, preferCanvas: true
-    }); 
-    currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(currentMap); 
+        center: CENTER, zoom: ZOOM, zoomControl: false, attributionControl: true, preferCanvas: true
+    });
+    currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(currentMap);
     // Add scale bar 
-    L.control.scale({imperial: false, metric: true, maxWidth: 200}).addTo(currentMap); 
+    L.control.scale({ imperial: false, metric: true, maxWidth: 200 }).addTo(currentMap);
     setTimeout(() => currentMap.invalidateSize(), 100);
     markerLayer = L.layerGroup().addTo(currentMap);
     // Prepare base map
     const container = document.querySelector(`#leaflet-${mapId}`);
-    const baseMapBtn = container.querySelector('.leaflet-basemap-btn'); 
-    const baseMapPopup = container.querySelector('.basemap-popup'); 
-    baseMapBtn.addEventListener('mouseenter', () => { 
-        baseMapPopup.classList.add('show'); clearTimeout(timeCounter); 
+    const baseMapBtn = container.querySelector('.leaflet-basemap-btn');
+    const baseMapPopup = container.querySelector('.basemap-popup');
+    baseMapBtn.addEventListener('mouseenter', () => {
+        baseMapPopup.classList.add('show'); clearTimeout(timeCounter);
         // Hide the popup after 4 seconds 
         timeCounter = setTimeout(() => {
             baseMapPopup.classList.remove('show');
         }, 4000);
-    }); 
+    });
     // Change base map 
-    baseMapPopup.addEventListener('click', (e) => { 
-        if (e.target.classList.contains('basemap-option')) { 
-            const url = e.target.dataset.url; 
-            currentTileLayer.setUrl(url); 
-            baseMapPopup.classList.remove('show'); 
-        } 
+    baseMapPopup.addEventListener('click', (e) => {
+        if (e.target.classList.contains('basemap-option')) {
+            const url = e.target.dataset.url;
+            currentTileLayer.setUrl(url);
+            baseMapPopup.classList.remove('show');
+        }
     });
     mapContainer = currentMap.getContainer();
-    currentMap.on('mousemove', async (e) => { 
-        const req = getPendingRequest(); 
+    currentMap.on('mousemove', async (e) => {
+        const req = getPendingRequest();
         if (!req) return;
         if (req.requestId === 'waqUpdate' || req.requestId === 'loadsUpdate') return;
         mapContainer.style.cursor = 'crosshair';
-        if (req.requestId === 'pickLocation') { html = 'Pick average latitude';
-        } else if (req.requestId === 'pickPoint') { html = 'Select an HYD point';
+        if (req.requestId === 'pickLocation') {
+            html = 'Pick average latitude';
+        } else if (req.requestId === 'pickPoint') {
+            html = 'Select an HYD point';
         } else if (req.requestId === 'pickPath') {
             html = `
             - Click the left mouse button to select points.<br>
             - Right-click to finish the selection.<br>
             - Number of points must be at least 2.<br>
             `;
-        } else if (req.requestId === 'pickSource') { html = 'Select a HYD source';
-        } else if (req.requestId === 'waqPoint') { 
+        } else if (req.requestId === 'pickSource') {
+            html = 'Select a HYD source';
+        } else if (req.requestId === 'waqPoint') {
             html = 'Select a WAQ observation point.<br>Point must be inside the area covered by the grid.';
-        } else if (req.requestId === 'loadsPoint') { 
+        } else if (req.requestId === 'loadsPoint') {
             html = 'Select a WAQ load point.<br>Point must be inside the area covered by the grid.';
-        } else if (req.requestId === 'drawChecked') { html = 'Draw a polygon using the left mouse button.';
-        } else if (req.requestId === 'updateObsPoint') { 
+        } else if (req.requestId === 'drawChecked') {
+            html = 'Draw a polygon using the left mouse button.';
+        } else if (req.requestId === 'updateObsPoint') {
             mapContainer.style.cursor = 'grab'; return;
         }
         hoverTooltip.setLatLng(e.latlng).setContent(html);
         currentMap.openTooltip(hoverTooltip);
     });
-    currentMap.on('click', (e) => { 
+    currentMap.on('click', (e) => {
         let result = null;
         const req = getPendingRequest(); if (!req) return;
-        if (req.requestId === 'pickLocation') { 
+        if (req.requestId === 'pickLocation') {
             result = Number(e.latlng.lat).toFixed(2);
         } else if (req.requestId === 'pickPoint' || req.requestId === 'pickSource'
-            || req.requestId === 'waqPoint' || req.requestId === 'loadsPoint') { result = e.latlng;
+            || req.requestId === 'waqPoint' || req.requestId === 'loadsPoint') {
+            result = e.latlng;
         } else if (req.requestId === 'pickPath') {
             const isCross = req.lineType === 'crossSection';
             const points = isCross ? currentPointsCross : currentPointsBoundary;
@@ -344,9 +234,10 @@ export function initMap(mapId='map') {
             const marker = L.circleMarker(e.latlng, configPoint).addTo(currentMap);
             markerList.push(marker);
             if (points.length < 2) return;
-            const latlngs = points.map(p => [p.lat, p.lng]); 
+            const latlngs = points.map(p => [p.lat, p.lng]);
             // Draw/update line
-            if (line) { line.setLatLngs(latlngs); line.setStyle(configPath);
+            if (line) {
+                line.setLatLngs(latlngs); line.setStyle(configPath);
             } else {
                 line = L.polyline(latlngs, configPath).addTo(currentMap);
                 if (isCross) { pathCrossSection = line; } else { pathBoundary = line; }
@@ -357,20 +248,20 @@ export function initMap(mapId='map') {
             markerLayer = L.circleMarker(e.latlng, {
                 radius: 4, fillColor: 'blue', color: 'red', weight: 2, opacity: 1, fillOpacity: 1
             }).addTo(currentMap);
-            signalSender('updateUIState', { 
-                requestId: req.requestId, result: result 
+            signalSender('updateUIState', {
+                requestId: req.requestId, result: result
             });
-            currentMap.closeTooltip(hoverTooltip); 
-            isPourpointActive = false; clearPendingRequest(); 
-            
-            
-            
-            
-            
-            
-            
-            
-            
+            currentMap.closeTooltip(hoverTooltip);
+            isPourpointActive = false; clearPendingRequest();
+
+
+
+
+
+
+
+
+
             // if (req.content.key === 'refineChecked' && req.content.checked) {
             //     // if (!currentPoints.includes(feature.properties.id)) { pointContainer.push(feature.properties.id); }
             //     // if (currentPoints.length === 1) { html = "Select end point to refine."; }
@@ -381,7 +272,7 @@ export function initMap(mapId='map') {
             //     // }
             // }
             // console.log(req);
-    
+
 
         }
 
@@ -392,7 +283,7 @@ export function initMap(mapId='map') {
             clearPendingRequest(); mapContainer.style.cursor = 'grab'; currentMap.closeTooltip(hoverTooltip);
         }
     });
-    currentMap.on('contextmenu', async (e) => { 
+    currentMap.on('contextmenu', async (e) => {
         e.originalEvent.preventDefault();
         const req = getPendingRequest(); if (!req) return;
         // Right-click
@@ -401,25 +292,25 @@ export function initMap(mapId='map') {
                 alert("Not enough points selected.\nPlease select at least 02 points."); return;
             }
             req.source.postMessage({ requestId: req.requestId, result: currentPoints }, origin);
-        // } else if (req.requestId === 'drawChecked') {
-        //     if (currentPoints.length < 3) {
-        //         alert("Polygon must have at least 3 points."); return;
-        //     }
-        //     tempLine = clearMap(tempLine, currentMap);
-        //     polygonLayer = clearMap(polygonLayer, currentMap);
-        //     // Plot polygon
-        //     await pointsToPolygon(
-        //         req.content.currentProject, currentPoints, polygonLayer, 
-        //         pointLayer, currentMap, req.content.action
-        //     ); 
-        //     // drawChecked = false;
+            // } else if (req.requestId === 'drawChecked') {
+            //     if (currentPoints.length < 3) {
+            //         alert("Polygon must have at least 3 points."); return;
+            //     }
+            //     tempLine = clearMap(tempLine, currentMap);
+            //     polygonLayer = clearMap(polygonLayer, currentMap);
+            //     // Plot polygon
+            //     await pointsToPolygon(
+            //         req.content.currentProject, currentPoints, polygonLayer, 
+            //         pointLayer, currentMap, req.content.action
+            //     ); 
+            //     // drawChecked = false;
 
 
 
 
         }
         clearPendingRequest(); currentPoints.length = 0;
-        mapContainer.style.cursor = 'grab'; currentMap.closeTooltip(hoverTooltip); 
+        mapContainer.style.cursor = 'grab'; currentMap.closeTooltip(hoverTooltip);
     });
 }
 
@@ -428,7 +319,7 @@ export function clearMap(layer, map) {
     return null;
 }
 
-function resetMap(map){
+function resetMap(map) {
     // Hide all layers
     Object.keys(layerConfig).forEach(key => {
         let subLayer = layerConfig[key].getLayer();
