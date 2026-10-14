@@ -372,33 +372,40 @@
                                         <label for="weather-csv">Upload from CSV file</label>
                                     </div>
                                 </div>
+                                <div class="field-inline">
+                                    <label for="weather-start-date">Start Time:</label>
+                                    <input type="text" class="datetime" id="weather-start-date"
+                                        placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                </div>
+                                <div class="field-inline">
+                                    <label for="weather-end-date">End Time:</label>
+                                    <input type="text" class="datetime" id="weather-end-date"
+                                        placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                </div>
                                 <div class="field-inline" style="margin-top: -10px;" id="weather-station-container">
                                     <div class="field-inline">
-                                        <label for="weather-station">Source:</label>
-                                        <select id="weather-station" style="width: 100%;">
+                                        <label for="weather-source">Source:</label>
+                                        <select id="weather-source" style="width: 100%;">
                                             <option value="" selected>--- Please select---</option>
                                             <option value="era5">Climate Data Store - ERA5</option>
                                         </select>
                                     </div>
-                                    <div class="field-row">
+                                    <div class="field-row" style="display: none;" id="era5-api-container">
                                         <label for="era5-api-key">API Key:</label>
                                         <div class="input-with-icon">
                                             <input type="password" id="era5-api-key">
-                                            <button type="button" data-target="era5-api-key"
-                                                class="toggle-password">👁️</button>
+                                            <button type="button" class="toggle-password">👁️</button>
                                         </div>
-                                    </div>
-                                    <div class="field-inline">
-                                        <label for="weather-start-date">Start Time:</label>
-                                        <input type="text" class="datetime" id="weather-start-date"
-                                            placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
-                                    </div>
-                                    <div class="field-inline">
-                                        <label for="weather-end-date">End Time:</label>
-                                        <input type="text" class="datetime" id="weather-end-date"
-                                            placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                        <button type="button" id="era5-api-btn" style="max-width: 100px;">Remember</button>
                                     </div>
                                     <button type="button" id="weather-download-btn">Download Weather Data</button>
+                                    <div class="field-inline">
+                                        <a style="margin-top: 10px;">References:</a>
+                                        <a class="data-link"
+                                            href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
+                                            target="_blank">ERA5 - Hourly Data
+                                        </a>
+                                    </div>
                                 </div>
                                 <div class="field-inline" style="margin-top: -10px; display: none;" id="weather-csv-container">
                                     <label for="weather-input">CSV Data:</label>
@@ -406,54 +413,47 @@
                                     <input type="text" id="weather-input-text" placeholder="No file selected" readonly>
                                     <button type="button" id="weather-btn" style="min-width: 100px;">Select File (*.csv)</button>
                                 </div>
-                                <div class="field-inline" style="margin-top: -10px;">
-                                    <a style="margin-top: 10px;">References:</a>
-                                    <a class="data-link"
-                                        href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
-                                        target="_blank">ERA5 - Hourly Data
-                                    </a>
-                                </div>
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 6;">
-                            <div class="row" id="weather-table-container" style="margin-top: -5px;">
+                            <div class="row" id="weather-table-container" style="margin-top: -5px; display: none;">
                                 <div class="row"><h3 style="margin-top: 5px;">Attribute Table</h3>
                                     <div style="margin-top: -10px;" id="interval-container">
                                         <label for="weather-interval" style="margin-top: 10px;">Interval:</label>
                                         <select id="weather-interval" style="max-width: 300px;">
-                                            <option value="1H" selected>Hourly</option>
-                                            <option value="1D">Daily</option>
-                                            <option value="1W">Weekly</option>
-                                            <option value="1M">Monthly</option>
+                                            <option value="1h" selected>Hourly</option>
+                                            <option value="1d">Daily</option>
+                                            <option value="1w">Weekly</option>
+                                            <option value="1ME">Monthly</option>
                                         </select>
                                     </div>
                                     <button type="button" id="weather-save-btn"
                                         style="max-width: 250px; margin-left: 10px; margin-top: -10px;">Save Data to netcdf (*.nc)
                                     </button>
                                 </div>
+                                <div class="table-container" id="weather-table" style="margin-top: -5px;">  
+                                    <table class="attributes-table">
+                                        <thead> <tr>
+                                            <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th>
+                                            <th>Shortwave Radiation (W/m²)</th><th>Longwave Radiation (W/m²)</th>
+                                            <th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
+                                        </tr></thead>
+                                        <tbody><tr>
+                                            <td><input type="text" placeholder="YYYY-mm-dd HH:mm:ss"></td>
+                                            <td><input type="text" placeholder="Precipitation"></td>
+                                            <td><input type="text" placeholder="Temperature"></td>
+                                            <td><input type="text" placeholder="Shortwave Radiation"></td>
+                                            <td><input type="text" placeholder="Longwave Radiation"></td>
+                                            <td><input type="text" placeholder="Wind Speed"></td>
+                                            <td><input type="text" placeholder="Pressure"></td>
+                                        </tr></tbody>
+                                    </table>
+                                </div>
                             </div>
-                            <div class="table-container" id="weather-table">  
-                                <table class="attributes-table">
-                                    <thead> <tr>
-                                        <th>Time</th><th>Precipitation (mm)</th><th>Temperature (°C)</th>
-                                        <th>Shortwave Radiation (W/m²)</th><th>Longwave Radiation (W/m²)</th>
-                                        <th>Wind Speed (m/s)</th><th>Pressure (Pa)</th>
-                                    </tr></thead>
-                                    <tbody><tr>
-                                        <td><input type="text" placeholder="YYYY-mm-dd HH:mm:ss"></td>
-                                        <td><input type="text" placeholder="Precipitation"></td>
-                                        <td><input type="text" placeholder="Temperature"></td>
-                                        <td><input type="text" placeholder="Shortwave Radiation"></td>
-                                        <td><input type="text" placeholder="Longwave Radiation"></td>
-                                        <td><input type="text" placeholder="Wind Speed"></td>
-                                        <td><input type="text" placeholder="Pressure"></td>
-                                    </tr></tbody>
-                                </table>
-                            </div>
-                            <div class="log-container" id="weather-download-container" style="display: none;">
-                                <div class="field-inline">
-                                    <a style="margin: 20px 0 5px 0;">References:</a>
-                                    <a class="data-link" href="#"
+                            <div class="log-container" id="weather-download-container" style="display: block; margin-top: 10px;">
+                                <h3>Download Progress</h3>
+                                <div class="field-inline"><a>References:</a>
+                                    <a class="data-link" style="margin: -5px 0 0 5px;" href="#"
                                         onclick="window.open('/src_frontend/pdfs/CropEvapotranspiration.pdf', '_blank'); return false;"
                                         target="_blank">Allen et al., (1998): Crop Evapotranspiration – FAO Irrigation and Drainage Paper 56
                                     </a>

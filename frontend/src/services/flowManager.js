@@ -1,13 +1,12 @@
 import { setupTabs } from "./tabManager.js";
 import { getLastTimeZone } from "./constant.js";
 import {
-    getUser, signalSender, sendRequest, displayTerrain, drawColorbar,
+    getUser, signalSender, displayTerrain, drawColorbar,
     nameChecker, csvUploader, getProjectList, jsonLoader, fillTable,
     deleteTable, addRowToTable, getDataFromTable, formatDate, updateLog
 } from "./commonFunctions.js";
 import {
-    geoJSONExporter, mapPlotter, isInvalidNumber, buildTooltip,
-    setElementsEnabled, setElementsDisplayed
+    geoJSONExporter, mapPlotter, isInvalidNumber, buildTooltip, setElementsEnabled
 } from "./flowFunctions.js";
 import { projectRender } from "./projectManager.js";
 import { initMap } from "./visualizationMap.js";
@@ -26,32 +25,26 @@ const obj = {
     terrainDrawBtn: $('flow-draw-btn'), terrainTopLeft: $('flow-top-left'), terrainBottomRight: $('flow-bottom-right'),
     terrainDownloadBtn: $('flow-terrain-download-btn'), terrainResolution: $('flow-terrain-resolution'),
     streamBtn: $('stream-btn'), threshold: $('threshold'), snapDistance: $('snap-dist'),
-    catchmentRadio: $('catchment-radio'), catchmentCheckbox: $('catchment-checkbox'),
-    catchmentLat: $('catchment-lat'), catchmentLon: $('catchment-lon'), clipCatchmentBtn: $('clip-catchment-btn'),
-    exportCatchmentBtn: $('export-catchment-btn'), waterUploadBtn: $('water-upload-btn'),
-    waterCheckbox: $('water-checkbox'), waterDeleteBtn: $('water-delete-btn'), waterInputText: $('water-input-text'),
-    waterInputFile: $('water-input-file'), catchmentInputFile: $('catchment-input-file'), soilCheckbox: $('soil-checkbox'),
-    soilSource: $('soil-source'), soilCheckerBtn: $('check-soil-btn'), soilTable: $('soil-attributes-table'),
-    soilDownload: $('soil-download'), soilLayer: $('soil-layer'), downloadSoilBtn: $('download-soil-btn'),
-    soilLog: $('soil-download-text'), landSource: $('land-source'), landLoaderBtn: $('land-load-btn'),
-    landCheckbox: $('land-checkbox'), riverContainer: $('river-container'), riverUploadBtn: $('river-upload-btn'),
-    riverInputFile: $('river-input-file'), riverThreshold: $('river-threshold'), riverCheckbox: $('river-checker-checkbox'),
-    riverCatchmentUploadBtn: $('lake-catchment-upload-btn'), riverCatchmentClipBtn: $('river-clip-catchment-btn'),
-    riverLakeClipBtn: $('river-clip-lake-btn'), invalidRiverBtn: $('river-invalid-btn'), riverTable: $('river-table'),
-    riverTableContainer: $('river-table-container'), riverIds: $('river-id'), riverDeleteBtn: $('river-delete-btn'),
-    assignRiverBtn: $('river-assign-btn'), saveRiverBtn: $('river-save-btn'), exportRiverFileBtn: $('river-export-file-btn'),
-    weatherCSVContainer: $('weather-csv-container'), weatherStationContainer: $('weather-station-container'),
-    weatherStart: $('weather-start-date'), weatherEnd: $('weather-end-date'), weatherInputFile: $('weather-input-file'), 
-    weatherInputText: $('weather-input-text'), weatherBtn: $('weather-btn'), weatherTable: $('weather-table'),
-    weatherSelector: $('weather-station'), intervalContainer: $('interval-container'), interval: $('weather-interval'),
-    downloadWeatherBtn: $('weather-download-btn'), weatherLogText: $('weather-download-text'),
-    weatherDownloadContainer: $('weather-download-container'),
-
-    // saveWeatherBtn: $('weather-save-btn'),
-    // weatherSourceContainer: $('weather-source-container'), 
-    //  
-    // weatherCatchmentContainer: $('weather-catchment-container'), weatherCatchmentBtn: $('weather-catchment-btn'),
-    // weatherTableContainer: $('weather-table-container'), 
+    catchmentRadio: $('catchment-radio'), catchmentCheckbox: $('catchment-checkbox'), catchmentLat: $('catchment-lat'), 
+    catchmentLon: $('catchment-lon'), clipCatchmentBtn: $('clip-catchment-btn'), exportCatchmentBtn: $('export-catchment-btn'), 
+    waterUploadBtn: $('water-upload-btn'), waterCheckbox: $('water-checkbox'), waterDeleteBtn: $('water-delete-btn'), 
+    waterInputText: $('water-input-text'), waterInputFile: $('water-input-file'), catchmentInputFile: $('catchment-input-file'), 
+    soilCheckbox: $('soil-checkbox'), soilSource: $('soil-source'), soilCheckerBtn: $('check-soil-btn'), 
+    soilTable: $('soil-attributes-table'), soilDownload: $('soil-download'), soilLayer: $('soil-layer'), 
+    downloadSoilBtn: $('download-soil-btn'), soilLog: $('soil-download-text'), landSource: $('land-source'), 
+    landLoaderBtn: $('land-load-btn'), landCheckbox: $('land-checkbox'), riverContainer: $('river-container'), 
+    riverUploadBtn: $('river-upload-btn'), riverInputFile: $('river-input-file'), riverThreshold: $('river-threshold'), 
+    riverCheckbox: $('river-checker-checkbox'), riverCatchmentUploadBtn: $('lake-catchment-upload-btn'), 
+    riverCatchmentClipBtn: $('river-clip-catchment-btn'), riverLakeClipBtn: $('river-clip-lake-btn'), 
+    invalidRiverBtn: $('river-invalid-btn'), riverTable: $('river-table'), riverTableContainer: $('river-table-container'), 
+    riverIds: $('river-id'), riverDeleteBtn: $('river-delete-btn'), assignRiverBtn: $('river-assign-btn'), 
+    saveRiverBtn: $('river-save-btn'), exportRiverFileBtn: $('river-export-file-btn'), weatherCSVContainer: $('weather-csv-container'), 
+    weatherStationContainer: $('weather-station-container'), weatherStart: $('weather-start-date'), weatherEnd: $('weather-end-date'),
+    weatherInputFile: $('weather-input-file'), weatherInputText: $('weather-input-text'), weatherBtn: $('weather-btn'), 
+    weatherTable: $('weather-table'), weatherSelector: $('weather-source'), weatherInterval: $('weather-interval'), 
+    downloadWeatherBtn: $('weather-download-btn'), weatherLog: $('weather-download-text'), era5APIBtn: $('era5-api-btn'),
+    weatherTableContainer: $('weather-table-container'), weatherDownloadContainer: $('weather-download-container'), 
+    era5APIContainer: $('era5-api-container'), saveWeatherBtn: $('weather-save-btn'), era5APIKey: $('era5-api-key'), 
 }
 
 let currentProject, demLayer = null, drawChecker = '', mapContainer = null, pointCollections = [],
@@ -63,15 +56,35 @@ let currentProject, demLayer = null, drawChecker = '', mapContainer = null, poin
     landLayer = null, landContent = null, selectedRiver = null, riverLayer = null;
 
 
-setupTabs(document); await getProject();
+setupTabs(document); await getProject(); savePassword();
 const mapObj = await initMap('leaflet-map-flow-preparation');
 mapOptions(mapObj); settingManager(); topographyManager();
-soilManager(); landManager(); riverManager(); weatherManager(); 
+soilManager(); landManager(); riverManager(); weatherManager();
+
+async function loadAPIKey(targetObj, project, key) {
+    const content = { projectName: project, key: key };
+    const response = await jsonLoader('load_client', content);
+    targetObj.value = response.content.client_id;
+}
+
+function savePassword() {
+    document.querySelectorAll('.toggle-password').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            const input = this.parentElement.querySelector('input');
+            if (!input) { return; }
+            if (input.type === 'password') {
+                input.type = 'text'; this.textContent = '🙈';
+            } else { input.type = 'password'; this.textContent = '👁️'; }
+        });
+    });
+}
 
 async function getProject() {
     const userName = await getUser(); currentProject = userName.split('/').pop();
     const respond = await getProjectList(currentProject, '', 'getProjects', 'flows');
     await projectRender(obj.projectName, obj.projectList, respond);
+    await loadAPIKey(obj.era5APIKey, currentProject, 'era5');
 }
 
 function settingManager() {
@@ -80,14 +93,14 @@ function settingManager() {
         const name = obj.projectName.value.trim();
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
-        const content = { projectName: currentProject, flowName: name };
+        const content = { projectName: currentProject, flowName: name, timeZone: getLastTimeZone }; 
         const data = await jsonLoader('flow_project', content);
         if (data.status === 'error' || data.status === 'create') { alert(data.message); return; }
         obj.waterInputText.value = data.content['water']; obj.terrainName.value = data.content['dtm'];
         if (data.content['water'] !== '') {
             setElementsEnabled(true, obj.riverLakeClipBtn);
         } else { setElementsEnabled(false, obj.riverLakeClipBtn); }
-        const soilData = data.content['soil'];
+        const soilData = data.content['soil'], forcing = data.content['forcing'];
         let defaultOption = `<option value="" selected>--- Select a layer ---</option>`;
         if (soilData.length > 0) {
             const options = soilData.map(
@@ -95,6 +108,8 @@ function settingManager() {
             ).join('');
             obj.soilLayer.innerHTML = defaultOption + options; obj.soilSource.value = "isric";
         } else { obj.soilLayer.innerHTML = defaultOption; }
+        obj.weatherStart.value = forcing.start; obj.weatherEnd.value = forcing.end; 
+        obj.weatherInterval.value = forcing.interval;
     });
     obj.projectDelete.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
@@ -379,22 +394,23 @@ function soilManager() {
         } catch (error) { alert(`Downloading soil data failed: ${error.message}`); }
     });
     obj.downloadSoilBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim();
+        const name = obj.projectName.value.trim(), key = 'soil';
         if (name === '') { alert('Please select a scenario first.'); return; }
         const value = obj.soilSource.value;
         if (value === '') { alert('Please select a soil source data first.'); return; }
         const terrain = obj.terrainName.value.trim();
         if (terrain === '') { alert('Please upload terrain data first.'); return; }
         try {
-            obj.soilTable.style.display = 'none'; obj.soilDownload.style.display = 'flex';
-            obj.soilLog.value = '';
+            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
+            if (statusRes.status === "running") { alert("Soil download is running."); return; }
+            obj.soilTable.style.display = 'none'; obj.soilDownload.style.display = 'flex'; obj.soilLog.value = '';
             const content = {
-                projectName: currentProject, key: 'soil', flowName: name,
+                projectName: currentProject, key: key, flowName: name,
                 waterArea: obj.waterInputText.value.trim(), soilSource: value
             };
             const request = await jsonLoader('start_download_soil', content);
             if (request.status === 'error') { alert(request.message); return; }
-            updateLog(currentProject, obj.soilLog, 2, 'soil', async () => {
+            updateLog(currentProject, obj.soilLog, 2, key, async () => {
                 alert('Downloading soil data completed.'); obj.soilCheckerBtn.click();
             });
         } catch (error) { alert(`Downloading soil data failed: ${error.message}`); }
@@ -729,26 +745,56 @@ function weatherManager() {
     document.querySelectorAll('input[name="weather"]').forEach(item => {
         item.addEventListener('change', (e) => {
             if (e.target.value === 'weather-csv') {
-                setElementsDisplayed(true, obj.weatherCSVContainer);
-                setElementsDisplayed(false, obj.weatherStationContainer, obj.intervalContainer);
+                obj.weatherCSVContainer.style.display = 'block'; obj.weatherStationContainer.style.display = 'none'; 
+                obj.weatherTableContainer.style.display = 'block'; obj.weatherDownloadContainer.style.display = 'none';
             } else {
-                setElementsDisplayed(false, obj.weatherCSVContainer);
-                setElementsDisplayed(true, obj.weatherStationContainer, obj.intervalContainer);
+                obj.weatherCSVContainer.style.display = 'none'; obj.weatherStationContainer.style.display = 'flex'; 
+                obj.weatherTableContainer.style.display = 'none'; obj.weatherDownloadContainer.style.display = 'block';
                 const value = [
                     'YYYY-mm-dd HH:mm:ss', 'Precipitation', 'Temperature', 'Shortwave Radiation', 
                     'Longwave Radiation', 'Wind Speed', 'Pressure'
                 ];
                 deleteTable(obj.weatherTable); addRowToTable(obj.weatherTable, value);
-                obj.weatherTable.style.display = 'flex';
             }
-            obj.weatherDownloadContainer.style.display = 'none';
         });
     });
     obj.weatherBtn.addEventListener('click', () => { obj.weatherInputFile.click(); });
     obj.weatherInputFile.addEventListener('change', async (e) => {
         signalSender('showOverlay', 'Uploading weather data from CSV file.\nPlease wait...');
-        try { await csvUploader(e, obj.weatherInputText, obj.weatherTable, 7);
-        } finally { signalSender('hideOverlay'); }
+        try { 
+            await csvUploader(e, obj.weatherInputText, obj.weatherTable, 7);
+            const data = getDataFromTable(obj.weatherTable, true).rows;
+            obj.weatherStart.value = data[0][0]; obj.weatherEnd.value = data[data.length - 1][0];
+        } finally { 
+            signalSender('hideOverlay'); obj.weatherStart.value = ''; obj.weatherEnd.value = '';
+        }
+    });
+    obj.saveWeatherBtn.addEventListener('click', async () => {
+        const name = obj.projectName.value.trim();
+        if (name === '') { alert('Please select a scenario from first.'); return; }
+        const data = getDataFromTable(obj.weatherTable, true);
+        if (data.rows.length === 0) { alert('Please upload weather data first.'); return; }
+        try {
+            signalSender('showOverlay', 'Creating weather data. Please wait...');
+            const content = {
+                projectName: currentProject, flowName: name, data: data, 
+                timeZone: getLastTimeZone(), interval: obj.weatherInterval.value
+            };
+            const request = await jsonLoader('save_flow_weather', content);
+            signalSender('hideOverlay'); alert(request.message);
+        } catch (error) { alert(`Uploading weather data failed: ${error.message}`); return; }
+    });
+    obj.weatherSelector.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value === 'era5') { obj.era5APIContainer.style.display = 'flex'; }
+        else { obj.era5APIContainer.style.display = 'none'; }
+    });
+    obj.era5APIBtn.addEventListener('click', async () => {
+        const apiKey = obj.apikeyEra5.value;
+        if (apiKey === '') { alert('Provide your ERA5 API key.'); return; }
+        const content = { projectName: currentProject, key: 'era5', clientName: apiKey };
+        const response = await jsonLoader('save_client', content);
+        alert(response.message); if (response.status === "error") { return; }
     });
     obj.downloadWeatherBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), value = obj.weatherSelector.value;
@@ -758,35 +804,24 @@ function weatherManager() {
         if (startTime === '' || endTime === '') { alert('Please select a time range.'); return; }
         try {
             if (value == 'era5') {
+                const apiKey = obj.era5APIKey.value;
+                if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
                 const contentChecker = { projectName: currentProject, key: keyChecker };
                 const statusRes = await jsonLoader('check_download_status', contentChecker);
                 if (statusRes.status === "running") { alert("Weather download is running."); return; }
-                obj.weatherLogText.value = '';
+                obj.weatherLog.value = '';                
                 const content = {
                     projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
-                    start: startTime, end: endTime, keyChecker: keyChecker
+                    start: startTime, end: endTime, key: keyChecker, apiKey: apiKey
                 };
-        //         const start = await jsonLoader('start_download_weather', content);
-        //         if (start.status === "error") { alert(start.message); return; }
-        //         updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
-        //             alert('Downloading weather completed.');
-        //         });
+                const start = await jsonLoader('start_download_weather', content);
+                if (start.status === "error") { alert(start.message); return; }
+                updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
+                    alert('Downloading weather completed.');
+                });
             }
         } catch (error) { alert(error.message); return; }
     });
-    // obj.saveWeatherBtn.addEventListener('click', async () => {
-        // const name = obj.projectName.value.trim();
-        // if (name === '') { alert('Please select a scenario from first.'); return; }
-    //     const data = getDataFromTable(obj.weatherTable, true);
-    //     if (data.length === 0) { alert('Please upload weather data first.'); return; }
-    //     signalSender('showOverlay', 'Creating weather data. Please wait...');
-    //     const content = {
-    //         projectName: currentProject, flowName: name,
-    //         data: data, timeZone: getLastTimeZone(), interval: interval.value
-    //     };
-    //     const request = await jsonLoader('save_flow_weather', content);
-    //     signalSender('hideOverlay'); alert(request.message);
-    // });
 }
 
 function mapOptions(map) {

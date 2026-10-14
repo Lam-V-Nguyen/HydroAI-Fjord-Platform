@@ -195,7 +195,6 @@ function updateComponent() {
             showNotes(event.data.content);
         } else if (event.data.type === 'updateUIState') {
             const { requestId } = event.data.content;
-            console.log(event.data.content);
             if (requestId && pendingRequests.has(requestId)) {
                 const { source } = pendingRequests.get(requestId);
                 prevSource = source;

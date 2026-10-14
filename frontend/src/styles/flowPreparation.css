@@ -140,7 +140,7 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
   width: 100%; margin-bottom: 5px;
 }
 .field-row label {
-  flex: 0 0 110px; font-weight: 500; width: 100px;
+  flex: 0 0 110px; font-weight: 500;
   color: #333; text-align: left;
 }
 .field-row .input-with-icon {

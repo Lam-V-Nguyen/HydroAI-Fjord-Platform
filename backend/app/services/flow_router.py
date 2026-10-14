@@ -1,11 +1,10 @@
 import os, json, traceback, rasterio, shutil, asyncio, tempfile
 import sknw, rioxarray, zipfile, pyflwdir, threading
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Query
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
-from rasterio.features import shapes
 from rasterio.warp import transform_bounds
 from shapely.geometry import LineString
 from shapely.ops import unary_union, linemerge
@@ -14,7 +13,6 @@ from pyflwdir import dem
 from skimage.morphology import skeletonize
 from services import functions, flow_functions, data_functions
 from rasterio.io import MemoryFile
-from pathlib import Path
 
 
 router, process_lock = APIRouter(), threading.Lock()
@@ -25,7 +23,7 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     try:
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_name, content = body.get('flowName'), {}
+        flow_name, time_zone, content = body.get('flowName'), body.get('timeZone'), {}
         content['water'] = content['dtm'] = ''
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
         if not os.path.exists(flow_dir):
@@ -55,19 +53,15 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
                 soil_dict.append({'value': 'soilthickness', 'label': 'soilthickness'})
                 content['soil'] = soil_dict
         else: content['soil'] = []
-        
-
-        # elif key == 'open':
-            #  time_zone = body.get('timeZone')
-        #     forcing_path = os.path.normpath(os.path.join(dir, 'forcing', 'weather_forcing.nc'))
-        #     if not os.path.exists(forcing_path):
-        #         return JSONResponse({'status': 'error', 'message': f"Forcing file not found."})
-        #     with xr.open_dataset(forcing_path) as forcing:
-        #         start, end = forcing.time.values[0], forcing.time.values[-1]
-        #         interval = np.diff(forcing['time'].values).astype('timedelta64[s]').astype(int)[0]
-        #     content['start'] = functions.utc_to_local(start, time_zone)
-        #     content['end'] = functions.utc_to_local(end, time_zone)
-        #     content['interval'] = str(interval)
+        forcing_path = os.path.normpath(os.path.join(flow_dir, 'forcing', 'weather_forcing.nc'))
+        try:
+            with xr.open_dataset(forcing_path) as forcing:
+                start, end = forcing.time.values[0], forcing.time.values[-1]
+                interval = np.diff(forcing['time'].values).astype('timedelta64[s]').astype(int)[0]
+            start_time = functions.utc_to_local(start, time_zone)
+            end_time = functions.utc_to_local(end, time_zone)
+            content['forcing'] = {'start': start_time, 'end': end_time, 'interval': str(interval)}
+        except: content['forcing'] = {'start': '', 'end': '', 'interval': '1h'}
         return JSONResponse({'content': content})
     except Exception as e:
         print('/flow_project:\n==============')
@@ -481,74 +475,40 @@ async def river_saver(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-
-
-# @router.post("/delete_river")
-# async def delete_river(request: Request):
-#     try:
-#         body = await request.json()
-#         length = float(body.get('length'))
-#         data = gpd.GeoDataFrame.from_features(body.get('river')['features'], crs="EPSG:4326")
-#         data_UTM = data.copy().to_crs(data.estimate_utm_crs())
-#         data_UTM['length'] = data_UTM['geometry'].length
-#         data_UTM = data_UTM[data_UTM['length'] >= length]
-#         data_UTM = data_UTM.drop(columns=['length'])
-#         data_UTM = data_UTM.to_crs("EPSG:4326")
-#         n = len(data) - len(data_UTM)
-#         content = json.loads(data_UTM.to_json())
-#         return JSONResponse({'status': 'ok', 'content': content, 'numDeleted': n})
-#     except Exception as e:
-#         print('/delete_river:\n==============')
-#         traceback.print_exc()
-#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-
-
-
-
-
-@router.get("/log_tail_download/{project_name}")
-async def log_tail_download(project_name: str, offset: int = Query(0),
-    log_file: str = Query(""), user=Depends(functions.basic_auth)):
-    project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, log_file)), []
-    log_path = os.path.normpath(log_path)
-    if not os.path.exists(log_path): return {"lines": lines, "offset": 0, "reset": False}
-    file_size = os.path.getsize(log_path)
-    reset = offset > file_size
-    if reset: offset = 0
-    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
-        f.seek(offset)
-        data = f.read()
-        new_offset = f.tell()
-    return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
-
 @router.post("/save_flow_weather")
 async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, data = body.get('flowName'), dict(body.get('data'))
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
+        if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
+        os.makedirs(forcing_dir, exist_ok=True)
+        time_zone, interval = body.get('timeZone'), body.get('interval')
         redis = request.app.state.redis
-        lock = redis.lock(f"{project_name}:save-meteo", timeout=1000, blocking_timeout=10)
+        lock = redis.lock(f"{project_name}:save-weather", timeout=1000, blocking_timeout=10)
         async with lock:
-            flow_name, data = body.get('flowName'), dict(body.get('data'))
-            flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-            forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
-            time_zone, interval = body.get('timeZone'), body.get('interval')
-            if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
-            os.makedirs(forcing_dir, exist_ok=True)
             df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
             df['Time'] = functions.local_to_utc(df['Time'], time_zone)
             df = df.set_index('Time')
             # Resampling
             for col in df.columns:
                 if col == 'Precipitation (mm)': df[col] = df[col].resample(interval).sum()
-                else: df = df.resample(interval).interpolate(method='time')
+                else: 
+                    resampled = df.resample(interval).asfreq()
+                    numeric_cols = resampled.select_dtypes(include='number').columns
+                    non_numeric_cols = resampled.columns.difference(numeric_cols)
+                    resampled[numeric_cols] = resampled[numeric_cols].interpolate(method='time')
+                    resampled[non_numeric_cols] = resampled[non_numeric_cols].ffill()
+                    df = resampled
             df = df.ffill().bfill().reset_index()
             # Create forcing nc file
             time, time_step = df.index.to_numpy(), 'hours'
             out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
             raw_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
+            if not os.path.exists(raw_path):
+                return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."})
             with rasterio.open(raw_path) as src:
                 dem_array, crs = src.read(1), src.crs
                 transform, nodata = src.transform, src.nodata
@@ -583,8 +543,9 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
                 } for var in ds_final.data_vars
             }
             ds_final = ds_final.assign_coords(
-                time=pd.to_datetime(ds_final.time.values).tz_convert('UTC').tz_localize(None)
+                time=pd.to_datetime(ds_final.time.values, utc=True).tz_localize(None)
             )
+            ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
             ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
             return JSONResponse({'status': 'ok', 'message': 'Weather data saved successfully.'})
     except Exception as e:
@@ -592,32 +553,53 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/check_stream_points")
-async def check_stream_points(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, project_id = functions.project_definer(body.get('projectName'), user)
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
-        redis, lat, lon = request.app.state.redis, float(body.get('lat')), float(body.get('lon'))
-        lock = redis.lock(f"{project_id}:wflow_stream-point", timeout=1000, blocking_timeout=10)
-        async with lock:
-            strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
-            with rasterio.open(strord_path) as strord_src:
-                src_crs = strord_src.crs
-            gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([lon], [lat]), crs='EPSG:4326')
-            gdf = gdf.to_crs(src_crs)
-            center_xy = [gdf.geometry.x[0], gdf.geometry.y[0]]
-            candidates = flow_functions.get_candidates_from_strord(strord_path, center_xy)
-            if len(candidates) == 0:
-                return JSONResponse({'status': 'error', 'message': "No candidate found."})
-            candidates = candidates.to_crs('EPSG:4326')
-            candidates['lat'], candidates['lon'] = candidates.geometry.y, candidates.geometry.x
-            candidates['id'] = candidates['id']
-            candidates = candidates[['id', 'lat', 'lon', 'distance_m']].values.tolist()
-            selected = int(0.2*len(candidates))
-            content = {'points': len(candidates), 'data': candidates, 'selected': selected}
-            return JSONResponse({"content": content})
-    except Exception as e:
-        print('/check_stream_points:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+# @router.post("/delete_river")
+# async def delete_river(request: Request):
+#     try:
+#         body = await request.json()
+#         length = float(body.get('length'))
+#         data = gpd.GeoDataFrame.from_features(body.get('river')['features'], crs="EPSG:4326")
+#         data_UTM = data.copy().to_crs(data.estimate_utm_crs())
+#         data_UTM['length'] = data_UTM['geometry'].length
+#         data_UTM = data_UTM[data_UTM['length'] >= length]
+#         data_UTM = data_UTM.drop(columns=['length'])
+#         data_UTM = data_UTM.to_crs("EPSG:4326")
+#         n = len(data) - len(data_UTM)
+#         content = json.loads(data_UTM.to_json())
+#         return JSONResponse({'status': 'ok', 'content': content, 'numDeleted': n})
+#     except Exception as e:
+#         print('/delete_river:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+# @router.post("/check_stream_points")
+# async def check_stream_points(request: Request, user=Depends(functions.basic_auth)):
+#     try:
+#         body = await request.json()
+#         project_name, project_id = functions.project_definer(body.get('projectName'), user)
+#         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
+#         redis, lat, lon = request.app.state.redis, float(body.get('lat')), float(body.get('lon'))
+#         lock = redis.lock(f"{project_id}:wflow_stream-point", timeout=1000, blocking_timeout=10)
+#         async with lock:
+#             strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
+#             with rasterio.open(strord_path) as strord_src:
+#                 src_crs = strord_src.crs
+#             gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([lon], [lat]), crs='EPSG:4326')
+#             gdf = gdf.to_crs(src_crs)
+#             center_xy = [gdf.geometry.x[0], gdf.geometry.y[0]]
+#             candidates = flow_functions.get_candidates_from_strord(strord_path, center_xy)
+#             if len(candidates) == 0:
+#                 return JSONResponse({'status': 'error', 'message': "No candidate found."})
+#             candidates = candidates.to_crs('EPSG:4326')
+#             candidates['lat'], candidates['lon'] = candidates.geometry.y, candidates.geometry.x
+#             candidates['id'] = candidates['id']
+#             candidates = candidates[['id', 'lat', 'lon', 'distance_m']].values.tolist()
+#             selected = int(0.2*len(candidates))
+#             content = {'points': len(candidates), 'data': candidates, 'selected': selected}
+#             return JSONResponse({"content": content})
+#     except Exception as e:
+#         print('/check_stream_points:\n==============')
+#         traceback.print_exc()
+#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})

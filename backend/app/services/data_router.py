@@ -1,7 +1,7 @@
 import os, pickle, json, traceback, threading, requests, ast
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions, hyd_functions, flow_functions
 from config import PROJECT_ROOT, WHITEBOX_DIR
@@ -20,6 +20,22 @@ wtb.set_whitebox_dir(WHITEBOX_DIR)
 
 
 router, processes = APIRouter(), {}
+
+@router.get("/log_tail_download/{project_name}")
+async def log_tail_download(project_name: str, offset: int = Query(0),
+    log_file: str = Query(""), user=Depends(functions.basic_auth)):
+    project_name, _ = functions.project_definer(project_name, user)
+    log_path, lines = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, log_file)), []
+    log_path = os.path.normpath(log_path)
+    if not os.path.exists(log_path): return {"lines": lines, "offset": 0, "reset": False}
+    file_size = os.path.getsize(log_path)
+    reset = offset > file_size
+    if reset: offset = 0
+    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
+        f.seek(offset)
+        data = f.read()
+        new_offset = f.tell()
+    return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
 
 # Check if download is running
 @router.post("/check_download_status")
@@ -622,11 +638,29 @@ async def start_download_soil(request: Request, user=Depends(functions.basic_aut
         processes[key_process] = {"status": "running", "message": "Preparing soil data download ..."}
         threading.Thread(
             target=flow_functions.soil_downloader, 
-            args=(project_name, processes, key_process, flow_name, soil_source, water_area, terrain_path, catchment_path), daemon=True
+            args=(project_name, processes, key_process, flow_name, 
+                soil_source, water_area, terrain_path, catchment_path
+            ), daemon=True
         ).start()
     return JSONResponse({'status': 'ok', 'message': "Soil downloading started."})
 
-
+@router.post("/start_download_weather")
+async def start_download_weather(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
+    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    async with lock:
+        if key_process in processes and processes[key_process]["status"] == "running":
+            return JSONResponse({"status": "running", "message": 'Weather downloading in progress.'})
+        processes[key_process] = {"status": "running", "message": "Preparing weather data download..."}
+        start, end, flow_name = body.get('start'), body.get('end'), body.get('flowName')
+        api_key, time_zone = body.get('apiKey'), body.get('timeZone')
+        threading.Thread(
+            target=flow_functions.weather_downloader, 
+            args=(project_name, flow_name, processes, key_process, api_key, start, end, time_zone), daemon=True
+        ).start()
+    return JSONResponse({"status": "ok", "message": "Weather downloading started."})
 
 
 
@@ -698,25 +732,7 @@ async def start_download_soil(request: Request, user=Depends(functions.basic_aut
 
 
 
-# @router.post("/start_download_weather")
-# async def start_download_weather(request: Request, user=Depends(functions.basic_auth)):
-#     body = await request.json()
-#     project_name, _ = functions.project_definer(body.get('projectName'), user)
-#     redis, flow_name, data = request.app.state.redis, body.get('flowName'), body.get('data')
-#     process_key = f"{project_name}:{body.get('keyChecker')}"
-#     lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
-#     async with lock:
-#         # Check if process already running
-#         if project_name in processes and processes[project_name]["status"] == "running":
-#             return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-#         catchment_WGS84 = gpd.GeoDataFrame.from_features(data['features'], crs="EPSG:4326")
-#         start, end, time_zone = body.get('start'), body.get('end'), body.get('timeZone')
-#         processes[project_name] = {"status": "running", "message": "Preparing download..."}
-#         threading.Thread(
-#             target=flow_functions.weather_downloader, 
-#             args=(project_name, processes, process_key, flow_name, start, end, time_zone, catchment_WGS84), daemon=True
-#         ).start()
-#     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+
 
 
 

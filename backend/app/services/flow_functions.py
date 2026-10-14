@@ -22,7 +22,7 @@ if "bool" not in np.__dict__: np.bool = np.bool_
 dotenv.load_dotenv()
 MET_url, MET_client_id = os.getenv('MET_ProstAPI_URL'), os.getenv('MET_ProstAPI_CLIENT_ID')
 NVE_url, NVE_client_id = os.getenv('NVE_URL'), os.getenv('NVE_API_KEY')
-NODATA_DEM, NODATA_INT, BUFFER = -9999.0, 0, 0.01
+NODATA_DEM, NODATA_INT = -9999.0, 0
 
 soils = [
     ['Clay', 'Sand', 'Silt', 'Bulk density', 'Soil organic carbon', 'Soil pH'],
@@ -237,7 +237,7 @@ def setup_logger(name, log_path: str):
     logger.addHandler(file_handler)
     return logger
 
-def weather_downloader(project_name, processes, process_key, flow_name, start, end, time_zone, catchment, buffer=BUFFER):
+def weather_downloader(project_name, flow_name, processes, process_key, api_key, start, end, time_zone, buffer=0.01):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
     # Remove old log
@@ -245,12 +245,11 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
     flow_dir = os.path.join(project_dir, "flows", flow_name)
     log_path = os.path.join(project_dir, "log.txt")
     if os.path.exists(log_path): os.remove(log_path)
-    logger = setup_logger("cdsapi", log_path)
-    CDS_url, CDS_key = os.getenv('CDS_URL'), os.getenv('CDS_API_KEY')
+    logger, CDS_url = setup_logger("cdsapi", log_path), os.getenv('CDS_URL')
     config_path = Path.home() / '.cdsapirc'
     if not config_path.exists():
         logger.info("Creating .cdsapirc ...")
-        config_path.write_text(f"url: {CDS_url}\nkey: {CDS_key}\n", encoding='utf-8')
+        config_path.write_text(f"url: {CDS_url}\nkey: {api_key}\n", encoding='utf-8')
         logger.info(f"Created at: {config_path}")
     forcing_dir = os.path.join(flow_dir, 'forcing')
     os.makedirs(forcing_dir, exist_ok=True)
@@ -265,6 +264,11 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
     dataset, nc = 'reanalysis-era5-single-levels', None
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
+    start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+    end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+    if (start_time >= end_time):
+        logger.info("Start time must be before end time.")
+        processes[process_key] = {"status": "failed", "message": "Start time must be before end time."}
     try:
         logger.info("Weather downloader started.")
         logger.info("Preparing output NetCDF...")
@@ -272,14 +276,17 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
         with rasterio.open(raw_path) as src:
             dem_array, crs = src.read(1), src.crs
             transform, nodata = src.transform, src.nodata
-            height, width = src.height, src.width        
+            height, width = src.height, src.width
         mask_nan = np.isnan(dem_array) | (dem_array == nodata)
         mask_nan = mask_nan.astype(bool)
         ny, nx = dem_array.shape[0], dem_array.shape[1]
+        catchment_path = os.path.join(flow_dir, 'catchment', "catchment.geojson")
+        if not os.path.exists(catchment_path):
+            logger.info("No catchment found.")
+            processes[process_key] = {"status": "failed", "message": "No catchment found. Please process terrain first."}
+        catchment = gpd.read_file(catchment_path)
         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-        end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
         lon_min, lat_min, lon_max, lat_max = catchment.total_bounds
         north, east = max(lat_min, lat_max), max(lon_min, lon_max)
         south, west = min(lat_min, lat_max), min(lon_min, lon_max)
@@ -344,7 +351,7 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
                 month_files.append(out_path)
             logger.info("ERA5 download completed successfully")
             # Check valid files
-            logger.info("\n=========================================================")
+            logger.info(""*20)
             logger.info("Checking valid files...")
             # Filter valid files
             logger.info(f"Year: {year}, Month: {month}")
@@ -354,7 +361,7 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
             if len(bad_files) > 0:
                 logger.info("Bad files:")
                 for f in bad_files: logger.info(f" - {os.path.basename(f)}")
-            logger.info("=========================================================\n")
+            logger.info("="*20)
             logger.info("Processing monthly forcing ...")
             ref_file = next(f for f in month_files if f.endswith("_tp.nc"))
             with xr.open_dataset(ref_file) as ref_ds:
@@ -423,7 +430,6 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
                     if ds_v is not None:
                         try: ds_v.close()
                         except Exception: pass
-            logger.info("\n")
             for i, t in enumerate(timestamps):
                 time_var[time_index + i] = date2num(pd.Timestamp(t).to_pydatetime(), time_var.units, time_var.calendar)
             time_index += n_time
@@ -437,7 +443,7 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
         gc.collect()
         logger.info(f"Saved forcing file successfully: {forcing_path}")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        logger.info("Temporary monthly files removed")
+        logger.info("Temporary monthly files removed.")
         logger.handlers[0].flush()
         processes[process_key] = {"status": "finished", "message": "Weather download completed successfully.\n\n\n"}
     except Exception as e:
@@ -461,7 +467,6 @@ def weather_downloader(project_name, processes, process_key, flow_name, start, e
                 h.close()
             except Exception: pass
             logger.removeHandler(h)
-        if os.path.exists(log_path): functions.safe_remove(log_path)
 
 def soil_downloader(project_name, processes, process_key, flow_name, soil_source, water, dtm_path, catchment_path):
     project_dir = os.path.join(PROJECT_ROOT, project_name)

@@ -743,5 +743,3 @@ export function iframeConnector(objBtn, objtarget, requestId, content = null, li
     objBtn.addEventListener('click', objBtn.__handler);
 }
 
-
-

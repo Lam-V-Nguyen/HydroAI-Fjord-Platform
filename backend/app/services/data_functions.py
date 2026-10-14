@@ -245,7 +245,6 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
             logger.info(f"Final DataFrame shape: {df_result.shape}")
         logger.info("ERA5 download completed successfully")
         # Check valid files
-        logger.info("")
         logger.info("="*40)
         logger.info("Checking valid files...")
         # Filter valid files
@@ -256,7 +255,7 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
         if len(bad_files) > 0:
             logger.info("Bad files:")
             for f in bad_files: logger.info(f" - {os.path.basename(f)}")
-        logger.info("="*40)
+        logger.info("="*20)
         df_result.index = functions.utc_to_local(df_result.index, time_zone)
         df_result.index.name = 'Time'
         columns = df_result.columns.tolist()
@@ -272,7 +271,6 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
         df_result = df_result.reset_index()
         df_result.to_csv(csv_path, index=False)
         logger.info(f"Saved CSV to: {csv_path}")
-        logger.info(f"Saved forcing file successfully.")
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
         logger.info("Temporary monthly files removed.")
         logger.handlers[0].flush()
@@ -280,7 +278,7 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
     except Exception as e:
         print('/era5_downloader:\n==============')
         traceback.print_exc()
-        logger.exception("Weather download failed")
+        logger.exception("Weather download failed.")
         processes[key_process] = {"status": "failed", "message": str(e)}
     finally:
         if os.path.exists(download_dir): shutil.rmtree(download_dir)
