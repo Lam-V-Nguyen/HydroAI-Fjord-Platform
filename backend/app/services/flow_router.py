@@ -2,7 +2,7 @@ import os, json, traceback, rasterio, shutil, asyncio, tempfile
 import sknw, rioxarray, zipfile, pyflwdir, threading
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
+import geopandas as gpd, numpy as np, pandas as pd
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
@@ -13,7 +13,7 @@ from pyflwdir import dem
 from skimage.morphology import skeletonize
 from services import functions, flow_functions, data_functions
 from rasterio.io import MemoryFile
-import dask.array as da
+from contextlib import suppress
 
 
 router, process_lock = APIRouter(), threading.Lock()
@@ -479,81 +479,37 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
         flow_name, data = body.get('flowName'), dict(body.get('data'))
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
         forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
-        if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
-        os.makedirs(forcing_dir, exist_ok=True)
         time_zone, interval = body.get('timeZone'), body.get('interval')
         redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
+        raw_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
+        if not os.path.exists(raw_path):
+            return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."})
+        if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
+        os.makedirs(forcing_dir, exist_ok=True)
         forcing = {'start': start, 'end': end, 'interval': interval}
         forcing_path = os.path.join(forcing_dir, 'forcing.json')
         with open(forcing_path, 'w') as f:
             json.dump(forcing, f)
-        lock = redis.lock(f"{project_name}:save-weather", timeout=1000, blocking_timeout=10)
+        df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
+        df['Time'] = functions.local_to_utc(df['Time'], time_zone)
+        df = df.set_index('Time')
+        required_columns = [
+            "Precipitation (mm)", "Temperature (°C)", "Shortwave Radiation (W/m²)",
+            "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (Pa)",
+        ]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return JSONResponse({"status": "error", "message": f"Missing weather columns: {', '.join(missing_columns)}"})
+        lock = redis.lock(f"{project_name}:save-weather", timeout=120, blocking_timeout=300)
         async with lock:
-            df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
-            df['Time'] = functions.local_to_utc(df['Time'], time_zone)
-            df = df.set_index('Time')
-            # Resampling
-            precip_col = "Precipitation (mm)"
-            df = df.sort_index()
-            for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
-            if df.index.has_duplicates:
-                aggregation = {col: "mean" for col in df.columns}
-                df = df.groupby(level=0).agg(aggregation).sort_index()
-            if precip_col in df.columns:
-                precip = df[precip_col].resample(interval).sum(min_count=1)
-            resampled = df.resample(interval).asfreq()
-            # Interpolate numeric variables.
-            numeric_cols = resampled.select_dtypes(include="number").columns
-            other_cols = resampled.columns.difference(numeric_cols)
-            resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
-            resampled[other_cols] = resampled[other_cols].ffill()
-            # Restore precipitation using its separately aggregated values.
-            if precip_col in df.columns: resampled[precip_col] = precip
-            df = resampled.ffill().bfill().reset_index()
-            # Create forcing nc file
-            time, time_step = df.index.to_numpy(), 'hours'
-            out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
-            raw_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
-            if not os.path.exists(raw_path):
-                return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."})
-            with rasterio.open(raw_path) as src:
-                dem_array, crs = src.read(1), src.crs
-                transform, nodata = src.transform, src.nodata
-            mask_nan = np.isnan(dem_array) | (dem_array == nodata)
-            ny, nx = dem_array.shape[0], dem_array.shape[1]
-            chunksizes = (1, min(256, ny), min(256, nx))
-            mask_da = da.from_array(mask_nan, chunks=chunksizes[1:])
-            forcing = {
-                'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
-                'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
-                'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
-            }
-            for var, (col, unit) in forcing.items():
-                values = df[col].to_numpy().astype(np.float32)
-                values_da = da.from_array(values, chunks=(24,))
-                data_3d = da.broadcast_to(values_da[:, None, None], shape=(len(values), ny, nx),)
-                data_3d = da.where(mask_da[None, :, :], np.float32(0.0), data_3d,)
-                datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
-            x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
-            y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
-            ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
-            ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
-            ds_final = ds_final.rio.write_crs(crs)
-            ds_final["time"].encoding = {
-                "units": f"{time_step} since 1900-01-01 00:00:00",
-                "calendar": "proleptic_gregorian", "dtype": "int64",
-                "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
-            }
-            encoding = {
-                var: {"zlib": True, "complevel": 4, "shuffle": True, 
-                    "chunksizes": chunksizes, "_FillValue": -9999.0, "dtype": "float32"
-                } for var in ds_final.data_vars
-            }
-            ds_final = ds_final.assign_coords(
-                time=pd.to_datetime(ds_final.time.values, utc=True).tz_localize(None)
-            )
-            ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
-            ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
+            renew_task = asyncio.create_task(data_functions.renew_redis_lock(lock, ttl=120, interval=30))
+            try:
+                await asyncio.to_thread(data_functions.write_forcing, raw_path, forcing_dir, df, interval)
+                if renew_task.done() and not renew_task.result():
+                    return JSONResponse({'status': 'error', 'message': 'Failed to renew redis lock.'})
+            finally:
+                renew_task.cancel()
+                with suppress(asyncio.CancelledError): await renew_task
             return JSONResponse({'status': 'ok', 'message': 'Weather data saved successfully.'})
     except Exception as e:
         print('/save_flow_weather:\n==============')

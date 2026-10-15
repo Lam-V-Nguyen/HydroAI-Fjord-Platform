@@ -402,7 +402,8 @@ function soilManager() {
         const terrain = obj.terrainName.value.trim();
         if (terrain === '') { alert('Please upload terrain data first.'); return; }
         try {
-            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
+            const contentCheck = { projectName: currentProject, key: key };
+            const statusRes = await jsonLoader('check_download_status', contentCheck);
             if (statusRes.status === "running") { alert("Soil download is running."); return; }
             obj.soilTable.style.display = 'none'; obj.soilDownload.style.display = 'flex'; obj.soilLog.value = '';
             const content = {

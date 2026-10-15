@@ -576,7 +576,7 @@ def soil_downloader(project_name, processes, process_key, flow_name, soil_source
             h.close()
             logger.removeHandler(h)
 
-def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
+def wflow_check(project_name, processes, process_key, flow_name):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     # Work with log
@@ -606,10 +606,7 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
             height, width = src.height, src.width
         logger.info("Checking water area data...")
         water_path = os.path.normpath(os.path.join(model_dir, 'water_area', 'water_area.geojson'))
-        if not os.path.exists(water_path):
-            mask_lake = None
-            logger.info("Water area data not found.")
-        else:
+        if os.path.exists(water_path):
             lake = gpd.read_file(water_path)
             lake_reproj = lake.to_crs(crs)
             lake_array = rasterize(
@@ -617,6 +614,9 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
                 out_shape=(height, width), transform=transform, fill=nodata
             )
             mask_lake = (lake_array != nodata)
+        else:
+            mask_lake = None
+            logger.info("Water area data not found.")
         logger.info(f"Found water area data at: {water_path}")
         logger.info("="*60)
         logger.info("Checking river data...")
@@ -652,8 +652,7 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
         # Create stream order
         uparea_array = flw.upstream_area(unit='km2')
         # Create stream mask and stream order
-        stream_mask = (uparea_array >= uparea_km)
-        strord_array = flw.stream_order(type='strahler', mask=stream_mask)
+        strord_array = flw.stream_order(type='strahler')
         # Create upstream grid
         upstream_array = flw.upstream_area(unit='cell')
         # Create river width
@@ -1100,7 +1099,7 @@ def prepare_hydromt(project_name, processes, process_key, flow_name, model_folde
         sys.stdout, sys.stderr = old_stdout, old_stderr
     if error is not None: raise error
 
-def run_hydromt(project_name, processes, process_key, flow_name, model_folder, log_path, logger=None):
+def run_hydromt(project_name: str, processes:dict, process_key:str, flow_name:str, model_folder:str, log_path:str, logger=None):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name, model_folder))
     if logger is None: logger = setup_logger("hydromt", log_path)
@@ -1163,9 +1162,9 @@ def run_hydromt(project_name, processes, process_key, flow_name, model_folder, l
         sys.stdout, sys.stderr = old_stdout, old_stderr
     if error is not None: raise error
 
-def wflow_run(project_name, processes, process_key, flow_name, model_folder, df, crs,
-    start, end, step, time_zone, data_lib, up_area, resolution, soil_layers,
-    params_input, params_output, lulc_function, lulc_mapping_fn, lai_fn):
+def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, model_folder:str, df:pd.DataFrame, 
+    crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, up_area:float, resolution:int,
+    soil_layers:list, params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
@@ -1201,9 +1200,9 @@ def wflow_run(project_name, processes, process_key, flow_name, model_folder, df,
         for idx, row in df.iterrows():
             temp_name, temp_lat, temp_lon = row['id'], row['lat'], row['lon']
             if idx > 0: _reset_log_file()
-            logger.info("=" * 70)
+            logger.info("="*70)
             logger.info(f"Checking candidate: {temp_name} [{temp_lat}, {temp_lon}]")
-            logger.info("=" * 70)
+            logger.info("="*70)
             try:
                 client = get_client()
                 client.close()
@@ -1237,17 +1236,17 @@ def wflow_run(project_name, processes, process_key, flow_name, model_folder, df,
                 if nan_vars:
                     raise ValueError(f"NaN values in: {nan_vars}")
                 # Run model
-                logger.info("=" * 70)
+                logger.info("="*70)
                 run_hydromt(project_name, processes, process_key, flow_name, model_folder, log_path)
                 logger.info(f"Candidate '{temp_name}' SUCCESS.")
                 candidate_results.append({
                     "point": temp_name, "lat": temp_lat, "lon": temp_lon, "status": "success",
                 })
                 success_point = temp_name
-                logger.info("=" * 70)
+                logger.info("="*70)
                 logger.info(f"Model run SUCCEEDED with candidate: {temp_name} [{temp_lat}, {temp_lon}]")
                 logger.info("Process completed. Stopping candidate iteration.")
-                logger.info("=" * 70)
+                logger.info("="*70)
                 break
             except Exception as e:
                 logger.error(f"Run HydroMT failed for candidate '{temp_name}'.")

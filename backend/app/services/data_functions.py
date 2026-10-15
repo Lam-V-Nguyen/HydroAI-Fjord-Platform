@@ -1,5 +1,5 @@
 import os, dotenv, base64, requests, math, rasterio, rioxarray
-import traceback, sys, shutil, cdsapi, calendar, json
+import traceback, sys, shutil, cdsapi, calendar, json, asyncio
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.shutil import copy as rio_copy
 from shapely.geometry import Point, shape
@@ -15,6 +15,7 @@ from services.flow_functions import StreamToLogger
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from whitebox.whitebox_tools import WhiteboxTools
+import dask.array as da
 
 
 wtb = WhiteboxTools()
@@ -592,7 +593,10 @@ def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_d
     catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
     catchment_dir = os.path.normpath(os.path.join(directory, "catchment"))
     os.makedirs(catchment_dir, exist_ok=True)
-    catchment.to_file(os.path.normpath(os.path.join(catchment_dir, "catchment.geojson")), driver="GeoJSON")
+    catch_path = os.path.normpath(os.path.join(catchment_dir, "catchment.geojson"))
+    catchment.to_file(catch_path, driver="GeoJSON")
+    outlet_path = os.path.normpath(os.path.join(catchment_dir, "outlet.geojson"))
+    outlet.to_file(outlet_path, driver="GeoJSON")
     # Delete temporary files
     functions.safe_remove(catchment_path)
     functions.safe_remove(outlet_dir)
@@ -625,3 +629,70 @@ def raster_vector(raster_path:str, lookup_table:pd.DataFrame, catchment:gpd.GeoD
     gdf = gdf[gdf.geometry.geom_type == 'Polygon']
     gdf = gdf.reset_index(drop=True)
     return gdf
+
+async def renew_redis_lock(lock, ttl=120, interval=30):
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await lock.extend(ttl, replace_ttl=True)
+        except Exception: return False
+
+def write_forcing(raw_path:str, forcing_dir:str, df:pd.DataFrame, interval:str):
+    # Resampling
+    precip_col = "Precipitation (mm)"
+    df = df.sort_index()
+    for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
+    if df.index.has_duplicates:
+        aggregation = {col: "mean" for col in df.columns}
+        df = df.groupby(level=0).agg(aggregation).sort_index()
+    if precip_col in df.columns:
+        precip = df[precip_col].resample(interval).sum(min_count=1)
+    resampled = df.resample(interval).asfreq()
+    # Interpolate numeric variables.
+    numeric_cols = resampled.select_dtypes(include="number").columns
+    other_cols = resampled.columns.difference(numeric_cols)
+    resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
+    resampled[other_cols] = resampled[other_cols].ffill()
+    # Restore precipitation using its separately aggregated values.
+    if precip_col in df.columns: resampled[precip_col] = precip
+    df = resampled.ffill().bfill().reset_index()
+    # Create forcing nc file
+    time = pd.to_datetime(df['Time'], utc=True).dt.tz_localize(None).to_numpy(dtype=np.datetime64)
+    out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
+    with rasterio.open(raw_path) as src:
+        dem_array, crs = src.read(1), src.crs
+        transform, nodata = src.transform, src.nodata
+    mask_nan = ~np.isfinite(dem_array)
+    if nodata is not None: mask_nan |= (dem_array == nodata)
+    ny, nx = dem_array.shape[0], dem_array.shape[1]
+    chunksizes = (1, min(256, ny), min(256, nx))
+    mask_da = da.from_array(mask_nan, chunks=chunksizes[1:])
+    forcing = {
+        'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
+        'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
+        'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
+    }
+    for var, (col, unit) in forcing.items():
+        values = df[col].to_numpy().astype(np.float32)
+        values_da = da.from_array(values, chunks=(24,))
+        data_3d = da.broadcast_to(values_da[:, None, None], shape=(len(values), ny, nx),)
+        data_3d = da.where(mask_da[None, :, :], np.float32(0.0), data_3d,)
+        datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
+    x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
+    y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
+    ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
+    ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
+    ds_final = ds_final.rio.write_crs(crs)
+    ds_final["time"].encoding = {
+        "units": "hours since 1900-01-01 00:00:00",
+        "calendar": "proleptic_gregorian", "dtype": "int64",
+        "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
+    }
+    encoding = {
+        var: {"zlib": True, "complevel": 4, "shuffle": True, 
+            "chunksizes": chunksizes, "_FillValue": -9999.0, "dtype": "float32"
+        } for var in ds_final.data_vars
+    }
+    ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
+    ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
+

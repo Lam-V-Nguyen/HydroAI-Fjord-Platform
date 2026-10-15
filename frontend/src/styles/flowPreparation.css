@@ -61,19 +61,21 @@ ul { line-height: 1.4; font-size: 16px; text-align: center; }
 
 .input-parameters { 
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 10px; width: 100%; column-gap: 100px; padding: 20px 40px;
+  gap: 10px 0; width: 100%; column-gap: 50px; padding: 20px;
 }
 .input-parameters h3 { 
-  grid-column: 1 / -1; padding: 0; margin-left: -20px;
+  grid-column: 1 / -1; padding: 0; margin-bottom: 5px;
 }
 .input-parameters .single-row {
-  display: flex; align-items: center; gap: 8px; margin: 0;
+  display: flex; align-items: center; gap: 8px; 
+  margin: 0 0 1px; line-height: 1; padding: 0;
 }
 .input-parameters .single-row label {
-  flex: 0 0 80%; flex-shrink: 0; font-size: 16px;
+  flex: 0 0 80%; flex-shrink: 0; font-size: 16px; 
+  margin: 0; padding: 0; line-height: 1;
 }
 .input-parameters .single-row input {
-  flex: 1; padding: 8px 12px; border-radius: 12px; width: 25%;
+  flex: 1; padding: 4px 5px; border-radius: 12px; width: 25%;
   border: 1px solid var(--border); background: var(--card);
   color: var(--text); outline: none; text-align: center; min-width: 0;
 }

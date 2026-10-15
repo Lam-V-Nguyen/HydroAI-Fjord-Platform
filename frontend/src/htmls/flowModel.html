@@ -47,10 +47,6 @@
                                         <option value="18144000">Monthly</option>
                                     </select>
                                 </div>
-                                <div class="field-inline">
-                                    <label>Upstream Area (km²)</label>
-                                    <input type="text" id="model-area" value="10" style="width: auto;">
-                                </div>
                                 <button type="button" id="model-check-btn">Check Wflow Model</button>
                             </div>
                         </div>
@@ -114,7 +110,7 @@
                         </div>
                     </div>
                 </div>
-                <!-- Tab 2: Model Preparation and Execution -->
+                <!-- Tab 2: Model Execution -->
                 <div class="tabpanel main-panel" data-panel="model-tab">
                     <div class="grid">
                         <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
@@ -361,27 +357,27 @@
                         </div> -->
                         <div class="tile" style="grid-column: span 2;"><h3>Model Setups</h3>
                             <div class="row">
-                                <div class="field-inline">
+                                <!-- <div class="field-inline">
                                     <button type="button" id="stream-points-btn">Stream Points</button>
                                     <input type="text" id="stream-points" style="width: auto;" placeholder="Candidate Points from Stream Order">
                                 </div>
-                            </div>
-                            <table class="attributes-table" id="stream-points-table"
-                                style="flex: 1; height: inherit; min-height: 0; display: flex; flex-direction: column;">
-                                <thead style="flex-shrink: 0; display: table; width: 100%; table-layout: fixed;">
-                                    <tr><th>Id</th><th>Lat (°)</th><th>Lon (°)</th><th>Dist (m)</th></tr>
-                                </thead>
-                                <tbody style="flex: 1; display: block; overflow-y: auto; width: 100%; max-height: 120px;"></tbody>
-                            </table>
-                            <div class="row">
+                                <table class="attributes-table" id="stream-points-table"
+                                    style="flex: 1; height: inherit; min-height: 0; display: flex; flex-direction: column;">
+                                    <thead style="flex-shrink: 0; display: table; width: 100%; table-layout: fixed;">
+                                        <tr><th>Id</th><th>Lat (°)</th><th>Lon (°)</th><th>Dist (m)</th></tr>
+                                    </thead>
+                                    <tbody style="flex: 1; display: block; overflow-y: auto; width: 100%; max-height: 120px;"></tbody>
+                                </table>
                                 <div class="field-inline">
                                     <label>Select top</label>
                                     <input type="text" id="stream-points-selected" style="max-width: 70px;">
                                     <label>nearnest candidates to the pourpoint</label>
-                                </div>
+                                </div> -->
                                 <div class="field-inline">
-                                    <button type="button" id="model-run-btn">Test Candidates & Run Wflow Model</button>
+                                    <label>Upstream Area (km²)</label>
+                                    <input type="text" id="model-area" value="10" style="width: auto;">
                                 </div>
+                                <button type="button" id="model-run-btn">Test Candidates & Run Wflow Model</button>
                             </div>
                         </div>
                     </div>

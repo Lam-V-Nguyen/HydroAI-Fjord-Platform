@@ -1,10 +1,10 @@
-import os, pickle, json, traceback, threading, requests, ast
+import os, pickle, json, traceback, threading, requests, ast, shutil, rasterio
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions, hyd_functions, flow_functions
-from config import PROJECT_ROOT, WHITEBOX_DIR
+from config import PROJECT_ROOT, WHITEBOX_DIR, SOURCE_BACKEND
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
 from shapely.geometry import box
@@ -667,11 +667,10 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
-    # flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+    key, flow_name = body.get('key'), body.get('flowName')
+    flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
     try:
-        redis, model_folder = request.app.state.redis, 'wflow_model'
-        key_process, up_area = f"{project_name}:{body.get('keyChecker')}", float(body.get('upArea'))
+        redis, key_process = request.app.state.redis, f"{project_name}:{body.get('keyChecker')}"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
             if key == "check":
@@ -680,7 +679,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow..."}
                 threading.Thread(
                     target=flow_functions.wflow_check, 
-                    args=(project_name, processes, key_process, flow_name, up_area), daemon=True
+                    args=(project_name, processes, key_process, flow_name), daemon=True
                 ).start()
                 return JSONResponse({"status": "ok", 'content': {}})
             elif key == "run":
@@ -692,30 +691,31 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
 #                 points = gpd.GeoDataFrame(point, 
 #                     geometry=gpd.points_from_xy(x=point['lon'], y=point['lat']), crs='EPSG:4326'
 #                 )
-#                 step, start, end = int(body.get('step')), body.get('start'), body.get('end')
+                step, start, end = int(body.get('step')), body.get('start'), body.get('end')
+                up_area, time_zone = float(body.get('upArea')), body.get('timeZone')
 #                 pourpoint_lat, pourpoint_lon = float(body.get('lat')), float(body.get('lon'))
 #                 df = points[['id','lat','lon']]
 #                 df['id'] = df['id'].astype(str)
 #                 new_row = pd.DataFrame({'id': ['pourpoint'], 'lat': [pourpoint_lat], 'lon': [pourpoint_lon]})
 #                 df = pd.concat([new_row, df], ignore_index=True)
-#                 lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
-#                 des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
-#                 shutil.copy(lib_path, des_path)
-#                 data_lib = [os.path.normpath(des_path)]
-#                 params_input, params_output = body.get('params_input'), body.get('params_output')
-#                 lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
-#                 # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
-#                 strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
-#                 with rasterio.open(strord_path) as strord_src:
-#                     resolution, src_crs = strord_src.transform.a, strord_src.crs
-#                 soil_layers = [50, 100, 150, 300, 400, 600]
-#                 threading.Thread( target=flow_functions.wflow_run,
-#                     args=(project_name, processes, process_key, flow_name, model_folder, df, src_crs, 
-#                         start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
-#                         params_input, params_output, lulc_fn, lulc_mapping, lai_fn
-#                     ), daemon=False
-#                 ).start()
-#                 return JSONResponse({"status": "ok", "message": "Model run started."})
+                lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
+                des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
+                shutil.copy(lib_path, des_path)
+                data_lib = [os.path.normpath(des_path)]
+                params_input, params_output = body.get('params_input'), body.get('params_output')
+                lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
+                # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
+                strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
+                with rasterio.open(strord_path) as strord_src:
+                    resolution, src_crs = int(abs(strord_src.transform.a)), strord_src.crs
+                soil_layers = [50, 100, 150, 300, 400, 600]
+                threading.Thread(target=flow_functions.wflow_run,
+                    args=(project_name, processes, key_process, flow_name, 'wflow_model', df, src_crs, 
+                        start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
+                        params_input, params_output, lulc_fn, lulc_mapping, lai_fn
+                    ), daemon=False
+                ).start()
+                return JSONResponse({"status": "ok", "message": "Model run started."})
     except Exception as e:
         print('/wflow_model:\n==============')
         traceback.print_exc()

@@ -10,7 +10,8 @@ const $ = (id) => document.getElementById(id);
 const obj = {
     projectList: $('project-list'), projectName: $('project-name'), projectOpener: $('open-btn'),
     modelInterval: $('model-step'), modelStart: $('model-start'), modelEnd: $('model-end'),
-    modelCheckBtn: $('model-check-btn'), modelArea: $('model-area'), modelLog: $('model-log'),
+    upstreamArea: $('model-area'),
+    modelCheckBtn: $('model-check-btn'), modelLog: $('model-log'), modelRunBtn: $('model-run-btn')
 
 
 
@@ -19,7 +20,7 @@ const obj = {
     // pourpointFile: $('model-pourpoint-file'), 
     // pointStream: $('stream-points'), pointStreamBtn: $('stream-points-btn'),
     // pointStreamTable: $('stream-points-table'), pointSelected: $('stream-points-selected'),
-    // modelRunBtn: $('model-run-btn')
+    
 }
 const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 18144000};
 
@@ -50,15 +51,13 @@ function modelManager() {
     obj.modelCheckBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), key = 'wflow_check';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
-        const upArea = obj.modelArea.value; obj.modelLog.value = '';
-        if (upArea === '') { alert('Please specify area of upstream.'); return; }        
         try {
-            const contentChecker = { projectName: currentProject, key: key };
+            const contentChecker = { projectName: currentProject, key: key }; obj.modelLog.value = '';
             const statusRes = await jsonLoader('check_download_status', contentChecker);
             if (statusRes.status === "running") { alert("Checking model is running."); return; }
             const content = { 
                 projectName: currentProject, flowName: name, key: 'check', 
-                upArea: upArea, keyChecker: key, timeZone: getLastTimeZone()
+                keyChecker: key, timeZone: getLastTimeZone()
             };
             const request = await jsonLoader('wflow_model', content);
             if (request.status === 'error') { alert(request.message); return; }
@@ -100,48 +99,48 @@ function modelManager() {
     //     fillTable(request.content.data, obj.pointStreamTable, true);
     //     obj.pointSelected.value = request.content.selected;
     // });
-    // obj.modelRunBtn.addEventListener('click', async () => {
-    //     const name = obj.projectName.value, keyChecker = 'wflow_run';
-    //     if (name === '') { alert('Please select a scenario from the tab "Settings" first.'); return; }
-    //     const contentCheck = {projectName: currentProject, key: keyChecker};
-    //     const statusRes = await jsonLoader('check_download_status', contentCheck);
-    //     if (statusRes.status === "running") { alert("Running Wflow model is in progress."); return; }
-    //     const startTime = obj.modelStart.value, endTime = obj.modelEnd.value;
-    //     if (startTime === '') { alert('Please select a start date first.'); return; }
-    //     if (endTime === '') { alert('Please select an end date first.'); return; }
-    //     const lat = obj.modelLat.value, lon = obj.modelLon.value;
-    //     if (lat === '' || lon === '') { alert('Please add a pourpoint first.'); return; }
-    //     const upArea = obj.modelArea.value;
-    //     if (upArea === '') { alert('Please specify area of upstream.'); return;}
-    //     const pointTotal = getDataFromTable(obj.pointStreamTable, true);
-    //     if (pointTotal.rows.length === 0) {
-    //         alert("No stream point found. Please hit the button 'Stream Points' first."); return; 
-    //     }
-    //     const pointCount = obj.pointSelected.value;
-    //     if (pointCount === '') {
-    //         alert("No candidate points selected. Please specify nearnest point to the pourpoint first."); return; 
-    //     }
-    //     const result = pointTotal.rows.slice(0, Number(pointCount));
-    //     const params_in = Object.fromEntries(
-    //         [...document.querySelectorAll(".input-parameters input")]
-    //             .map(input => [input.id, Number(input.value)])
-    //     );
-    //     const params_out = Object.fromEntries(
-    //         [...document.querySelectorAll(".output-parameters input")]
-    //             .map(input => [input.id, input.checked])
-    //     );
-    //     const content = { 
-    //         projectName: currentProject, flowName: name, key: 'run', 
-    //         start: startTime, end: endTime, timeZone: getLastTimeZone(),
-    //         points: result, step: obj.modelInterval.value, 
-    //         lat: lat, lon: lon, upArea: upArea, keyChecker: keyChecker,
-    //         params_input: params_in, params_output: params_out
-    //     };
-    //     const request = await jsonLoader('wflow_model', content);
-    //     if (request.status === 'error') { alert(request.message); return; }
-    //     obj.modelLog.value = '';
-    //     updateLog(currentProject, obj.modelLog, 3, keyChecker, async () => {
-    //         alert('Running Wflow model completed.'); 
-    //     }, true);
-    // });
+    obj.modelRunBtn.addEventListener('click', async () => {
+        const name = obj.projectName.value.trim(), keyChecker = 'wflow_run';
+        if (!name || name === '') { alert('Please define scenario name.'); return; }
+        if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
+        const start = obj.modelStart.value, end = obj.modelEnd.value;
+        if (start === '' || end === '') { alert('Please select a start and end date.'); return; }
+        const upstreamArea = obj.upstreamArea.value;
+        if (upstreamArea === '') { alert('Please specify area of upstream.'); return; }
+        try {
+            const contentCheck = { projectName: currentProject, key: keyChecker };
+            const statusRes = await jsonLoader('check_download_status', contentCheck);
+            if (statusRes.status === "running") { alert("Running Wflow model is in progress."); return; }
+        //     const lat = obj.modelLat.value, lon = obj.modelLon.value;
+        //     if (lat === '' || lon === '') { alert('Please add a pourpoint first.'); return; }
+        //     const pointTotal = getDataFromTable(obj.pointStreamTable, true);
+        //     if (pointTotal.rows.length === 0) {
+        //         alert("No stream point found. Please hit the button 'Stream Points' first."); return; 
+        //     }
+        //     const pointCount = obj.pointSelected.value;
+        //     if (pointCount === '') {
+        //         alert("No candidate points selected. Please specify nearnest point to the pourpoint first."); return; 
+        //     }
+        //     const result = pointTotal.rows.slice(0, Number(pointCount));
+            const params_in = Object.fromEntries(
+                [...document.querySelectorAll(".input-parameters input")].map(input => [input.id, Number(input.value)])
+            );
+            const params_out = Object.fromEntries(
+                [...document.querySelectorAll(".output-parameters input")].map(input => [input.id, input.checked])
+            );
+            const content = { 
+                projectName: currentProject, flowName: name, key: 'run', 
+                start: start, end: end, timeZone: getLastTimeZone(),
+                keyChecker: keyChecker, step: obj.modelInterval.value,
+                upArea: upstreamArea, 
+                // points: result, lat: lat, lon: lon, 
+                params_input: params_in, params_output: params_out
+            };
+            const request = await jsonLoader('wflow_model', content); obj.modelLog.value = '';
+            if (request.status === 'error') { alert(request.message); return; }
+            updateLog(currentProject, obj.modelLog, 3, keyChecker, async () => {
+                alert('Running Wflow model completed.'); 
+            }, true);
+        } catch (error) { alert(`Running Wflow model failed: ${error.message}`); }
+    });
 }
