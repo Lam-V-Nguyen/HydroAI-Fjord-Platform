@@ -668,7 +668,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
-    flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+    # flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
     try:
         redis, model_folder = request.app.state.redis, 'wflow_model'
         key_process, up_area = f"{project_name}:{body.get('keyChecker')}", float(body.get('upArea'))
@@ -682,13 +682,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                     target=flow_functions.wflow_check, 
                     args=(project_name, processes, key_process, flow_name, up_area), daemon=True
                 ).start()
-#                 outlet_path = os.path.normpath(os.path.join(flow_dir, "outlet", "outlet.shp"))
-#                 if os.path.exists(outlet_path):
-#                     snapped = gpd.read_file(outlet_path)
-#                     if snapped.crs != "EPSG:4326": snapped = snapped.to_crs("EPSG:4326")
-#                     lat, lon = snapped.geometry[0].y, snapped.geometry[0].x
-#                 else: lat, lon = '', ''
-#                 return JSONResponse({"status": "ok", 'content': {'lat': lat, 'lon': lon}})
+                return JSONResponse({"status": "ok", 'content': {}})
             elif key == "run":
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Running Wflow model.'})

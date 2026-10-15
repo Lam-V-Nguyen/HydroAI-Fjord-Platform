@@ -21,7 +21,7 @@
             <div class="tab-header" id="main-tabs">
                 <div class="tabs-list">
                     <button class="tab-btn" data-tab="settings-tab">Settings</button>
-                    <button class="tab-btn" data-tab="model-tab">Model Preparation & Execution</button>
+                    <button class="tab-btn" data-tab="model-tab">Model Execution</button>
                 </div>
             </div>
             <div class="tabs-content">
@@ -40,7 +40,7 @@
                                 </div>
                                 <div class="field-inline">
                                     <label for="model-step">Interval:</label>
-                                    <select id="model-step" style="width: 100%;">
+                                    <select id="model-step">
                                         <option value="3600" selected>Hourly</option>
                                         <option value="86400">Daily</option>
                                         <option value="604800">Weekly</option>
@@ -51,9 +51,7 @@
                                     <label>Upstream Area (km²)</label>
                                     <input type="text" id="model-area" value="10" style="width: auto;">
                                 </div>
-                                <div class="field-inline">
-                                    <button type="button" id="model-check-btn">Check Wflow Model</button>
-                                </div>
+                                <button type="button" id="model-check-btn">Check Wflow Model</button>
                             </div>
                         </div>
                         <div class="tile input-parameters" style="grid-column: span 6;"><h3>Initial Conditions</h3>
@@ -114,22 +112,12 @@
                                 <input type="text" id="melt_t0_glacier" value='0'>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 8;" id="model-process-log"><h3>Process Log</h3>
-                            
-
-
-                        </div>
-
-
-
-
-
                     </div>
                 </div>
                 <!-- Tab 2: Model Preparation and Execution -->
                 <div class="tabpanel main-panel" data-panel="model-tab">
                     <div class="grid">
-                        <div class="tile output-parameters" style="grid-column: span 5;"><h3>Model Outputs</h3>
+                        <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
                             <div class="tab-header">
                                 <div class="tabs-list">
                                     <button class="tab-btn" data-tab="wflow-setting-1">Overland Flow Outputs</button>
@@ -357,7 +345,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 1;"><h3>Model Checker</h3>
+                        <!-- <div class="tile" style="grid-column: span 1;"><h3>Model Checker</h3>
                             <div class="row">
                                 
                                 
@@ -370,7 +358,7 @@
                                         Add customized pour point (*.GeoJSON)</button>
                                 </div>
                             </div>
-                        </div>
+                        </div> -->
                         <div class="tile" style="grid-column: span 2;"><h3>Model Setups</h3>
                             <div class="row">
                                 <div class="field-inline">
@@ -396,11 +384,12 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile model-container" style="grid-column: span 8;"><h3>View Logs</h3>
-                            <textarea wrap="off" id="model-text" placeholder="Logs..." readonly></textarea>
-                        </div>
                     </div>
                 </div>
+            </div>
+            <div class="tile" style="grid-column: span 8; margin: 10px;"><h3>Process Log</h3>
+                <textarea wrap="off" class="log-text" id="model-log" placeholder="Logs..."
+                    style="margin-top: 10px; height: 230px; display: block;" readonly></textarea>
             </div>
         </section>
     </div>

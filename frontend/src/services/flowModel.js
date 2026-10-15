@@ -10,13 +10,16 @@ const $ = (id) => document.getElementById(id);
 const obj = {
     projectList: $('project-list'), projectName: $('project-name'), projectOpener: $('open-btn'),
     modelInterval: $('model-step'), modelStart: $('model-start'), modelEnd: $('model-end'),
-    modelCheckBtn: $('model-check-btn'),
+    modelCheckBtn: $('model-check-btn'), modelArea: $('model-area'), modelLog: $('model-log'),
+
+
+
 
     // modelPourpointBtn: $('model-pourpoint-btn'), modelLat: $('model-lat'), modelLon: $('model-lon'),
-    // pourpointFile: $('model-pourpoint-file'), modelArea: $('model-area'), 
+    // pourpointFile: $('model-pourpoint-file'), 
     // pointStream: $('stream-points'), pointStreamBtn: $('stream-points-btn'),
     // pointStreamTable: $('stream-points-table'), pointSelected: $('stream-points-selected'),
-    // modelRunBtn: $('model-run-btn'), modelLog: $('model-text')
+    // modelRunBtn: $('model-run-btn')
 }
 const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 18144000};
 
@@ -47,26 +50,21 @@ function modelManager() {
     obj.modelCheckBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), key = 'wflow_check';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
-        
-        
-
+        const upArea = obj.modelArea.value; obj.modelLog.value = '';
+        if (upArea === '') { alert('Please specify area of upstream.'); return; }        
         try {
             const contentChecker = { projectName: currentProject, key: key };
             const statusRes = await jsonLoader('check_download_status', contentChecker);
             if (statusRes.status === "running") { alert("Checking model is running."); return; }
-    //     const upArea = obj.modelArea.value;
-    //     if (upArea === '') { alert('Please specify area of upstream.'); return; }
-        const content = { 
-            projectName: currentProject, flowName: name, key: 'check', 
-            upArea: upArea, keyChecker: keyChecker, timeZone: getLastTimeZone()
-        };
-    //     const request = await jsonLoader('wflow_model', content);
-    //     if (request.status === 'error') { alert(request.message); return; }
-    //     obj.modelLog.value = '';
-    //     updateLog(currentProject, obj.modelLog, 1, keyChecker, async () => {
-    //         alert('Checking Wflow model completed.');
-    //     });
-    //     obj.modelLat.value = request.content.lat; obj.modelLon.value = request.content.lon;
+            const content = { 
+                projectName: currentProject, flowName: name, key: 'check', 
+                upArea: upArea, keyChecker: key, timeZone: getLastTimeZone()
+            };
+            const request = await jsonLoader('wflow_model', content);
+            if (request.status === 'error') { alert(request.message); return; }
+            updateLog(currentProject, obj.modelLog, 1, key, async () => {
+                alert('Checking Wflow model completed.');
+            });
         } catch (error) { alert(`Checking model parameters failed: ${error.message}`); }
     });
     // obj.modelPourpointBtn.addEventListener('click', () => obj.pourpointFile.click());
