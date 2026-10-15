@@ -9,6 +9,14 @@
 </head>
 <body>
     <div class="wrapper">
+        <div class="page-title">
+            <label for="project-name">Scenario:</label>
+            <div class="project-name-wrapper">
+                <input type="text" id="project-name" placeholder="Select a scenario">
+                <ul id="project-list"></ul>
+            </div>
+            <button class="tab-btn" id="open-btn">Open Scenario</button>
+        </div>
         <section class="main-tab" id="control-tab">
             <div class="tab-header" id="main-tabs">
                 <div class="tabs-list">
@@ -20,38 +28,35 @@
                 <!-- Tab 1: Settings -->
                 <div class="tabpanel main-panel" data-panel="settings-tab">
                     <div class="grid">
-                        <div class="tile"><h3>Flow Project</h3>
+                        <div class="tile" style="grid-column: span 2;"><h3>Simulation Options</h3>
                             <div class="row">
                                 <div class="field-inline">
-                                    <label>Scenario:</label>
-                                    <div class="project-name-wrapper">
-                                        <input type="text" class="project-name" id="project-name" placeholder="Click to select a scenario">
-                                        <ul class="project-list" id="project-list"></ul>
-                                    </div>
-                                    <button id="create-btn" style="max-width: 80px;">Open</button>
+                                    <label for="model-start">Start Time:</label>
+                                    <input type="text" class="datetime" id="model-start" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                </div>
+                                <div class="field-inline">
+                                    <label for="model-end">End Time:</label>
+                                    <input type="text" class="datetime" id="model-end" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
+                                </div>
+                                <div class="field-inline">
+                                    <label for="model-step">Interval:</label>
+                                    <select id="model-step" style="width: 100%;">
+                                        <option value="3600" selected>Hourly</option>
+                                        <option value="86400">Daily</option>
+                                        <option value="604800">Weekly</option>
+                                        <option value="18144000">Monthly</option>
+                                    </select>
+                                </div>
+                                <div class="field-inline">
+                                    <label>Upstream Area (km²)</label>
+                                    <input type="text" id="model-area" value="10" style="width: auto;">
+                                </div>
+                                <div class="field-inline">
+                                    <button type="button" id="model-check-btn">Check Wflow Model</button>
                                 </div>
                             </div>
                         </div>
-                        <div class="tile"><h3>Simulation Options</h3>
-                            <div class="row">
-                                <label for="model-start">Start Time:</label>
-                                <input type="text" class="datetime" id="model-start" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
-                            </div>
-                            <div class="row">
-                                <label for="model-end">End Time:</label>
-                                <input type="text" class="datetime" id="model-end" placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
-                            </div>
-                            <div class="row">
-                                <label for="model-step">Interval:</label>
-                                <select id="model-step" style="width: 100%;">
-                                    <option value="3600" selected>Hourly</option>
-                                    <option value="86400">Daily</option>
-                                    <option value="604800">Weekly</option>
-                                    <option value="18144000">Monthly</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="tile input-parameters" style="grid-column: span 8;"><h3>Initial Conditions</h3>
+                        <div class="tile input-parameters" style="grid-column: span 6;"><h3>Initial Conditions</h3>
                             <div class="single-row">
                                 <label for="k_sat_ratio">Subsurface Conductivity Ratio:</label>
                                 <input type="text" id="k_sat_ratio" value='100'>
@@ -109,6 +114,16 @@
                                 <input type="text" id="melt_t0_glacier" value='0'>
                             </div>
                         </div>
+                        <div class="tile" style="grid-column: span 8;" id="model-process-log"><h3>Process Log</h3>
+                            
+
+
+                        </div>
+
+
+
+
+
                     </div>
                 </div>
                 <!-- Tab 2: Model Preparation and Execution -->
@@ -344,13 +359,8 @@
                         </div>
                         <div class="tile" style="grid-column: span 1;"><h3>Model Checker</h3>
                             <div class="row">
-                                <div class="field-inline">
-                                    <label>Upstream Area (km²)</label>
-                                    <input type="text" id="model-area" value="10" style="width: auto;">
-                                </div>
-                                <div class="field-inline">
-                                    <button type="button" id="model-check-btn">Check Model</button>
-                                </div>
+                                
+                                
                                 <div class="field-inline"><label>Pour point</label></div>
                                 <input type="file" id="model-pourpoint-file" accept=".geojson,.shp" hidden>
                                 <div class="field-inline" style="margin-top: -10px;">

@@ -595,7 +595,7 @@ def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_d
     catchment.to_file(os.path.normpath(os.path.join(catchment_dir, "catchment.geojson")), driver="GeoJSON")
     # Delete temporary files
     functions.safe_remove(catchment_path)
-    functions.safe_remove(outlet_path)
+    functions.safe_remove(outlet_dir)
     if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
     area = round(catchment["geometry"].area.sum() / 1000000, 6)
     if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")

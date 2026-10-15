@@ -14,6 +14,7 @@ from rio_tiler.utils import render
 from rio_tiler.errors import TileOutsideBounds
 from whitebox.whitebox_tools import WhiteboxTools
 
+
 wtb = WhiteboxTools()
 wtb.set_verbose_mode(False)
 wtb.set_whitebox_dir(WHITEBOX_DIR)
@@ -662,29 +663,25 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started."})
 
-
-
-# @router.post("/wflow_model")
-# async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
-#     try:
-#         body = await request.json()
-#         project_name, _ = functions.project_definer(body.get('projectName'), user)
-#         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-#         key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
-#         flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
-#         redis, model_folder = request.app.state.redis, 'wflow_model'
-#         process_key, up_area = f"{project_name}:{body.get('keyChecker')}", float(body.get('upArea'))
-#         lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
-#         async with lock:
-#             info = processes.get(process_key)
-#             if key == "check":
-#                 if info and info["status"] == "running":
-#                     return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
-#                 processes[process_key] = {"status": "running", "message": "Checking inputs for Wflow..."}
-#                 threading.Thread(
-#                     target=flow_functions.wflow_check, 
-#                     args=(project_name, processes, process_key, flow_name, up_area), daemon=True
-#                 ).start()
+@router.post("/wflow_model")
+async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get('projectName'), user)
+    key, flow_name, time_zone = body.get('key'), body.get('flowName'), body.get('timeZone')
+    flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+    try:
+        redis, model_folder = request.app.state.redis, 'wflow_model'
+        key_process, up_area = f"{project_name}:{body.get('keyChecker')}", float(body.get('upArea'))
+        lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+        async with lock:
+            if key == "check":
+                if key_process in processes and processes[key_process]["status"] == "running":
+                    return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
+                processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow..."}
+                threading.Thread(
+                    target=flow_functions.wflow_check, 
+                    args=(project_name, processes, key_process, flow_name, up_area), daemon=True
+                ).start()
 #                 outlet_path = os.path.normpath(os.path.join(flow_dir, "outlet", "outlet.shp"))
 #                 if os.path.exists(outlet_path):
 #                     snapped = gpd.read_file(outlet_path)
@@ -692,10 +689,10 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
 #                     lat, lon = snapped.geometry[0].y, snapped.geometry[0].x
 #                 else: lat, lon = '', ''
 #                 return JSONResponse({"status": "ok", 'content': {'lat': lat, 'lon': lon}})
-#             elif key == "run":
-#                 if info and info["status"] == "running":
-#                     return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
-#                 processes[process_key] = {"status": "running", "message": "Running Wflow model..."}
+            elif key == "run":
+                if key_process in processes and processes[key_process]["status"] == "running":
+                    return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
+                processes[key_process] = {"status": "running", "message": "Running Wflow model..."}
 #                 point = pd.DataFrame(data=body.get('points'), columns=['id','lat','lon','dis'])
 #                 point = point[['id','lat','lon']]
 #                 points = gpd.GeoDataFrame(point, 
@@ -725,18 +722,7 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
 #                     ), daemon=False
 #                 ).start()
 #                 return JSONResponse({"status": "ok", "message": "Model run started."})
-#     except Exception as e:
-#         print('/wflow_model:\n==============')
-#         traceback.print_exc()
-#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-
-
-
-
-
-
-
-
-
-
+    except Exception as e:
+        print('/wflow_model:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})

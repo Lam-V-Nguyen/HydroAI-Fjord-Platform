@@ -13,6 +13,7 @@ from pyflwdir import dem
 from skimage.morphology import skeletonize
 from services import functions, flow_functions, data_functions
 from rasterio.io import MemoryFile
+import dask.array as da
 
 
 router, process_lock = APIRouter(), threading.Lock()
@@ -23,8 +24,7 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     try:
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_name, time_zone, content = body.get('flowName'), body.get('timeZone'), {}
-        content['water'] = content['dtm'] = ''
+        flow_name, content, content['water'], content['dtm'] = body.get('flowName'), {}, '', ''
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
         if not os.path.exists(flow_dir):
             os.makedirs(flow_dir, exist_ok=True)
@@ -47,20 +47,16 @@ async def flow_project(request: Request, user=Depends(functions.basic_auth)):
                         flow_functions.soil_type_reverse[soil_type],
                         flow_functions.soil_depth_reverse[soil_depth]
                     ]
-                    soil_dict.append({
-                        'value': soil.removesuffix('.tif'), 'label': (' - ').join(temp)
-                    })
+                    soil_dict.append({'value': soil.removesuffix('.tif'), 'label': (' - ').join(temp)})
                 soil_dict.append({'value': 'soilthickness', 'label': 'soilthickness'})
                 content['soil'] = soil_dict
         else: content['soil'] = []
-        forcing_path = os.path.normpath(os.path.join(flow_dir, 'forcing', 'weather_forcing.nc'))
+        forcing_path = os.path.normpath(os.path.join(flow_dir, 'forcing', 'forcing.json'))
         try:
-            with xr.open_dataset(forcing_path) as forcing:
-                start, end = forcing.time.values[0], forcing.time.values[-1]
-                interval = np.diff(forcing['time'].values).astype('timedelta64[s]').astype(int)[0]
-            start_time = functions.utc_to_local(start, time_zone)
-            end_time = functions.utc_to_local(end, time_zone)
-            content['forcing'] = {'start': start_time, 'end': end_time, 'interval': str(interval)}
+            with open(forcing_path) as f:
+                forcing = json.load(f)
+                start, end, interval = forcing['start'], forcing['end'], forcing['interval']
+            content['forcing'] = {'start': start, 'end': end, 'interval': interval}
         except: content['forcing'] = {'start': '', 'end': '', 'interval': '1h'}
         return JSONResponse({'content': content})
     except Exception as e:
@@ -486,23 +482,34 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
         if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
         os.makedirs(forcing_dir, exist_ok=True)
         time_zone, interval = body.get('timeZone'), body.get('interval')
-        redis = request.app.state.redis
+        redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
+        forcing = {'start': start, 'end': end, 'interval': interval}
+        forcing_path = os.path.join(forcing_dir, 'forcing.json')
+        with open(forcing_path, 'w') as f:
+            json.dump(forcing, f)
         lock = redis.lock(f"{project_name}:save-weather", timeout=1000, blocking_timeout=10)
         async with lock:
             df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
             df['Time'] = functions.local_to_utc(df['Time'], time_zone)
             df = df.set_index('Time')
             # Resampling
-            for col in df.columns:
-                if col == 'Precipitation (mm)': df[col] = df[col].resample(interval).sum()
-                else: 
-                    resampled = df.resample(interval).asfreq()
-                    numeric_cols = resampled.select_dtypes(include='number').columns
-                    non_numeric_cols = resampled.columns.difference(numeric_cols)
-                    resampled[numeric_cols] = resampled[numeric_cols].interpolate(method='time')
-                    resampled[non_numeric_cols] = resampled[non_numeric_cols].ffill()
-                    df = resampled
-            df = df.ffill().bfill().reset_index()
+            precip_col = "Precipitation (mm)"
+            df = df.sort_index()
+            for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
+            if df.index.has_duplicates:
+                aggregation = {col: "mean" for col in df.columns}
+                df = df.groupby(level=0).agg(aggregation).sort_index()
+            if precip_col in df.columns:
+                precip = df[precip_col].resample(interval).sum(min_count=1)
+            resampled = df.resample(interval).asfreq()
+            # Interpolate numeric variables.
+            numeric_cols = resampled.select_dtypes(include="number").columns
+            other_cols = resampled.columns.difference(numeric_cols)
+            resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
+            resampled[other_cols] = resampled[other_cols].ffill()
+            # Restore precipitation using its separately aggregated values.
+            if precip_col in df.columns: resampled[precip_col] = precip
+            df = resampled.ffill().bfill().reset_index()
             # Create forcing nc file
             time, time_step = df.index.to_numpy(), 'hours'
             out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
@@ -515,27 +522,27 @@ async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)
             mask_nan = np.isnan(dem_array) | (dem_array == nodata)
             ny, nx = dem_array.shape[0], dem_array.shape[1]
             chunksizes = (1, min(256, ny), min(256, nx))
+            mask_da = da.from_array(mask_nan, chunks=chunksizes[1:])
             forcing = {
                 'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
                 'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
                 'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
             }
             for var, (col, unit) in forcing.items():
-                data = df[col].values.astype(np.float32)
-                data_3d = flow_functions.create_forcing(data, ny, nx, mask_nan, True)
+                values = df[col].to_numpy().astype(np.float32)
+                values_da = da.from_array(values, chunks=(24,))
+                data_3d = da.broadcast_to(values_da[:, None, None], shape=(len(values), ny, nx),)
+                data_3d = da.where(mask_da[None, :, :], np.float32(0.0), data_3d,)
                 datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
             x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
             y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
-            ds_final = xr.Dataset(
-                data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords}
-            )
+            ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
             ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
             ds_final = ds_final.rio.write_crs(crs)
             ds_final["time"].encoding = {
                 "units": f"{time_step} since 1900-01-01 00:00:00",
                 "calendar": "proleptic_gregorian", "dtype": "int64",
-                "chunksizes": (len(time),), "zlib": True, 
-                "complevel": 4, "shuffle": True,
+                "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
             }
             encoding = {
                 var: {"zlib": True, "complevel": 4, "shuffle": True, 

@@ -93,7 +93,7 @@ function settingManager() {
         const name = obj.projectName.value.trim();
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
-        const content = { projectName: currentProject, flowName: name, timeZone: getLastTimeZone }; 
+        const content = { projectName: currentProject, flowName: name }; 
         const data = await jsonLoader('flow_project', content);
         if (data.status === 'error' || data.status === 'create') { alert(data.message); return; }
         obj.waterInputText.value = data.content['water']; obj.terrainName.value = data.content['dtm'];
@@ -136,7 +136,7 @@ function settingManager() {
             const data = await response.json(); signalSender('hideOverlay');
             if (data.status === 'error') { alert(data.content.message); return; }
             waterLayer = await mapPlotter(data.content.water_area, mapObj, 'Water Body');
-            obj.waterInputText.value = file.name; e.target.value = '';
+            obj.waterInputText.value = file.name; e.target.value = ''; obj.waterCheckbox.checked = true;
         } catch (error) { alert(`Uploading water layer failed: ${error.message}`); }
     });
     obj.waterCheckbox.addEventListener('change', async (e) => {
@@ -167,6 +167,7 @@ function settingManager() {
             signalSender('hideOverlay'); alert(data.message); obj.waterInputText.value = '';
             if (data.status === 'error') { return; }
             if (waterLayer) { waterLayer = clearMap(waterLayer, mapObj); }
+            obj.waterCheckbox.checked = false;
         } catch (error) { alert(`Deleting water layer failed: ${error.message}`); }
     });
     // Upload catchment
@@ -745,7 +746,7 @@ function weatherManager() {
     document.querySelectorAll('input[name="weather"]').forEach(item => {
         item.addEventListener('change', (e) => {
             if (e.target.value === 'weather-csv') {
-                obj.weatherCSVContainer.style.display = 'block'; obj.weatherStationContainer.style.display = 'none'; 
+                obj.weatherCSVContainer.style.display = 'flex'; obj.weatherStationContainer.style.display = 'none'; 
                 obj.weatherTableContainer.style.display = 'block'; obj.weatherDownloadContainer.style.display = 'none';
             } else {
                 obj.weatherCSVContainer.style.display = 'none'; obj.weatherStationContainer.style.display = 'flex'; 
@@ -760,13 +761,12 @@ function weatherManager() {
     });
     obj.weatherBtn.addEventListener('click', () => { obj.weatherInputFile.click(); });
     obj.weatherInputFile.addEventListener('change', async (e) => {
-        signalSender('showOverlay', 'Uploading weather data from CSV file.\nPlease wait...');
         try { 
             await csvUploader(e, obj.weatherInputText, obj.weatherTable, 7);
             const data = getDataFromTable(obj.weatherTable, true).rows;
             obj.weatherStart.value = data[0][0]; obj.weatherEnd.value = data[data.length - 1][0];
-        } finally { 
-            signalSender('hideOverlay'); obj.weatherStart.value = ''; obj.weatherEnd.value = '';
+        } catch (error) { 
+            alert('Error: ' + error.message); obj.weatherStart.value = ''; obj.weatherEnd.value = '';
         }
     });
     obj.saveWeatherBtn.addEventListener('click', async () => {
@@ -778,7 +778,8 @@ function weatherManager() {
             signalSender('showOverlay', 'Creating weather data. Please wait...');
             const content = {
                 projectName: currentProject, flowName: name, data: data, 
-                timeZone: getLastTimeZone(), interval: obj.weatherInterval.value
+                timeZone: getLastTimeZone(), interval: obj.weatherInterval.value,
+                start: obj.weatherStart.value, end: obj.weatherEnd.value
             };
             const request = await jsonLoader('save_flow_weather', content);
             signalSender('hideOverlay'); alert(request.message);

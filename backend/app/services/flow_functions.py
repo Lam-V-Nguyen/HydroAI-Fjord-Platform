@@ -585,21 +585,21 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
     try:
         logger = setup_logger("wflow", log_path)
         logger.info("Checking wflow inputs...")
-        logger.info("=" * 60)
+        logger.info("="*60)
         logger.info("Checking weather forcing data...")
         forcing_path = os.path.normpath(os.path.join(model_dir, 'forcing', 'weather_forcing.nc'))
         if not os.path.exists(forcing_path):
             logger.info("Weather forcing data not found.")
             processes[process_key] = {"status": "failed", "message": "Weather forcing data not found."}
         logger.info(f"Found weather forcing data at: {forcing_path}")
-        logger.info("=" * 60)
+        logger.info("="*60)
         logger.info("Checking terrain data...")
         terrain_path = os.path.normpath(os.path.join(model_dir, 'raw', 'dtm_raw.tif'))
         if not os.path.exists(terrain_path):
             logger.info("Terrain data not found.")
             processes[process_key] = {"status": "failed", "message": "Terrain data not found."}
         logger.info(f"Found terrain data at: {terrain_path}")
-        logger.info("=" * 60)
+        logger.info("="*60)
         with rasterio.open(terrain_path) as src:
             dem_array, crs, nodata = src.read(1), src.crs, src.nodata
             transform, profile = src.transform, src.profile
@@ -618,7 +618,7 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
             )
             mask_lake = (lake_array != nodata)
         logger.info(f"Found water area data at: {water_path}")
-        logger.info("=" * 60)
+        logger.info("="*60)
         logger.info("Checking river data...")
         river_dir = os.path.normpath(os.path.join(model_dir, 'river'))
         river_files = [f for f in os.listdir(river_dir)]
@@ -626,7 +626,7 @@ def wflow_check(project_name, processes, process_key, flow_name, uparea_km=10):
             logger.info("Number of river files is not equal to 2.")
             processes[process_key] = {"status": "failed", "message": "Please upload river data."}
         logger.info(f"Found river data at: {river_dir}")
-        logger.info("=" * 60)
+        logger.info("="*60)
         logger.info("Creating template hydro data...")
         # Prepare template raster dataset
         hydro_dir = os.path.normpath(os.path.join(model_dir, 'hydro'))

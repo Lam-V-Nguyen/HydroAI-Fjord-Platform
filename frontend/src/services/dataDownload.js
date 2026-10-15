@@ -312,8 +312,7 @@ function updateManager() {
                 obj.metDownloadTable.style.display = 'table';
             });
         } catch (error) {
-            alert(error.message || error);
-            obj.metSaveBtn.style.display = 'none'; return;
+            alert(error.message || error); obj.metSaveBtn.style.display = 'none'; return;
         }
     });
     obj.metSaveBtn.addEventListener('click', async () => {
