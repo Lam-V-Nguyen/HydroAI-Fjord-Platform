@@ -471,50 +471,53 @@ async def river_saver(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/save_flow_weather")
-async def save_flow_weather(request: Request, user=Depends(functions.basic_auth)):
+@router.post("/save_forcing_weather")
+async def save_forcing_weather(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_name, data = body.get('flowName'), dict(body.get('data'))
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-        forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
         time_zone, interval = body.get('timeZone'), body.get('interval')
-        redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
-        raw_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
-        if not os.path.exists(raw_path):
-            return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."})
-        if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
-        os.makedirs(forcing_dir, exist_ok=True)
-        forcing = {'start': start, 'end': end, 'interval': interval}
-        forcing_path = os.path.join(forcing_dir, 'forcing.json')
-        with open(forcing_path, 'w') as f:
-            json.dump(forcing, f)
+        start, end = body.get('start'), body.get('end')
+        redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
         df = pd.DataFrame.from_records(data['rows'], columns=data['columns'])
-        df['Time'] = functions.local_to_utc(df['Time'], time_zone)
-        df = df.set_index('Time')
-        required_columns = [
-            "Precipitation (mm)", "Temperature (°C)", "Shortwave Radiation (W/m²)",
-            "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (Pa)",
-        ]
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            return JSONResponse({"status": "error", "message": f"Missing weather columns: {', '.join(missing_columns)}"})
-        lock = redis.lock(f"{project_name}:save-weather", timeout=120, blocking_timeout=300)
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        lock = redis.lock(key_process, timeout=120, blocking_timeout=300)
         async with lock:
             renew_task = asyncio.create_task(data_functions.renew_redis_lock(lock, ttl=120, interval=30))
             try:
-                await asyncio.to_thread(data_functions.write_forcing, raw_path, forcing_dir, df, interval)
+                content = await asyncio.to_thread(data_functions.write_forcing,
+                    flow_dir, start, end, time_zone, interval, df
+                )
                 if renew_task.done() and not renew_task.result():
-                    return JSONResponse({'status': 'error', 'message': 'Failed to renew redis lock.'})
+                    content = {'status': 'error', 'message': 'Failed to renew redis lock.'}
             finally:
                 renew_task.cancel()
                 with suppress(asyncio.CancelledError): await renew_task
-            return JSONResponse({'status': 'ok', 'message': 'Weather data saved successfully.'})
+            return JSONResponse(content)
     except Exception as e:
-        print('/save_flow_weather:\n==============')
+        print('/save_forcing_weather:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/upstream_area")
+async def upstream_area(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, area = body.get('flowName'), float(body.get('area'))
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+        content = data_functions.upstream_area(flow_dir, project_name, f"flows/{flow_name}", area)
+        return JSONResponse(content)
+    except Exception as e:
+        print('/upstream_area:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+
+
+
+
 
 
 

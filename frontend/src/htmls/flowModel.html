@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
     <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
     <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
+    <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
 </head>
 <body>
     <div class="wrapper">
@@ -21,7 +23,7 @@
             <div class="tab-header" id="main-tabs">
                 <div class="tabs-list">
                     <button class="tab-btn" data-tab="settings-tab">Settings</button>
-                    <button class="tab-btn" data-tab="model-tab">Model Execution</button>
+                    <button class="tab-btn" data-tab="model-run-tab">Model Execution</button>
                 </div>
             </div>
             <div class="tabs-content">
@@ -47,7 +49,6 @@
                                         <option value="18144000">Monthly</option>
                                     </select>
                                 </div>
-                                <button type="button" id="model-check-btn">Check Wflow Model</button>
                             </div>
                         </div>
                         <div class="tile input-parameters" style="grid-column: span 6;"><h3>Initial Conditions</h3>
@@ -111,10 +112,10 @@
                     </div>
                 </div>
                 <!-- Tab 2: Model Execution -->
-                <div class="tabpanel main-panel" data-panel="model-tab">
+                <div class="tabpanel main-panel" data-panel="model-run-tab">
                     <div class="grid">
-                        <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
-                            <div class="tab-header">
+                        <div class="tile output-parameters" style="grid-column: span 5;"><h3>Model Outputs</h3>
+                            <div class="tab-header" id="sub-main-tabs">
                                 <div class="tabs-list">
                                     <button class="tab-btn" data-tab="wflow-setting-1">Overland Flow Outputs</button>
                                     <button class="tab-btn" data-tab="wflow-setting-2">Soil Outputs</button>
@@ -341,22 +342,21 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- <div class="tile" style="grid-column: span 1;"><h3>Model Checker</h3>
+                        <div class="tile" style="grid-column: span 3;"><h3>Model Setups</h3>
                             <div class="row">
-                                
-                                
-                                <div class="field-inline"><label>Pour point</label></div>
-                                <input type="file" id="model-pourpoint-file" accept=".geojson,.shp" hidden>
-                                <div class="field-inline" style="margin-top: -10px;">
+                                <div class="field-inline">
+                                    <label>Upstream Area (km²)</label>
+                                    <input type="text" id="upstream-area" value="5" style="width: auto;">
+                                    <button type="button" id="upstream-check-btn">Check Upstream Area</button>
+                                </div>
+                                <div class="field-inline">
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="upstream-checkbox">
+                                        <label for="upstream-checkbox">Upstream Pourpoint</label>
+                                    </div>
                                     <input type="text" id="model-lat" placeholder="Latitude (°)" style="width: auto;">
                                     <input type="text" id="model-lon" placeholder="Longitude (°)" style="width: auto;">
-                                    <button type="button" id="model-pourpoint-btn" title="Use this button to add your pourpoint-defined point">
-                                        Add customized pour point (*.GeoJSON)</button>
                                 </div>
-                            </div>
-                        </div> -->
-                        <div class="tile" style="grid-column: span 2;"><h3>Model Setups</h3>
-                            <div class="row">
                                 <!-- <div class="field-inline">
                                     <button type="button" id="stream-points-btn">Stream Points</button>
                                     <input type="text" id="stream-points" style="width: auto;" placeholder="Candidate Points from Stream Order">
@@ -374,21 +374,55 @@
                                     <label>nearnest candidates to the pourpoint</label>
                                 </div> -->
                                 <div class="field-inline">
-                                    <label>Upstream Area (km²)</label>
-                                    <input type="text" id="model-area" value="10" style="width: auto;">
+                                    <button type="button" id="model-check-btn">Check Wflow Model</button>
+                                    <button type="button" id="model-run-btn">Test Candidates & Run Wflow Model</button>
                                 </div>
-                                <button type="button" id="model-run-btn">Test Candidates & Run Wflow Model</button>
+                                <div class="field-inline">
+                                    <textarea wrap="off" class="log-text" id="model-log" placeholder="Logs..." readonly></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tile flow-map" style="grid-column: span 8;">
+                            <!-- Add the map -->
+                            <div class="map-container" id="map-container">
+                                <div class="leaflet-map" id="leaflet-map-flow-checking"></div>
+                                <img class="leaflet-compass" src="/src_frontend/images/compass.png">
+                                <div class="basemap-container">
+                                    <button type="button" class="leaflet-basemap-btn" id="basemap-btn">
+                                        <img src="/src_frontend/images/basemap.png">
+                                    </button>
+                                    <div class="basemap-popup">
+                                        <div><strong>Select Base Map</strong></div>
+                                        <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open
+                                            Street Map</button>
+                                        <button class="basemap-option"
+                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
+                                        <button class="basemap-option"
+                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
+                                    </div>
+                                </div>
+                                <!-- Legend -->
+                                <div class="colorbar-container" id="custom-colorbar">
+                                    <div class="colorbar-wrapper">
+                                        <div class="colorbar-title" id="colorbar-title">Legend</div>
+                                        <div class="colorbar-gradient" id="colorbar-gradient"></div>
+                                        <div class="colorbar-labels" id="colorbar-label">
+                                            <div></div> <!-- max -->
+                                            <div></div> <!-- 75% -->
+                                            <div></div> <!-- 50% -->
+                                            <div></div> <!-- 25% -->
+                                            <div></div> <!-- min -->
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="tile" style="grid-column: span 8; margin: 10px;"><h3>Process Log</h3>
-                <textarea wrap="off" class="log-text" id="model-log" placeholder="Logs..."
-                    style="margin-top: 10px; height: 230px; display: block;" readonly></textarea>
-            </div>
         </section>
     </div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
         flatpickr(".datetime", {

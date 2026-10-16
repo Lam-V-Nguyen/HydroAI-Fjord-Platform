@@ -12,6 +12,7 @@ from rio_tiler.io import Reader
 from rio_tiler.colormap import cmap
 from rio_tiler.utils import render
 from rio_tiler.errors import TileOutsideBounds
+
 from whitebox.whitebox_tools import WhiteboxTools
 
 
@@ -653,7 +654,7 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
         if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Weather downloading in progress.'})
+            return JSONResponse({"status": "running", "message": 'Weather downloading is in progress.'})
         processes[key_process] = {"status": "running", "message": "Preparing weather data download..."}
         start, end, flow_name = body.get('start'), body.get('end'), body.get('flowName')
         api_key, time_zone = body.get('apiKey'), body.get('timeZone')
@@ -662,6 +663,16 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
             args=(project_name, flow_name, processes, key_process, api_key, start, end, time_zone), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started."})
+
+
+
+
+
+
+
+
+
+
 
 @router.post("/wflow_model")
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
@@ -710,7 +721,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                     resolution, src_crs = int(abs(strord_src.transform.a)), strord_src.crs
                 soil_layers = [50, 100, 150, 300, 400, 600]
                 threading.Thread(target=flow_functions.wflow_run,
-                    args=(project_name, processes, key_process, flow_name, 'wflow_model', df, src_crs, 
+                    args=(project_name, processes, key_process, flow_name, 'wflow_model', src_crs, 
                         start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
                         params_input, params_output, lulc_fn, lulc_mapping, lai_fn
                     ), daemon=False

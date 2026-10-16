@@ -422,7 +422,7 @@ export function copyPaste(table, nCols){
 export async function csvUploader(event, targetText, table,
     nCols, isIgnoreHeader=true, objName=null, latitude=null, longitude=null){
     const file = event.target.files[0]; if (!file) return;
-    signalSender('showOverlay', 'Uploading data from CSV file.\nPlease wait...');
+    signalSender('showOverlay', 'Uploading data from the CSV file.\nPlease wait...');
     await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     try {
         if (targetText) targetText.value = file.name;

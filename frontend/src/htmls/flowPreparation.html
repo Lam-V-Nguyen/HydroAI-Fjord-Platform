@@ -217,7 +217,7 @@
                                         <td><input type="text" placeholder="Value"></td>
                                     </tr></tbody>
                                 </table>
-                                <div class="log-container" id="soil-download" style="height: 230px; display: none;">
+                                <div class="log-container" id="soil-download" style="height: 200px; display: none;">
                                     <textarea wrap="off" class="log-text" id="soil-download-text" placeholder="Log..." readonly></textarea>
                                 </div>
                             </div>
@@ -451,15 +451,9 @@
                                 </div>
                             </div>
                             <div class="log-container" id="weather-download-container" style="display: block; margin-top: 10px;">
-                                <h3>Download Progress</h3>
-                                <div class="field-inline"><a>References:</a>
-                                    <a class="data-link" style="margin: -5px 0 0 5px;" href="#"
-                                        onclick="window.open('/src_frontend/pdfs/CropEvapotranspiration.pdf', '_blank'); return false;"
-                                        target="_blank">Allen et al., (1998): Crop Evapotranspiration – FAO Irrigation and Drainage Paper 56
-                                    </a>
-                                </div>
+                                <h3>Progress Log</h3>
                                 <textarea wrap="off" class="log-text" id="weather-download-text"
-                                    style="margin-top: 10px; height: 250px;" placeholder="Download progress..." readonly>
+                                    style="margin-top: 10px; height: 250px;" placeholder="Log..." readonly>
                                 </textarea>
                             </div>
                         </div>
@@ -483,10 +477,6 @@
                         data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
                     <button class="basemap-option"
                         data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
-                    <button class="basemap-option"
-                        data-url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png">Carto Light</button>
-                    <button class="basemap-option"
-                        data-url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png">Carto Dark</button>
                 </div>
             </div>
             <!-- Legend -->

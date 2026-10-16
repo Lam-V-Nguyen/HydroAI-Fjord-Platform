@@ -1,4 +1,4 @@
-import os, dotenv, base64, requests, math, rasterio, rioxarray
+import os, dotenv, base64, requests, math, rasterio, rioxarray, pyflwdir
 import traceback, sys, shutil, cdsapi, calendar, json, asyncio
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.shutil import copy as rio_copy
@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from whitebox.whitebox_tools import WhiteboxTools
 import dask.array as da
+from pyflwdir import dem
 
 
 wtb = WhiteboxTools()
@@ -541,29 +542,58 @@ def prepare_terrain(project_name:str, dem_path:str, raw_path:str=None):
     return {'status': 'ok', 'content': content}
 
 def stream_detector(project_name:str, folder:str, dem_name:str, threshold:float):
-    dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, folder))
-    dem_path = os.path.normpath(os.path.join(dir, f"{dem_name}.tif"))
-    fill_name, stream_name = dem_name + "_filled.tif", dem_name + "_streams.tif"
-    flwdir_name, flwacc_name = dem_name + "_flowdir.tif", dem_name + "_flowacc.tif"
-    fill_path = os.path.normpath(os.path.join(dir, fill_name))
-    if os.path.exists(fill_path): functions.safe_remove(fill_path)
-    wtb.fill_depressions(dem=dem_path, output=fill_path)
-    flw_path = os.path.normpath(os.path.join(dir, flwdir_name))
-    if os.path.exists(flw_path): functions.safe_remove(flw_path)
-    wtb.d8_pointer(dem=fill_path, output=flw_path)
-    flwacc_path = os.path.normpath(os.path.join(dir, flwacc_name))
-    if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
-    wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
-    stream_path = os.path.normpath(os.path.join(dir, stream_name))
-    if os.path.exists(stream_path): functions.safe_remove(stream_path)
-    wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
-    with rasterio.open(stream_path) as src:
-        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
-    bounds = [[south, west], [north, east]]
-    tile_url = f"/{project_name}/{folder}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
-    contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
-    return {'status': 'ok', 'content': contents}
+    try:
+        directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, folder))
+        dem_path = os.path.normpath(os.path.join(directory, f"{dem_name}.tif"))
+        fill_name, stream_name = dem_name + "_filled.tif", dem_name + "_streams.tif"
+        flwdir_name, flwacc_name = dem_name + "_flowdir.tif", dem_name + "_flowacc.tif"
+        fill_path = os.path.normpath(os.path.join(directory, fill_name))
+        if os.path.exists(fill_path): functions.safe_remove(fill_path)
+        wtb.fill_depressions(dem=dem_path, output=fill_path)
+        flw_path = os.path.normpath(os.path.join(directory, flwdir_name))
+        if os.path.exists(flw_path): functions.safe_remove(flw_path)
+        wtb.d8_pointer(dem=fill_path, output=flw_path)
+        flwacc_path = os.path.normpath(os.path.join(directory, flwacc_name))
+        if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
+        wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
+        stream_path = os.path.normpath(os.path.join(directory, stream_name))
+        if os.path.exists(stream_path): functions.safe_remove(stream_path)
+        wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
+        with rasterio.open(stream_path) as src:
+            west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+        bounds = [[south, west], [north, east]]
+        tile_url = f"/{project_name}/{folder}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
+        contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
+        return {'status': 'ok', 'content': contents}
+    except Exception as e: return {'status': 'error', 'message': str(e)}
 
+def upstream_area(directory:str, project_name:str, folder:str, area:float):
+    try:
+        dem_path = os.path.normpath(os.path.join(directory, "raw", "dtm_raw.tif"))
+        if not os.path.exists(dem_path):
+            return {'status': 'error', 'message': "DEM file not found."}
+        with rasterio.open(dem_path) as src:
+            dem_array, crs = src.read(1), src.crs
+            transform, profile = src.transform, src.profile
+        # Fill depressions
+        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
+        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
+        # Create stream order
+        uparea_array = flw.upstream_area(unit='km2')
+        uparea_array[~(uparea_array >= area)] = 0
+        upstream_name = "upstream_area.tif"
+        upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
+        profile_writer = profile.copy()
+        profile_writer.update({'dtype': np.int32})
+        flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
+        with rasterio.open(dem_path) as src:
+            west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+        bounds = [[south, west], [north, east]]
+        tile_url = f"/{project_name}/{folder}/{upstream_name}/{{z}}/{{x}}/{{y}}.png"
+        contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
+        return {'status': 'ok', 'content': contents}
+    except Exception as e: return {'status': 'error', 'message': str(e)}
+    
 def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_distance:float):
     if not os.path.exists(directory): os.makedirs(directory, exist_ok=True)
     flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
@@ -595,8 +625,6 @@ def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_d
     os.makedirs(catchment_dir, exist_ok=True)
     catch_path = os.path.normpath(os.path.join(catchment_dir, "catchment.geojson"))
     catchment.to_file(catch_path, driver="GeoJSON")
-    outlet_path = os.path.normpath(os.path.join(catchment_dir, "outlet.geojson"))
-    outlet.to_file(outlet_path, driver="GeoJSON")
     # Delete temporary files
     functions.safe_remove(catchment_path)
     functions.safe_remove(outlet_dir)
@@ -637,62 +665,87 @@ async def renew_redis_lock(lock, ttl=120, interval=30):
             await lock.extend(ttl, replace_ttl=True)
         except Exception: return False
 
-def write_forcing(raw_path:str, forcing_dir:str, df:pd.DataFrame, interval:str):
-    # Resampling
-    precip_col = "Precipitation (mm)"
-    df = df.sort_index()
-    for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
-    if df.index.has_duplicates:
-        aggregation = {col: "mean" for col in df.columns}
-        df = df.groupby(level=0).agg(aggregation).sort_index()
-    if precip_col in df.columns:
-        precip = df[precip_col].resample(interval).sum(min_count=1)
-    resampled = df.resample(interval).asfreq()
-    # Interpolate numeric variables.
-    numeric_cols = resampled.select_dtypes(include="number").columns
-    other_cols = resampled.columns.difference(numeric_cols)
-    resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
-    resampled[other_cols] = resampled[other_cols].ffill()
-    # Restore precipitation using its separately aggregated values.
-    if precip_col in df.columns: resampled[precip_col] = precip
-    df = resampled.ffill().bfill().reset_index()
-    # Create forcing nc file
-    time = pd.to_datetime(df['Time'], utc=True).dt.tz_localize(None).to_numpy(dtype=np.datetime64)
-    out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
-    with rasterio.open(raw_path) as src:
-        dem_array, crs = src.read(1), src.crs
-        transform, nodata = src.transform, src.nodata
-    mask_nan = ~np.isfinite(dem_array)
-    if nodata is not None: mask_nan |= (dem_array == nodata)
-    ny, nx = dem_array.shape[0], dem_array.shape[1]
-    chunksizes = (1, min(256, ny), min(256, nx))
-    mask_da = da.from_array(mask_nan, chunks=chunksizes[1:])
-    forcing = {
-        'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
-        'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
-        'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
-    }
-    for var, (col, unit) in forcing.items():
-        values = df[col].to_numpy().astype(np.float32)
-        values_da = da.from_array(values, chunks=(24,))
-        data_3d = da.broadcast_to(values_da[:, None, None], shape=(len(values), ny, nx),)
-        data_3d = da.where(mask_da[None, :, :], np.float32(0.0), data_3d,)
-        datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
-    x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
-    y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
-    ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
-    ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
-    ds_final = ds_final.rio.write_crs(crs)
-    ds_final["time"].encoding = {
-        "units": "hours since 1900-01-01 00:00:00",
-        "calendar": "proleptic_gregorian", "dtype": "int64",
-        "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
-    }
-    encoding = {
-        var: {"zlib": True, "complevel": 4, "shuffle": True, 
-            "chunksizes": chunksizes, "_FillValue": -9999.0, "dtype": "float32"
-        } for var in ds_final.data_vars
-    }
-    ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
-    ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
+def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int, df:pd.DataFrame):
+    forcing_dir = os.path.normpath(os.path.join(directory, 'forcing'))
+    raw_path = os.path.normpath(os.path.join(directory, 'raw', 'dtm_raw.tif'))
+    try:
+        if not os.path.exists(raw_path):
+            return {'status': 'error', 'message': "Cannot find terrain data. Please process terrain first."}
+        if os.path.exists(forcing_dir): functions.safe_remove(forcing_dir)
+        os.makedirs(forcing_dir, exist_ok=True)
+        forcing = {'start': start, 'end': end, 'interval': interval}
+        forcing_path = os.path.join(forcing_dir, 'forcing.json')
+        with open(forcing_path, 'w', encoding='utf-8', errors='ignore') as f:
+            json.dump(forcing, f)
+        df['Time'] = functions.local_to_utc(df['Time'], time_zone)
+        df = df.set_index('Time')
+        required_columns = [
+            "Precipitation (mm)", "Temperature (°C)", "Shortwave Radiation (W/m²)",
+            "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (Pa)",
+        ]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return {"status": "error", "message": f"Missing weather columns: {', '.join(missing_columns)}"}
+        # Resampling
+        precip_col = "Precipitation (mm)"    
+        df = df.sort_index()
+        for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
+        if df.index.has_duplicates:
+            aggregation = {col: "mean" for col in df.columns}
+            df = df.groupby(level=0).agg(aggregation).sort_index()
+        if precip_col in df.columns:
+            precip = df[precip_col].resample(interval).sum(min_count=1)
+        resampled = df.resample(interval).asfreq()
+        # Interpolate numeric variables.
+        numeric_cols = resampled.select_dtypes(include="number").columns
+        other_cols = resampled.columns.difference(numeric_cols)
+        resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
+        resampled[other_cols] = resampled[other_cols].ffill()
+        # Restore precipitation using its separately aggregated values.
+        if precip_col in df.columns: resampled[precip_col] = precip
+        df = resampled.ffill().bfill().reset_index()
+        # Create forcing nc file
+        time = pd.to_datetime(df['Time'], utc=True).dt.tz_localize(None).to_numpy(dtype=np.datetime64)
+        out_path, datasets = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc")), {}
+        with rasterio.open(raw_path) as src:
+            dem_array, crs = src.read(1), src.crs
+            transform, nodata = src.transform, src.nodata
+        mask_nan = ~np.isfinite(dem_array)
+        if nodata is not None: mask_nan |= (dem_array == nodata)
+        ny, nx = dem_array.shape[0], dem_array.shape[1]
+        chunksizes = (1, min(256, ny), min(256, nx))
+        mask_da = da.from_array(mask_nan, chunks=chunksizes[1:])
+        forcing = {
+            'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
+            'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
+            'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
+        }
+        for var, (col, unit) in forcing.items():
+            values = df[col].to_numpy().astype(np.float32)
+            values_da = da.from_array(values, chunks=(24,))
+            data_3d = da.broadcast_to(values_da[:, None, None], shape=(len(values), ny, nx),)
+            data_3d = da.where(mask_da[None, :, :], np.float32(0.0), data_3d,)
+            datasets[var] = (('time', 'y', 'x'), data_3d, {'units': unit})
+        x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
+        y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
+        ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
+        ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
+        ds_final = ds_final.rio.write_crs(crs)
+        ds_final["time"].encoding = {
+            "units": "hours since 1900-01-01 00:00:00",
+            "calendar": "proleptic_gregorian", "dtype": "int64",
+            "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
+        }
+        encoding = {
+            var: {"zlib": True, "complevel": 4, "shuffle": True, 
+                "chunksizes": chunksizes, "_FillValue": -9999.0, "dtype": "float32"
+            } for var in ds_final.data_vars
+        }
+        ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
+        ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
+        return {"status": "completed", "message": "Forcing data saved successfully."}
+    except Exception as e:
+        print('/write_forcing:\n==============')
+        traceback.print_exc()
+        return {"status": "failed", "message": str(e)}
 

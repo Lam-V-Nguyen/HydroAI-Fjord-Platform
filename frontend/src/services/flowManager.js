@@ -183,6 +183,18 @@ function settingManager() {
         } catch (error) { alert(`Uploading catchment failed: ${error.message}`); }
         finally { e.target.value = ''; }
     });
+    // Toogle between tabs
+    document.querySelectorAll('[data-tab]').forEach(tab => {
+        tab.addEventListener('click', async () => {
+            const tabName = tab.getAttribute('data-tab');
+            if (tabName !== 'terrain-tab') {
+                obj.catchmentCheckbox.checked = false;
+                if (pointLayer) { pointLayer.remove(); }
+                if (catchmentLayer) { catchmentLayer.remove(); }; 
+                if (lastRadio) lastRadio.checked = true;
+            }
+        });
+    });
 }
 
 function topographyManager() {
@@ -330,8 +342,8 @@ function topographyManager() {
         }
         if (e.target.checked) {
             drawChecker = 'catchment'; obj.catchmentRadio.style.display = 'block';
-            if (catchmentLayer) { catchmentLayer.addTo(mapObj); }
             if (pointLayer) { pointLayer.addTo(mapObj); }
+            if (catchmentLayer) { catchmentLayer.addTo(mapObj); }
         } else {
             drawChecker = ''; obj.catchmentRadio.style.display = 'none';
             if (pointLayer) { pointLayer.remove(); }
@@ -773,18 +785,19 @@ function weatherManager() {
     obj.saveWeatherBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
         if (name === '') { alert('Please select a scenario from first.'); return; }
-        const data = getDataFromTable(obj.weatherTable, true);
+        const data = getDataFromTable(obj.weatherTable, true), key = 'forcing_weather';
         if (data.rows.length === 0) { alert('Please upload weather data first.'); return; }
+        const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value;
+        if (startTime === '' || endTime === '') { alert('Please select start and end time to download.'); return; }
         try {
-            signalSender('showOverlay', 'Creating weather data. Please wait...');
+            signalSender('showOverlay', 'Saving forcing weather data. Please wait...');
             const content = {
-                projectName: currentProject, flowName: name, data: data, 
-                timeZone: getLastTimeZone(), interval: obj.weatherInterval.value,
-                start: obj.weatherStart.value, end: obj.weatherEnd.value
+                projectName: currentProject, flowName: name, data: data, key: key, timeZone: getLastTimeZone(), 
+                interval: obj.weatherInterval.value, start: startTime, end: endTime
             };
-            const request = await jsonLoader('save_flow_weather', content);
+            const request = await jsonLoader('save_forcing_weather', content);
             signalSender('hideOverlay'); alert(request.message);
-        } catch (error) { alert(`Uploading weather data failed: ${error.message}`); return; }
+        } catch (error) { alert(`Saving forcing weather failed: ${error.message}`); return; }
     });
     obj.weatherSelector.addEventListener('change', (e) => {
         const value = e.target.value;
@@ -913,8 +926,7 @@ function clearMap(layer, map) {
 function resetMap() {
     // Hide all layers
     const layers = [
-        demLayer, streamLayer, catchmentLayer, pointLayer, waterLayer,
-        soilLayer, landLayer, riverLayer
+        demLayer, streamLayer, catchmentLayer, pointLayer, waterLayer, soilLayer, landLayer, riverLayer
     ];
     layers.forEach((layer) => { if (layer) layer.remove(); });
     obj.colorBar.style.display = 'none'; obj.waterCheckbox.checked = false;

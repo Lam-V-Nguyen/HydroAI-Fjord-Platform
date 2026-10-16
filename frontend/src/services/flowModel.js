@@ -1,22 +1,31 @@
 import { setupTabs } from "./tabManager.js";
 import { getUser, signalSender, getProjectList, jsonLoader, 
-    updateLog, fillTable, getDataFromTable, nameChecker 
+    updateLog, fillTable, getDataFromTable, nameChecker, displayTerrain
 } from "./commonFunctions.js";
 import { projectRender } from "./projectManager.js";
-import { getLastTimeZone } from "./constant.js";
+import { CENTER, ZOOM, getLastTimeZone } from "./constant.js";
+import { initMap } from "./visualizationMap.js";
 
+const hoverTooltip = L.tooltip({
+    permanent: false, direction: 'bottom',
+    sticky: true, offset: [0, 10], className: 'custom-tooltip'
+});
 
 const $ = (id) => document.getElementById(id);
 const obj = {
     projectList: $('project-list'), projectName: $('project-name'), projectOpener: $('open-btn'),
     modelInterval: $('model-step'), modelStart: $('model-start'), modelEnd: $('model-end'),
-    upstreamArea: $('model-area'),
+    upstreamArea: $('upstream-area'), upstreamBtn: $('upstream-check-btn'), 
+    upstreamCheckbox: $('upstream-checkbox'), modelLat: $('model-lat'), modelLon: $('model-lon'),
+    
+    
+    
     modelCheckBtn: $('model-check-btn'), modelLog: $('model-log'), modelRunBtn: $('model-run-btn')
 
 
 
 
-    // modelPourpointBtn: $('model-pourpoint-btn'), modelLat: $('model-lat'), modelLon: $('model-lon'),
+    // modelPourpointBtn: $('model-pourpoint-btn'), 
     // pourpointFile: $('model-pourpoint-file'), 
     // pointStream: $('stream-points'), pointStreamBtn: $('stream-points-btn'),
     // pointStreamTable: $('stream-points-table'), pointSelected: $('stream-points-selected'),
@@ -24,10 +33,13 @@ const obj = {
 }
 const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 18144000};
 
-let currentProject;
+let currentProject, mapLayer = null, layerChecker = false, pointLayer = null;
 
 
-setupTabs(document); await getProject(); modelManager();
+setupTabs(document); await getProject();
+const mapObj = await initMap('leaflet-map-flow-checking'); 
+mapOptions(mapObj); modelManager();
+
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
@@ -36,6 +48,13 @@ async function getProject() {
 }
 
 function modelManager() {
+    // Toogle between tabs
+    document.querySelectorAll('#sub-main-tabs').forEach(tab => {
+        tab.addEventListener('click', () => { autoResize(obj.modelLog); });
+    });
+
+
+
     obj.projectOpener.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
         if (!name || name === '') { alert('Please define scenario name.'); return; }
@@ -48,22 +67,34 @@ function modelManager() {
         obj.modelStart.value = forcing.start; obj.modelEnd.value = forcing.end;
         obj.modelInterval.value = intervalOption[forcing.interval];
     });
+    obj.upstreamBtn.addEventListener('click', async () => {
+        const name = obj.projectName.value.trim(), area = obj.upstreamArea.value.trim();
+        if (!name || name === '') { alert('Please define scenario name.'); return; }
+        if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
+        if (!area || area === '') { alert('Please define area of upstream.'); return; }
+        try {
+            const content = { projectName: currentProject, flowName: name, area: area };
+            const request = await jsonLoader('upstream_area', content);
+            if (request.status === 'error') { alert(request.message); return; }
+            if (mapLayer) { mapLayer = mapObj.removeLayer(mapLayer); mapLayer = null; }
+            mapLayer = await displayTerrain(mapObj, request.content.tile_url, request.content.bounds);
+        } catch (error) { alert(`Getting upstream area failed: ${error.message}`); }
+    });
+    obj.upstreamCheckbox.addEventListener('change', async (e) => { layerChecker = e.target.checked; });
     obj.modelCheckBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), key = 'wflow_check';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
+        if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
+        const upstreamArea = obj.upstreamArea.value;
+        if (upstreamArea === '') { alert('Please specify area of upstream.'); return; }
         try {
-            const contentChecker = { projectName: currentProject, key: key }; obj.modelLog.value = '';
-            const statusRes = await jsonLoader('check_download_status', contentChecker);
-            if (statusRes.status === "running") { alert("Checking model is running."); return; }
             const content = { 
                 projectName: currentProject, flowName: name, key: 'check', 
                 keyChecker: key, timeZone: getLastTimeZone()
             };
             const request = await jsonLoader('wflow_model', content);
             if (request.status === 'error') { alert(request.message); return; }
-            updateLog(currentProject, obj.modelLog, 1, key, async () => {
-                alert('Checking Wflow model completed.');
-            });
+            autoResize(obj.modelLog);
         } catch (error) { alert(`Checking model parameters failed: ${error.message}`); }
     });
     // obj.modelPourpointBtn.addEventListener('click', () => obj.pourpointFile.click());
@@ -143,4 +174,44 @@ function modelManager() {
             }, true);
         } catch (error) { alert(`Running Wflow model failed: ${error.message}`); }
     });
+}
+
+function mapOptions(map) {
+    const mapElement = map.getContainer();
+    const mapContainer = mapElement.parentElement;
+    if (map._resizeObserver) {map._resizeObserver.disconnect();}
+    map._resizeObserver = new ResizeObserver(() => {
+        if (mapContainer.clientWidth > 0 && mapContainer.clientHeight > 0) {
+            map.invalidateSize({ pan: false });
+        }
+    });
+    map._resizeObserver.observe(mapContainer); 
+    requestAnimationFrame(() => {
+        map.invalidateSize({ pan: false }); map.setView(CENTER, ZOOM, { animate: false });
+    });
+    map.on('mousemove', function (e) {
+        if (layerChecker) {
+            mapElement.style.cursor = 'crosshair';
+            hoverTooltip.setLatLng(e.latlng).setContent('Select point.');
+            map.openTooltip(hoverTooltip);
+        } else {
+            map.closeTooltip(hoverTooltip); mapElement.style.cursor = '';
+        }
+    });
+    map.on('click', async function (e) {
+        if (layerChecker) {
+            const lat = Number(e.latlng.lat).toFixed(8), lon = Number(e.latlng.lng).toFixed(8);
+            obj.modelLat.value = lat; obj.modelLon.value = lon;
+            if (pointLayer) { mapObj.removeLayer(pointLayer); }
+            pointLayer = L.circleMarker(e.latlng, {
+                radius: 4, fillColor: 'blue', color: 'red', weight: 2, opacity: 1, fillOpacity: 1
+            }).addTo(mapObj);
+            layerChecker = false; mapElement.style.cursor = ''; obj.upstreamCheckbox.checked = false;
+        }
+    });
+}
+
+function autoResize(objElement) {
+    objElement.style.height = 'auto';
+    objElement.style.height = `${objElement.scrollHeight}px`;
 }
