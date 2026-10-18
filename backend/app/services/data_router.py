@@ -47,8 +47,8 @@ async def check_download_status(request: Request, user=Depends(functions.basic_a
     process_key = f"{project_name}:{body.get('key')}"
     info = processes.get(process_key)
     if info is None: return JSONResponse({"status": "idle", "message": "No download running."})
-    status, message = info["status"], info.get("message", "")
-    return JSONResponse({"status": status, "message": message})
+    status, message, results = info.get("status", "idle"), info.get("message", ""), info.get("results", [])
+    return JSONResponse({"status": status, "message": message, "results": results})
 
 @router.post("/save_client")
 async def save_client(request: Request, user=Depends(functions.basic_auth)):
@@ -604,21 +604,6 @@ async def hyd_stream_upload(request: Request, user=Depends(functions.basic_auth)
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/catchment_definer")
-async def catchment_definer(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder, lat, lon = body.get('folder'), body.get('lat'), body.get('lon')
-        dem_name, snap_distance = body.get('fileName'), body.get('snapDistance')
-        directory = os.path.join(PROJECT_ROOT, project_name, folder)
-        content = data_functions.catchment_detector(directory, dem_name, lat, lon, snap_distance)
-        return JSONResponse(content)
-    except Exception as e:
-        print('/catchment_definer:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
 @router.post("/start_download_soil")
 async def start_download_soil(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
@@ -664,16 +649,6 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started."})
 
-
-
-
-
-
-
-
-
-
-
 @router.post("/wflow_model")
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
@@ -697,31 +672,34 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
                 processes[key_process] = {"status": "running", "message": "Running Wflow model..."}
-#                 point = pd.DataFrame(data=body.get('points'), columns=['id','lat','lon','dis'])
-#                 point = point[['id','lat','lon']]
-#                 points = gpd.GeoDataFrame(point, 
-#                     geometry=gpd.points_from_xy(x=point['lon'], y=point['lat']), crs='EPSG:4326'
-#                 )
                 step, start, end = int(body.get('step')), body.get('start'), body.get('end')
                 up_area, time_zone = float(body.get('upArea')), body.get('timeZone')
-#                 pourpoint_lat, pourpoint_lon = float(body.get('lat')), float(body.get('lon'))
-#                 df = points[['id','lat','lon']]
-#                 df['id'] = df['id'].astype(str)
-#                 new_row = pd.DataFrame({'id': ['pourpoint'], 'lat': [pourpoint_lat], 'lon': [pourpoint_lon]})
-#                 df = pd.concat([new_row, df], ignore_index=True)
+                pourpoint_lat, pourpoint_lon = float(body.get('lat')), float(body.get('lon'))
+                df = pd.DataFrame({'id': ['pourpoint'], 'lat': [pourpoint_lat], 'lon': [pourpoint_lon]})
+
+                df = df[['id','lat','lon']]
+                df['id'] = df['id'].astype(str)
+                point = pd.DataFrame(data=body.get('points'), columns=['id','lat','lon','dis'])
+                point = point[['id','lat','lon']]
+                df = pd.concat([df, point], ignore_index=True)
+
+
+                
+                # point = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(x=df['lon'], y=df['lat']), crs='EPSG:4326')
+                # point_path = os.path.normpath(os.path.join(flow_dir, 'catchment', 'upstream_point.geojson'))
+                # point.to_file(point_path, driver='GeoJSON')
                 lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
                 des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
                 shutil.copy(lib_path, des_path)
                 data_lib = [os.path.normpath(des_path)]
                 params_input, params_output = body.get('params_input'), body.get('params_output')
                 lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
-                # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
                 strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
                 with rasterio.open(strord_path) as strord_src:
                     resolution, src_crs = int(abs(strord_src.transform.a)), strord_src.crs
                 soil_layers = [50, 100, 150, 300, 400, 600]
                 threading.Thread(target=flow_functions.wflow_run,
-                    args=(project_name, processes, key_process, flow_name, 'wflow_model', src_crs, 
+                    args=(project_name, processes, key_process, flow_name, 'wflow_model', df, src_crs, 
                         start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
                         params_input, params_output, lulc_fn, lulc_mapping, lai_fn
                     ), daemon=False

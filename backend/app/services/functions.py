@@ -123,7 +123,7 @@ def local_to_utc(local_time, tz_name: str) -> datetime:
         s = local_time.copy()
         if not pd.api.types.is_datetime64_any_dtype(s):
             s = pd.to_datetime(s, errors="coerce")
-        if s.dt.tz is None: aware = s.dt.tz_localize(tz, ambiguous="NaT", nonexistent="NaT")
+        if s.dt.tz is None: aware = s.dt.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
         else: aware = s.dt.tz_convert(tz)
         return aware.dt.tz_convert("UTC")
     # Scalar

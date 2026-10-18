@@ -498,12 +498,11 @@ def dem_downloader(directory:str, key:str, resolution:int, boundary:gpd.GeoDataF
         traceback.print_exc()
         return {"status": 'error', "message": str(e)}
 
-def prepare_terrain(project_name:str, dem_path:str, raw_path:str=None):
+def prepare_terrain(project_name:str, dem_path:str):
     # Convert to COG
     dst_crs, base_path = "EPSG:3857", os.path.splitext(dem_path)[0]
     fill_path = dem_path.replace(".tif", "_filled.tif")
     wtb.fill_depressions(dem=dem_path, output=fill_path)
-    if raw_path is not None: wtb.fill_depressions(dem=dem_path, output=raw_path)
     temp_path, cog_path = base_path + "_temp.tif", base_path + "_cog.tif"
     with rasterio.open(dem_path) as src:
         if src.crs is None:
@@ -528,7 +527,7 @@ def prepare_terrain(project_name:str, dem_path:str, raw_path:str=None):
             )
     try: rio_copy(temp_path, cog_path, driver="COG", compress="LZW", blocksize=256)
     finally:
-        if os.path.exists(temp_path): os.remove(temp_path)
+        if os.path.exists(temp_path): functions.safe_remove(temp_path)
     with rasterio.open(cog_path) as src:
         west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
     bounds = [[south, west], [north, east]]
@@ -575,17 +574,38 @@ def upstream_area(directory:str, project_name:str, folder:str, area:float):
         with rasterio.open(dem_path) as src:
             dem_array, crs = src.read(1), src.crs
             transform, profile = src.transform, src.profile
-        # Fill depressions
-        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
-        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
-        # Create stream order
-        uparea_array = flw.upstream_area(unit='km2')
-        uparea_array[~(uparea_array >= area)] = 0
-        upstream_name = "upstream_area.tif"
-        upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
-        profile_writer = profile.copy()
-        profile_writer.update({'dtype': np.int32})
-        flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
+        # # Fill depressions
+        # filled_array, _ = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
+        # flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
+        # # Create stream order
+        # uparea_array = flw.upstream_area(unit='km2')
+        # uparea_array[~(uparea_array >= area)] = 0
+        # upstream_name = "upstream_area.tif"
+        # upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
+        # profile_writer = profile.copy()
+        # profile_writer.update({'dtype': np.int32})
+        # flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
+
+        
+        
+        
+        name, upstream_name = "hydro/strord.tif", "hydro/strord1.tif"
+        path =  os.path.normpath(os.path.join(directory, name))
+        path1 = os.path.normpath(os.path.join(directory, upstream_name))
+        with rasterio.open(path) as src:
+            dem_array = src.read(1)
+            crs, nodata = src.crs, src.nodata
+            transform, profile = src.transform, src.profile
+            height, width = src.height, src.width
+        mask = (dem_array > 7) & (dem_array != nodata)
+        dem_array[~mask] = nodata
+        profile = {
+            "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
+            "height": height, "width": width, "transform": transform
+        }
+        flow_functions.write_geotif(dem_array, profile, path1, nodata)
+
+
         with rasterio.open(dem_path) as src:
             west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
         bounds = [[south, west], [north, east]]
@@ -595,39 +615,52 @@ def upstream_area(directory:str, project_name:str, folder:str, area:float):
     except Exception as e: return {'status': 'error', 'message': str(e)}
     
 def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_distance:float):
-    if not os.path.exists(directory): os.makedirs(directory, exist_ok=True)
+    # if not os.path.exists(directory): os.makedirs(directory, exist_ok=True)
+    # flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
+    # stream_path = os.path.normpath(os.path.join(directory, f"{dem_name}_streams.tif"))
+    # with rasterio.open(stream_path) as src:
+    #     crs = src.crs
+    # # Create outlet point for catchment
+    # outlet_dir = os.path.normpath(os.path.join(directory, "outlet"))
+    # if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
+    # outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
+    # if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
+    # outlet = gpd.GeoDataFrame(geometry=[Point(lon, lat)], crs="EPSG:4326")
+    # outlet = outlet.to_crs(crs)
+    # outlet.to_file(outlet_path)
+    # # Create pour point
+    # snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
+    # if os.path.exists(snap_path): functions.safe_remove(snap_path)
+    # catchment_path = os.path.normpath(os.path.join(directory, "catchment.tif"))
+    # if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
+    # wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
+    # wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
+    # with rasterio.open(catchment_path) as src:
+    #     data = src.read(1).astype("uint8")
+    #     transform = src.transform
+    # results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
+    # geom = flow_functions.remove_holes(unary_union(results))
+    # catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
+    # catchment_dir = os.path.normpath(os.path.join(directory, "catchment"))
+    # os.makedirs(catchment_dir, exist_ok=True)
+    # catch_path = os.path.normpath(os.path.join(catchment_dir, "catchment.geojson"))
+    # catchment.to_file(catch_path, driver="GeoJSON")
+    # # Delete temporary files
+    # functions.safe_remove(catchment_path)
+    # functions.safe_remove(outlet_dir)
+
+
     flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
-    stream_path = os.path.normpath(os.path.join(directory, f"{dem_name}_streams.tif"))
-    with rasterio.open(stream_path) as src:
-        crs = src.crs
-    # Create outlet point for catchment
-    outlet_dir = os.path.normpath(os.path.join(directory, "outlet"))
-    if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
-    outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
-    if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
-    outlet = gpd.GeoDataFrame(geometry=[Point(lon, lat)], crs="EPSG:4326")
-    outlet = outlet.to_crs(crs)
-    outlet.to_file(outlet_path)
-    # Create pour point
-    snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
-    if os.path.exists(snap_path): functions.safe_remove(snap_path)
-    catchment_path = os.path.normpath(os.path.join(directory, "catchment.tif"))
-    if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
-    wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
-    wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
-    with rasterio.open(catchment_path) as src:
-        data = src.read(1).astype("uint8")
-        transform = src.transform
-    results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
-    geom = flow_functions.remove_holes(unary_union(results))
-    catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-    catchment_dir = os.path.normpath(os.path.join(directory, "catchment"))
-    os.makedirs(catchment_dir, exist_ok=True)
-    catch_path = os.path.normpath(os.path.join(catchment_dir, "catchment.geojson"))
-    catchment.to_file(catch_path, driver="GeoJSON")
-    # Delete temporary files
-    functions.safe_remove(catchment_path)
-    functions.safe_remove(outlet_dir)
+    with rasterio.open(flw_path, "r") as src:
+        flwdir, transform, crs = src.read(1), src.transform, src.crs
+    flw = pyflwdir.from_array(flwdir, ftype="d8", transform=transform, latlon=crs.is_geographic, cache=True)
+    basin_raster = flw.basins(xy=(lon, lat))
+    area = shapes(basin_raster, transform=transform)
+    geoms = [shape(s) for s, v in shapes if v > 0]
+    catchment = gpd.GeoDataFrame(geometry=geoms, crs=crs)
+
+
+
     if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
     area = round(catchment["geometry"].area.sum() / 1000000, 6)
     if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
@@ -677,8 +710,20 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         forcing_path = os.path.join(forcing_dir, 'forcing.json')
         with open(forcing_path, 'w', encoding='utf-8', errors='ignore') as f:
             json.dump(forcing, f)
+        df = df.dropna(subset=['Time'])
         df['Time'] = functions.local_to_utc(df['Time'], time_zone)
-        df = df.set_index('Time')
+        df["Time"] = pd.to_datetime(df["Time"], errors="coerce", utc=True)
+        invalid_mask = df["Time"].isna()
+        invalid_count = int(invalid_mask.sum())
+        if invalid_count:
+            error_rows = df.loc[invalid_mask].to_csv(index=False, header=False, sep=',', lineterminator='\n')
+            return {'status': 'error', 'message': f"WARNING: Removed {invalid_count} rows with invalid timestamps.n\n\n{error_rows}"}
+        df = df.loc[df["Time"].notna()].copy()
+        if df.empty:
+            return {"status": "error", "message": "No valid timestamps remain after datetime conversion."}
+        df = df.set_index("Time")
+        df.index.name = "Time"
+        df = df.sort_index()
         required_columns = [
             "Precipitation (mm)", "Temperature (°C)", "Shortwave Radiation (W/m²)",
             "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (Pa)",
@@ -688,21 +733,24 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
             return {"status": "error", "message": f"Missing weather columns: {', '.join(missing_columns)}"}
         # Resampling
         precip_col = "Precipitation (mm)"    
-        df = df.sort_index()
         for col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
         if df.index.has_duplicates:
-            aggregation = {col: "mean" for col in df.columns}
-            df = df.groupby(level=0).agg(aggregation).sort_index()
+            df = df.groupby(level=0).mean(numeric_only=True).sort_index()
         if precip_col in df.columns:
             precip = df[precip_col].resample(interval).sum(min_count=1)
         resampled = df.resample(interval).asfreq()
+        resampled = resampled.loc[resampled.index.notna()].copy()
+        resampled = resampled.sort_index()
         # Interpolate numeric variables.
         numeric_cols = resampled.select_dtypes(include="number").columns
         other_cols = resampled.columns.difference(numeric_cols)
-        resampled[numeric_cols] = resampled[numeric_cols].interpolate(method="time")
-        resampled[other_cols] = resampled[other_cols].ffill()
+        if len(numeric_cols):
+            resampled[numeric_cols] = resampled[numeric_cols].interpolate(
+                method="time", limit_area="inside"
+            )
+        if len(other_cols): resampled[other_cols] = resampled[other_cols].ffill()
         # Restore precipitation using its separately aggregated values.
-        if precip_col in df.columns: resampled[precip_col] = precip
+        if precip_col in df.columns: resampled[precip_col] = precip.reindex(resampled.index)
         df = resampled.ffill().bfill().reset_index()
         # Create forcing nc file
         time = pd.to_datetime(df['Time'], utc=True).dt.tz_localize(None).to_numpy(dtype=np.datetime64)
@@ -734,7 +782,7 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         ds_final["time"].encoding = {
             "units": "hours since 1900-01-01 00:00:00",
             "calendar": "proleptic_gregorian", "dtype": "int64",
-            "chunksizes": (len(time),), "zlib": True, "complevel": 4, "shuffle": True,
+            "zlib": True, "complevel": 4, "shuffle": True,
         }
         encoding = {
             var: {"zlib": True, "complevel": 4, "shuffle": True, 

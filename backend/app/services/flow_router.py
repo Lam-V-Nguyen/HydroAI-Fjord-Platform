@@ -6,13 +6,14 @@ import geopandas as gpd, numpy as np, pandas as pd
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
+from rasterio.features import rasterize
+from rasterio.io import MemoryFile
 from shapely.geometry import LineString
 from shapely.ops import unary_union, linemerge
 from shapely import force_2d
 from pyflwdir import dem
 from skimage.morphology import skeletonize
 from services import functions, flow_functions, data_functions
-from rasterio.io import MemoryFile
 from contextlib import suppress
 
 
@@ -138,10 +139,7 @@ async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form
         terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem.tif'))
         with open(terrain_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
-        os.makedirs(raw_dir, exist_ok=True)
-        raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
-        content = data_functions.prepare_terrain(project_name, terrain_path, raw_path)
+        content = data_functions.prepare_terrain(project_name, terrain_path)
         return JSONResponse(content)
     except Exception as e:
         print('/upload_terrain_flow:\n==============')
@@ -149,6 +147,22 @@ async def upload_terrain_flow(file: UploadFile = File(...), flowName: str = Form
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
     finally: await file.close()
 
+@router.post("/catchment_definer")
+async def catchment_definer(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        folder, lat, lon = body.get('folder'), body.get('lat'), body.get('lon')
+        dem_name, snap_distance = body.get('fileName'), body.get('snapDistance')
+        directory = os.path.join(PROJECT_ROOT, project_name, folder)
+        os.makedirs(directory, exist_ok=True)
+        content = data_functions.catchment_detector(directory, dem_name, lat, lon, snap_distance)
+        return JSONResponse(content)
+    except Exception as e:
+        print('/catchment_definer:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+    
 @router.post("/clip_dem")
 async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
     try:
@@ -156,10 +170,10 @@ async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_name, catchment = body.get('flowName'), body.get('catchment')
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-        terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
-        if not os.path.exists(terrain_path):
-            return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload terrain first."})
         catchment_WGS84 = gpd.GeoDataFrame.from_features(catchment['features'], crs="EPSG:4326")
+        terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem_filled.tif'))
+        if not os.path.exists(terrain_path):
+            return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload and process terrain first."})
         with rioxarray.open_rasterio(terrain_path) as src:
             terrain = src.squeeze(drop=True).load()
         catchment_reprojected = catchment_WGS84.to_crs(terrain.rio.crs)
@@ -170,11 +184,14 @@ async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
         terrain_values, nodata = terrain_clipped.values, -9999.0
         height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
         crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
+        dem_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
+        os.makedirs(dem_dir, exist_ok=True)
+        dem_path = os.path.normpath(os.path.join(dem_dir, 'dtm_raw.tif'))
         profile = {
             "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
             "height": height, "width": width, "transform": transform
         }
-        flow_functions.write_geotif(terrain_values, profile, terrain_path, nodata)
+        flow_functions.write_geotif(terrain_values, profile, dem_path, nodata)
         return JSONResponse({"status": "ok", "message": f"DEM was clipped successfully."})
     except Exception as e:
         print('/clip_dem:\n==============')
@@ -514,58 +531,34 @@ async def upstream_area(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
+@router.post("/check_stream_points")
+async def check_stream_points(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
+        redis, lat, lon = request.app.state.redis, float(body.get('lat')), float(body.get('lon'))
+        lock = redis.lock(f"{project_name}:wflow_stream-point", timeout=1000, blocking_timeout=10)
+        async with lock:
+            strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
+            with rasterio.open(strord_path) as strord_src:
+                src_crs = strord_src.crs
+            gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([lon], [lat]), crs='EPSG:4326')
+            gdf = gdf.to_crs(src_crs)
+            center_xy = [gdf.geometry.x[0], gdf.geometry.y[0]]
+            candidates = flow_functions.get_candidates_from_strord(strord_path, center_xy)
+            if len(candidates) == 0:
+                return JSONResponse({'status': 'error', 'message': "No candidate found."})
+            candidates = candidates.to_crs('EPSG:4326')
+            candidates['lat'], candidates['lon'] = candidates.geometry.y, candidates.geometry.x
+            candidates['id'] = candidates['id']
+            candidates = candidates[['id', 'lat', 'lon', 'distance_m']].values.tolist()
+            # selected = int(0.2*len(candidates))
+            selected = 10
+            content = {'points': len(candidates), 'data': candidates, 'selected': selected}
+            return JSONResponse({"content": content})
+    except Exception as e:
+        print('/check_stream_points:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-
-
-
-
-
-
-# @router.post("/delete_river")
-# async def delete_river(request: Request):
-#     try:
-#         body = await request.json()
-#         length = float(body.get('length'))
-#         data = gpd.GeoDataFrame.from_features(body.get('river')['features'], crs="EPSG:4326")
-#         data_UTM = data.copy().to_crs(data.estimate_utm_crs())
-#         data_UTM['length'] = data_UTM['geometry'].length
-#         data_UTM = data_UTM[data_UTM['length'] >= length]
-#         data_UTM = data_UTM.drop(columns=['length'])
-#         data_UTM = data_UTM.to_crs("EPSG:4326")
-#         n = len(data) - len(data_UTM)
-#         content = json.loads(data_UTM.to_json())
-#         return JSONResponse({'status': 'ok', 'content': content, 'numDeleted': n})
-#     except Exception as e:
-#         print('/delete_river:\n==============')
-#         traceback.print_exc()
-#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-# @router.post("/check_stream_points")
-# async def check_stream_points(request: Request, user=Depends(functions.basic_auth)):
-#     try:
-#         body = await request.json()
-#         project_name, project_id = functions.project_definer(body.get('projectName'), user)
-#         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
-#         redis, lat, lon = request.app.state.redis, float(body.get('lat')), float(body.get('lon'))
-#         lock = redis.lock(f"{project_id}:wflow_stream-point", timeout=1000, blocking_timeout=10)
-#         async with lock:
-#             strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
-#             with rasterio.open(strord_path) as strord_src:
-#                 src_crs = strord_src.crs
-#             gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([lon], [lat]), crs='EPSG:4326')
-#             gdf = gdf.to_crs(src_crs)
-#             center_xy = [gdf.geometry.x[0], gdf.geometry.y[0]]
-#             candidates = flow_functions.get_candidates_from_strord(strord_path, center_xy)
-#             if len(candidates) == 0:
-#                 return JSONResponse({'status': 'error', 'message': "No candidate found."})
-#             candidates = candidates.to_crs('EPSG:4326')
-#             candidates['lat'], candidates['lon'] = candidates.geometry.y, candidates.geometry.x
-#             candidates['id'] = candidates['id']
-#             candidates = candidates[['id', 'lat', 'lon', 'distance_m']].values.tolist()
-#             selected = int(0.2*len(candidates))
-#             content = {'points': len(candidates), 'data': candidates, 'selected': selected}
-#             return JSONResponse({"content": content})
-#     except Exception as e:
-#         print('/check_stream_points:\n==============')
-#         traceback.print_exc()
-#         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})

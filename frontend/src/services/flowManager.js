@@ -218,7 +218,7 @@ function topographyManager() {
     });
     obj.terrainInputFile.addEventListener('change', async (e) => {
         const file = e.target.files[0]; if (!file) return;
-        const value = obj.projectName.value.trim(); const name = 'dem.tif';
+        const value = obj.projectName.value.trim(), name = 'dem.tif';
         if (!value || value === '') { alert('Please define scenario name first.'); return; }
         try {
             signalSender('Uploading and processing terrain data.\nPlease wait...');
@@ -353,7 +353,7 @@ function topographyManager() {
     obj.clipCatchmentBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
         if (name === '') { alert('Please select a scenario first.'); return; }
-        if (catchmentLayer === null) { alert('Please check/upload a catchment first.'); return; }
+        if (catchmentLayer === null) { alert('Please detect a catchment first.'); return; }
         try {
             signalSender('showOverlay', 'Clipping DEM to catchment.\nPlease wait...');
             const content = {
@@ -572,11 +572,7 @@ function riverManager() {
                 alert('Please upload/create a river layer first.');
                 e.target.checked = false; return;
             } else { riverLayer.addTo(mapObj); }
-        } else {
-            if (riverLayer) { mapObj.removeLayer(riverLayer); }
-            //         const content = ['Segment ID', 'Width', 'Depth'];
-            //         deleteTable(obj.riverTable); addRowToTable(obj.riverTable, content);
-        }
+        } else {if (riverLayer) { mapObj.removeLayer(riverLayer); }}
     });
     obj.riverCatchmentUploadBtn.addEventListener('click', () => { obj.catchmentInputFile.click(); });
     obj.riverCatchmentClipBtn.addEventListener('click', async () => {

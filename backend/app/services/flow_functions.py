@@ -225,16 +225,39 @@ def create_forcing(values, ny, nx, mask_nan, single_value, idx=None, weight=None
     return data
 
 def setup_logger(name, log_path: str):
+    # logger = logging.getLogger(name)
+    # logger.setLevel(logging.INFO)
+    # logger.propagate = False
+    # if logger.handlers: return logger
+    # file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    # file_handler.setLevel(logging.INFO)
+    # formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    # file_handler.setFormatter(formatter)
+    # logger.handlers.clear()
+    # logger.addHandler(file_handler)
+    # return logger
+
+    log_path = os.path.abspath(log_path)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    if logger.handlers: return logger
-    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    # Remove old handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.flush()
+        handler.close()
+    # Create a new file handler
+    file_handler = logging.FileHandler(
+        log_path, mode="a", encoding="utf-8", delay=False
+    )
     file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    file_handler.setFormatter(formatter)
-    logger.handlers.clear()
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
     logger.addHandler(file_handler)
+    logger.info("Logger initialized: %s", log_path)
+    file_handler.flush()
     return logger
 
 def weather_downloader(project_name, flow_name, processes, process_key, api_key, start, end, time_zone, buffer=0.01):
@@ -605,8 +628,12 @@ def wflow_check(project_name, processes, process_key, flow_name):
             transform, profile = src.transform, src.profile
             height, width = src.height, src.width
         logger.info("Checking water area data...")
-        water_path = os.path.normpath(os.path.join(model_dir, 'water_area', 'water_area.geojson'))
-        if os.path.exists(water_path):
+        water_dir = os.path.join(model_dir, 'water_area')
+        water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
+        if len(water_files) == 0:
+            logger.warning("Water area data not found. Water area will not be masked.")
+        if len(water_files) > 0:
+            water_path = os.path.normpath(os.path.join(water_dir, water_files[0]))
             lake = gpd.read_file(water_path)
             lake_reproj = lake.to_crs(crs)
             lake_array = rasterize(
@@ -614,9 +641,7 @@ def wflow_check(project_name, processes, process_key, flow_name):
                 out_shape=(height, width), transform=transform, fill=nodata
             )
             mask_lake = (lake_array != nodata)
-        else:
-            mask_lake = None
-            logger.info("Water area data not found.")
+        else: mask_lake = None
         logger.info(f"Found water area data at: {water_path}")
         logger.info("="*60)
         logger.info("Checking river data...")
@@ -720,7 +745,7 @@ def get_candidates_from_strord(strord_path, center_xy):
     with rasterio.open(strord_path) as src:
         strord, nodata = src.read(1), src.nodata
         transform, src_crs = src.transform, src.crs
-    if nodata is not None: mask = (strord > 0) & (strord != nodata)
+    if nodata is not None: mask = (strord == np.max(strord)) & (strord != nodata)
     else: mask = strord > 0
     rows, cols = np.where(mask)
     if len(rows) == 0: return []
@@ -849,9 +874,9 @@ def _cleanup_after_failure(model_dir, model_folder, logger=None):
     except ImportError: pass
     except Exception: pass
 
-def prepare_hydromt(project_name, processes, process_key, flow_name, model_folder, 
-    start, end, step, time_zone, data_lib, upstream_area, region, resolution, soil_layers, 
-    params_input, params_output, log_path, lulc_function, lulc_mapping_fn, lai_fn, logger=None):
+def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, time_zone, data_lib, 
+    upstream_area, region, resolution, soil_layers, params_input, params_output, log_path, 
+    lulc_function, lulc_mapping_fn, lai_fn, logger=None):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
@@ -1087,8 +1112,7 @@ def prepare_hydromt(project_name, processes, process_key, flow_name, model_folde
     except Exception as e:
         print('/prepare_hydromt:\n==============')
         traceback.print_exc()
-        logger.exception(f"Prepare HydroMT failed: {str(e)}")
-        processes[process_key] = {"status": "failed", "message": str(e)}
+        logger.exception("Prepare HydroMT failed: %s", e)
         error = e
     finally:
         _cleanup_model(model, logger)
@@ -1099,7 +1123,7 @@ def prepare_hydromt(project_name, processes, process_key, flow_name, model_folde
         sys.stdout, sys.stderr = old_stdout, old_stderr
     if error is not None: raise error
 
-def run_hydromt(project_name: str, processes:dict, process_key:str, flow_name:str, model_folder:str, log_path:str, logger=None):
+def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str, logger=None):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name, model_folder))
     if logger is None: logger = setup_logger("hydromt", log_path)
@@ -1150,8 +1174,7 @@ def run_hydromt(project_name: str, processes:dict, process_key:str, flow_name:st
     except Exception as e:
         print('/run_hydromt:\n==============')
         traceback.print_exc()
-        logger.exception(f"Run HydroMT failed: {str(e)}")
-        processes[process_key] = {"status": "failed", "message": str(e)}
+        logger.exception("Prepare HydroMT failed: %s", e)
         error = e
     finally:
         for h in logger.handlers[:]:
@@ -1165,6 +1188,7 @@ def run_hydromt(project_name: str, processes:dict, process_key:str, flow_name:st
 def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, model_folder:str, df:pd.DataFrame, 
     crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, up_area:float, resolution:int,
     soil_layers:list, params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str):
+    # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
@@ -1174,7 +1198,7 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
     logger = setup_logger("hydromt", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
     stream_logger = StreamToLogger(logger, log_path=log_path)
-    sys.stdout, sys.stderr = stream_logger, stream_logger    
+    sys.stdout, sys.stderr = stream_logger, stream_logger
     # Clean up existing model directory
     if os.path.exists(mod_path): _safe_rmtree(mod_path, logger=logger)
     os.makedirs(mod_path, exist_ok=True)
@@ -1214,10 +1238,18 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
             try:
                 gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([temp_lon], [temp_lat]), crs='EPSG:4326')
                 if gdf.crs != crs: gdf = gdf.to_crs(crs)
-                x, y = round(gdf.geometry.x[0], 2), round(gdf.geometry.y[0], 2)
-                region = {'subbasin': [x, y]}
+                x, y = round(gdf.geometry.x[0], 1), round(gdf.geometry.y[0], 1)
+                # https://deltares.github.io/hydromt/v0.8.0/_generated/hydromt.workflows.basin_mask.parse_region.html
+                region = {
+                    'subbasin': [x, y], #"uparea": 10,
+                    # 'strord': 4, # snapped to a river with minimum stream order (strord) of 4
+                    # 'bounds': [11.70, 45.35, 12.95, 46.70] # within the given bounds [xmin, ymin, xmax, ymax] (WGS84)
+                
+                    # 'basin': [12.2051, 45.8331] # derive the basin belonging to the given x,y coordinates
+                }
+                print(region)
                 # Prepare model
-                prepare_hydromt(project_name, processes, process_key, flow_name, model_folder, 
+                prepare_hydromt(project_name, flow_name, model_folder, 
                     start, end, step, time_zone, data_lib, up_area, region, 
                     resolution, soil_layers, params_input, params_output, log_path,
                     lulc_function, lulc_mapping_fn, lai_fn, logger
@@ -1237,7 +1269,7 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
                     raise ValueError(f"NaN values in: {nan_vars}")
                 # Run model
                 logger.info("="*70)
-                run_hydromt(project_name, processes, process_key, flow_name, model_folder, log_path)
+                run_hydromt(project_name, flow_name, model_folder, log_path)
                 logger.info(f"Candidate '{temp_name}' SUCCESS.")
                 candidate_results.append({
                     "point": temp_name, "lat": temp_lat, "lon": temp_lon, "status": "success",
@@ -1249,10 +1281,10 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
                 logger.info("="*70)
                 break
             except Exception as e:
-                logger.error(f"Run HydroMT failed for candidate '{temp_name}'.")
+                logger.exception("Run HydroMT failed for candidate '%s'.",temp_name )
                 candidate_results.append({
                     "point": temp_name, "lat": temp_lat, "lon": temp_lon,
-                    "status": "failed", "error": str(e),
+                    "status": "failed", "error": str(e), "traceback": traceback.format_exc()
                 })
                 if not prepare_ok:
                     logger.error(f"Prepare data for hydromt failed - Skipping run_hydromt for candidate '{temp_name}'.")
@@ -1270,10 +1302,14 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
             }
         else:
             n_failed = len(candidate_results)
+            last_error = (
+                candidate_results[-1].get("error", "Unknown error")
+                if candidate_results else "No candidate was processed."
+            )
             processes[process_key] = {
-                "status": "finished",
-                "message": f"\n\nAll {n_failed} candidates failed. No valid model could be run.",
-                "results": candidate_results,
+                "status": "failed", "message": (
+                    f"All {n_failed} candidates failed. No valid model could be run.\n"f"Last error: {last_error}"
+                ), "results": candidate_results,
             }
     except Exception as e:
         processes[process_key] = {"status": "failed", "message": str(e)}

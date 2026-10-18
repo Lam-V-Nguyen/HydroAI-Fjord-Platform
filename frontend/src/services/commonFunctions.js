@@ -342,6 +342,14 @@ export function updateLog(currentProject, info, seconds, key, onFinish, reloadLo
             );
             const content = { projectName: currentProject, key: key };
             const statusRes = await jsonLoader('check_download_status', content);
+            if (statusRes.results?.length) {
+                const failures = statusRes.results.filter(
+                    item => item.status === "failed"
+                );
+                for (const item of failures) {
+                    alert(`Candidate ${item.point}: ${item.error} \n ${item.traceback}`);
+                }
+            }
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.lines)) {
