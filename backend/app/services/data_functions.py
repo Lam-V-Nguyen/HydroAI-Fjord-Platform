@@ -1,27 +1,22 @@
 import os, dotenv, base64, requests, math, rasterio, rioxarray, pyflwdir
 import traceback, sys, shutil, cdsapi, calendar, json, asyncio
-from rasterio.warp import calculate_default_transform, reproject
-from rasterio.shutil import copy as rio_copy
+from rasterio.warp import calculate_default_transform, reproject, transform_bounds
+from rasterio.shutil import copy as rio_copy # type: ignore
 from shapely.geometry import Point, shape
 from shapely.ops import unary_union
 from rasterio.enums import Resampling
-from rasterio.warp import transform_bounds
 from rasterio.features import shapes
 import pandas as pd, xarray as xr, numpy as np, geopandas as gpd
-from config import PROJECT_ROOT, WHITEBOX_DIR
+from config import PROJECT_ROOT
 from services import functions, flow_functions
 from pathlib import Path
 from services.flow_functions import StreamToLogger
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
-from whitebox.whitebox_tools import WhiteboxTools
 import dask.array as da
 from pyflwdir import dem
 
 
-wtb = WhiteboxTools()
-wtb.set_verbose_mode(False)
-wtb.set_whitebox_dir(WHITEBOX_DIR)
 
 variables = {
     'total_precipitation': 'tp', # Precipitation
@@ -472,37 +467,71 @@ def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
             h.close()
             logger.removeHandler(h)
 
-def dem_downloader(directory:str, key:str, resolution:int, boundary:gpd.GeoDataFrame):
+def dem_downloader(directory:str, key:str, resolution:int, boundary:gpd.GeoDataFrame, target_crs=None):
     try:
         path = os.path.normpath(os.path.join(directory, f'{key}.tif'))
-        url, crs = os.getenv('DEM_URL'), 'EPSG:25833'
+        temp_path, output_temp_path = path + ".source.tif", path + ".tmp.tif"
+        url = os.getenv('DEM_URL')
+        if not url: return {'status': 'error', 'message': 'DEM URL is not defined.'}
+        if os.path.exists(temp_path): return {'status': 'ok', 'message': 'DEM file already exists.'}
+        if resolution <= 0: return {'status': 'error', 'message': 'Resolution must be greater than 0.'}
+        if boundary.crs != "EPSG:25833": boundary = boundary.to_crs("EPSG:25833")
         [xmin, ymin, xmax, ymax] = boundary.total_bounds
-        width = math.ceil((xmax - xmin) / resolution)
-        height = math.ceil((ymax - ymin) / resolution)
+        width = max(1, math.ceil((xmax - xmin) / resolution))
+        height = max(1, math.ceil((ymax - ymin) / resolution))
         params = {
             "SERVICE": "WCS", "VERSION": "1.0.0", "REQUEST": "GetCoverage",
             "COVERAGE": "nhm_dtm_topo_25833", "FORMAT": "GeoTIFF",
             "BBOX": f"{xmin},{ymin},{xmax},{ymax}",
-            "WIDTH": str(width), "HEIGHT": str(height), "CRS": crs,
+            "WIDTH": str(width), "HEIGHT": str(height), "CRS": "EPSG:25833"
         }
         response = requests.get(url, params=params, timeout=180)
         if response.ok and response.content[:4] in (b"II*\x00", b"MM\x00*"):
-            with open(path, "wb") as f: f.write(response.content)
-            return {'status': 'ok', 'message': 'Download DEM completed successfully.'}
-        else:
-            return {
-                'status': 'error', 'message': 'Download DEM failed. Try again with lower resolution.'
-            }
+            with open(temp_path, "wb") as f: f.write(response.content)
+            with rasterio.open(temp_path) as src:
+                if src.crs is None: return {'status': 'error', 'message': 'DEM file has no CRS.'}
+                if (target_crs is None or src.crs == rasterio.crs.CRS.from_user_input(target_crs)):
+                    output_path = temp_path
+                else:
+                    dst_crs = rasterio.crs.CRS.from_user_input(target_crs)
+                    transform, width, height = calculate_default_transform(
+                        src.crs, dst_crs, src.width, src.height, *src.bounds, resolution=resolution
+                    )
+                    profile = src.profile.copy()
+                    profile.update({
+                        'crs': dst_crs, 'transform': transform, 'width': width,
+                        'height': height, 'compress': 'deflate',
+                    })
+                    with rasterio.open(output_temp_path, 'w', **profile) as dst:
+                        for band_idx in range(1, src.count + 1):
+                            reproject(
+                                source=rasterio.band(src, band_idx),
+                                destination=rasterio.band(dst, band_idx),
+                                src_transform=src.transform, src_crs=src.crs,
+                                dst_transform=transform, dst_crs=dst_crs,
+                                dst_nodata=src.nodata, resampling=Resampling.bilinear
+                            )
+                    output_path = output_temp_path
+            os.replace(output_path, path)
+            for temp_file in (temp_path, output_temp_path):
+                if os.path.exists(temp_file): functions.safe_remove(temp_file)
+            return {'status': 'ok', 'message': 'Download DEM and reprojection completed successfully.'}
+        else: return {'status': 'error', 'message': 'Download DEM failed. Try again with lower resolution.'}
     except Exception as e:
         print('/dem_downloader:\n==============')
         traceback.print_exc()
+        for temp_file in (
+            os.path.join(directory, f"{key}.tif.source.tif"),
+            os.path.join(directory, f"{key}.tif.tmp.tif")
+        ):
+            if os.path.exists(temp_file):
+                try: functions.safe_remove(temp_file)
+                except OSError: pass
         return {"status": 'error', "message": str(e)}
 
 def prepare_terrain(project_name:str, dem_path:str):
     # Convert to COG
     dst_crs, base_path = "EPSG:3857", os.path.splitext(dem_path)[0]
-    fill_path = dem_path.replace(".tif", "_filled.tif")
-    wtb.fill_depressions(dem=dem_path, output=fill_path)
     temp_path, cog_path = base_path + "_temp.tif", base_path + "_cog.tif"
     with rasterio.open(dem_path) as src:
         if src.crs is None:
@@ -540,31 +569,67 @@ def prepare_terrain(project_name:str, dem_path:str):
     content = {"tile_url": tile_url, "bounds": bounds, 'min_max': [min, max]}
     return {'status': 'ok', 'content': content}
 
-def stream_detector(project_name:str, folder:str, dem_name:str, threshold:float):
+def stream_detector(project_name:str, folder:str, dem_name:str, threshold:int):
     try:
         directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, folder))
         dem_path = os.path.normpath(os.path.join(directory, f"{dem_name}.tif"))
-        fill_name, stream_name = dem_name + "_filled.tif", dem_name + "_streams.tif"
-        flwdir_name, flwacc_name = dem_name + "_flowdir.tif", dem_name + "_flowacc.tif"
-        fill_path = os.path.normpath(os.path.join(directory, fill_name))
-        if os.path.exists(fill_path): functions.safe_remove(fill_path)
-        wtb.fill_depressions(dem=dem_path, output=fill_path)
-        flw_path = os.path.normpath(os.path.join(directory, flwdir_name))
-        if os.path.exists(flw_path): functions.safe_remove(flw_path)
-        wtb.d8_pointer(dem=fill_path, output=flw_path)
-        flwacc_path = os.path.normpath(os.path.join(directory, flwacc_name))
-        if os.path.exists(flwacc_path): functions.safe_remove(flwacc_path)
-        wtb.d8_flow_accumulation(i=fill_path, output=flwacc_path, out_type="cells")
-        stream_path = os.path.normpath(os.path.join(directory, stream_name))
-        if os.path.exists(stream_path): functions.safe_remove(stream_path)
-        wtb.extract_streams(flow_accum=flwacc_path, output=stream_path, threshold=threshold)
-        with rasterio.open(stream_path) as src:
+        if not os.path.exists(dem_path):
+            return {'status': 'error', 'message': f'Filled DEM file not found. Please upload DEM again.'}
+        # Fill depressions
+        with rasterio.open(dem_path) as src:
+            dem_array, crs, nodata = src.read(1), src.crs, src.nodata
+            transform, profile = src.transform, src.profile
+        if nodata is None or (isinstance(nodata, (float, np.floating)) and np.isnan(nodata)):
+            nodata = -9999.0
+        valid_mask = np.isfinite(dem_array)
+        if src_nodata := profile.get("nodata"): valid_mask &= dem_array != src_nodata
+        dem_array = dem_array.astype(np.float32, copy=True)
+        dem_array[~valid_mask] = nodata
+        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
+        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
+        # Create stream order
+        strord_array = flw.stream_order(type='strahler')
+        strord_array = np.where((strord_array>=threshold), strord_array, 0).astype(np.int16)
+        NODATA_FLWDR, NODATA_BASIN, strord_name = 255, 0, f"{dem_name}_strord.tif"
+        files = {
+            f"{dem_name}_filled.tif": [filled_array, nodata, np.float32],
+            strord_name: [strord_array, NODATA_BASIN, np.int16],
+            f"{dem_name}_flowdir.tif": [flwdir_array, NODATA_FLWDR, np.uint8],
+        }
+        profile_writer = profile.copy()
+        for file, array in files.items():
+            profile_writer.update({'dtype': array[2]})
+            file_path = os.path.normpath(os.path.join(directory, file))
+            flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
+        with rasterio.open(dem_path) as src:
             west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
         bounds = [[south, west], [north, east]]
-        tile_url = f"/{project_name}/{folder}/{stream_name}/{{z}}/{{x}}/{{y}}.png"
+        tile_url = f"/{project_name}/{folder}/{strord_name}/{{z}}/{{x}}/{{y}}.png"
         contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
         return {'status': 'ok', 'content': contents}
-    except Exception as e: return {'status': 'error', 'message': str(e)}
+    except Exception as e: 
+        print('/stream_detector:\n==============')
+        traceback.print_exc()
+        return {'status': 'error', 'message': str(e)}
+
+def catchment_detector(directory:str, dem_name:str, lat:float, lon:float):
+    flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
+    with rasterio.open(flw_path, "r") as src:
+        flwdir, transform, crs = src.read(1), src.transform, src.crs
+    flw = pyflwdir.from_array(flwdir, ftype="d8", transform=transform, latlon=crs.is_geographic, cache=True)
+    point = gpd.GeoDataFrame([{'geometry': Point(lon, lat)}], crs='EPSG:4326')
+    point = point.to_crs(crs)
+    x, y = point.geometry.x[0], point.geometry.y[0]
+    basin_raster = flw.basins(xy=(x, y))
+    raster_shapes = shapes(
+        basin_raster.astype("int32"), mask=basin_raster > 0, transform=transform
+    )
+    geoms = [shape(geom) for geom, value in raster_shapes if value > 0]
+    catchment = gpd.GeoDataFrame(geometry=geoms, crs=crs)
+    if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
+    area = round(catchment["geometry"].area.sum() / 1000000, 6)
+    catchment = catchment.to_crs("EPSG:4326")
+    return {'status': 'ok', 'content': json.loads(catchment.to_json()), 'area': area}
 
 def upstream_area(directory:str, project_name:str, folder:str, area:float):
     try:
@@ -572,100 +637,24 @@ def upstream_area(directory:str, project_name:str, folder:str, area:float):
         if not os.path.exists(dem_path):
             return {'status': 'error', 'message': "DEM file not found."}
         with rasterio.open(dem_path) as src:
-            dem_array, crs = src.read(1), src.crs
+            dem_array, crs, nodata = src.read(1), src.crs, src.nodata
             transform, profile = src.transform, src.profile
-        # # Fill depressions
-        # filled_array, _ = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
-        # flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
-        # # Create stream order
-        # uparea_array = flw.upstream_area(unit='km2')
-        # uparea_array[~(uparea_array >= area)] = 0
-        # upstream_name = "upstream_area.tif"
-        # upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
-        # profile_writer = profile.copy()
-        # profile_writer.update({'dtype': np.int32})
-        # flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
-
-        
-        
-        
-        name, upstream_name = "hydro/strord.tif", "hydro/strord1.tif"
-        path =  os.path.normpath(os.path.join(directory, name))
-        path1 = os.path.normpath(os.path.join(directory, upstream_name))
-        with rasterio.open(path) as src:
-            dem_array = src.read(1)
-            crs, nodata = src.crs, src.nodata
-            transform, profile = src.transform, src.profile
-            height, width = src.height, src.width
-        mask = (dem_array > 7) & (dem_array != nodata)
-        dem_array[~mask] = nodata
-        profile = {
-            "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
-            "height": height, "width": width, "transform": transform
-        }
-        flow_functions.write_geotif(dem_array, profile, path1, nodata)
-
-
-        with rasterio.open(dem_path) as src:
+            flw = pyflwdir.from_dem(dem_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
+            # Create stream order
+            uparea_array = flw.upstream_area(unit='km2')
+            uparea_array[~(uparea_array >= area)] = 0
+            upstream_name = "upstream_area.tif"
+            upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
+            profile_writer = profile.copy()
+            profile_writer.update({'dtype': np.int32})
+            flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
             west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
-        bounds = [[south, west], [north, east]]
-        tile_url = f"/{project_name}/{folder}/{upstream_name}/{{z}}/{{x}}/{{y}}.png"
-        contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
+            bounds = [[south, west], [north, east]]
+            tile_url = f"/{project_name}/{folder}/{upstream_name}/{{z}}/{{x}}/{{y}}.png"
+            contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
         return {'status': 'ok', 'content': contents}
     except Exception as e: return {'status': 'error', 'message': str(e)}
     
-def catchment_detector(directory:str, dem_name:str, lat:float, lon:float, snap_distance:float):
-    # if not os.path.exists(directory): os.makedirs(directory, exist_ok=True)
-    # flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
-    # stream_path = os.path.normpath(os.path.join(directory, f"{dem_name}_streams.tif"))
-    # with rasterio.open(stream_path) as src:
-    #     crs = src.crs
-    # # Create outlet point for catchment
-    # outlet_dir = os.path.normpath(os.path.join(directory, "outlet"))
-    # if not os.path.exists(outlet_dir): os.makedirs(outlet_dir, exist_ok=True)
-    # outlet_path = os.path.normpath(os.path.join(outlet_dir, "outlet.shp"))
-    # if os.path.exists(outlet_path): functions.safe_remove(outlet_path)
-    # outlet = gpd.GeoDataFrame(geometry=[Point(lon, lat)], crs="EPSG:4326")
-    # outlet = outlet.to_crs(crs)
-    # outlet.to_file(outlet_path)
-    # # Create pour point
-    # snap_path = os.path.normpath(os.path.join(outlet_dir, "snapped.shp"))
-    # if os.path.exists(snap_path): functions.safe_remove(snap_path)
-    # catchment_path = os.path.normpath(os.path.join(directory, "catchment.tif"))
-    # if os.path.exists(catchment_path): functions.safe_remove(catchment_path)
-    # wtb.jenson_snap_pour_points(pour_pts=outlet_path, streams=stream_path, output=snap_path, snap_dist=snap_distance)
-    # wtb.watershed(d8_pntr=flw_path, pour_pts=snap_path, output=catchment_path)
-    # with rasterio.open(catchment_path) as src:
-    #     data = src.read(1).astype("uint8")
-    #     transform = src.transform
-    # results = [shape(geom) for geom, val in shapes(data, transform=transform) if val == 1]
-    # geom = flow_functions.remove_holes(unary_union(results))
-    # catchment = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-    # catchment_dir = os.path.normpath(os.path.join(directory, "catchment"))
-    # os.makedirs(catchment_dir, exist_ok=True)
-    # catch_path = os.path.normpath(os.path.join(catchment_dir, "catchment.geojson"))
-    # catchment.to_file(catch_path, driver="GeoJSON")
-    # # Delete temporary files
-    # functions.safe_remove(catchment_path)
-    # functions.safe_remove(outlet_dir)
-
-
-    flw_path = os.path.normpath(os.path.join(directory, f"{dem_name}_flowdir.tif"))
-    with rasterio.open(flw_path, "r") as src:
-        flwdir, transform, crs = src.read(1), src.transform, src.crs
-    flw = pyflwdir.from_array(flwdir, ftype="d8", transform=transform, latlon=crs.is_geographic, cache=True)
-    basin_raster = flw.basins(xy=(lon, lat))
-    area = shapes(basin_raster, transform=transform)
-    geoms = [shape(s) for s, v in shapes if v > 0]
-    catchment = gpd.GeoDataFrame(geometry=geoms, crs=crs)
-
-
-
-    if catchment.empty: return {'status': 'error', 'message': 'No catchment found.'}
-    area = round(catchment["geometry"].area.sum() / 1000000, 6)
-    if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
-    return {'status': 'ok', 'content': json.loads(catchment.to_json()), 'area': area}
-
 def raster_vector(raster_path:str, lookup_table:pd.DataFrame, catchment:gpd.GeoDataFrame):
     with rioxarray.open_rasterio(raster_path) as src:
         land = src.squeeze(drop=True).load()

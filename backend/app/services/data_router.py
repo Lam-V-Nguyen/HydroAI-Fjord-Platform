@@ -4,7 +4,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from services import functions, data_functions, hyd_functions, flow_functions
-from config import PROJECT_ROOT, WHITEBOX_DIR, SOURCE_BACKEND
+from config import PROJECT_ROOT, SOURCE_BACKEND
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
 from shapely.geometry import box
@@ -12,13 +12,6 @@ from rio_tiler.io import Reader
 from rio_tiler.colormap import cmap
 from rio_tiler.utils import render
 from rio_tiler.errors import TileOutsideBounds
-
-from whitebox.whitebox_tools import WhiteboxTools
-
-
-wtb = WhiteboxTools()
-wtb.set_verbose_mode(False)
-wtb.set_whitebox_dir(WHITEBOX_DIR)
 
 
 router, processes = APIRouter(), {}
@@ -521,28 +514,24 @@ async def download_dem(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         directory = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, body.get('folder')))
-        if not os.path.exists(directory): os.mkdir(directory)
+        os.makedirs(directory, exist_ok=True)
         resolution, key = int(body.get('resolution')), body.get('key')
         top_left = ast.literal_eval(body.get('topLeft'))
         bottom_right = ast.literal_eval(body.get('bottomRight'))
         wgs84_crs, crs = "EPSG:4326", "EPSG:25833"
-        gdf_top_left = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(x=[float(top_left[1])], y=[float(top_left[0])]), crs=wgs84_crs
-        )
-        gdf_bottom_right = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(x=[float(bottom_right[1])], y=[float(bottom_right[0])]), crs=wgs84_crs
-        )
-        gdf_top_left, gdf_bottom_right = gdf_top_left.to_crs(crs), gdf_bottom_right.to_crs(crs)
-        gdf_top = gdf_top_left.geometry.iloc[0]
-        gdf_bottom = gdf_bottom_right.geometry.iloc[0]
-        xmin, xmax = sorted([gdf_top.x, gdf_bottom.x])
-        ymin, ymax = sorted([gdf_top.y, gdf_bottom.y])
-        boundary = box(xmin, ymin, xmax, ymax)
-        gdf_boundary = gpd.GeoDataFrame(geometry=[boundary], crs=crs)
+        lat1, lon1 = map(float, top_left)
+        lat2, lon2 = map(float, bottom_right)
+        xmin, xmax = sorted([lon1, lon2])
+        ymin, ymax = sorted([lat1, lat2])
+        gdf_WGS84 = gpd.GeoDataFrame(geometry=[box(xmin, ymin, xmax, ymax)], crs=wgs84_crs)
+        target_crs = gdf_WGS84.estimate_utm_crs()
+        if target_crs is None:
+            return JSONResponse({"status": 'error', "message": "Cannot estimate a suitable UTM CRS for the study area."})
+        gdf_WCS = gdf_WGS84.to_crs(crs)
         redis, key_process = request.app.state.redis, f"{project_name}:{key}"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
-            content = data_functions.dem_downloader(directory, key, resolution, gdf_boundary)
+            content = data_functions.dem_downloader(directory, key, resolution, gdf_WCS, target_crs)
             return JSONResponse(content)
     except Exception as e:
         print('/download_dem:\n==============')
@@ -557,10 +546,7 @@ async def upload_terrain(projectName: str = Form(...), folder: str = Form(...),
         dem_dir = os.path.join(PROJECT_ROOT, project_name, folder)
         if not os.path.exists(dem_dir): os.makedirs(dem_dir, exist_ok=True)
         terrain_path = os.path.normpath(os.path.join(dem_dir, f"{fileName}.tif"))
-        raw_dir = os.path.normpath(os.path.join(dem_dir, 'raw'))
-        os.makedirs(raw_dir, exist_ok=True)
-        raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
-        content = data_functions.prepare_terrain(project_name, terrain_path, raw_path)
+        content = data_functions.prepare_terrain(project_name, terrain_path)
         return JSONResponse(content)
     except Exception as e:
         print('/upload_terrain:\n==============')
@@ -596,7 +582,7 @@ async def hyd_stream_upload(request: Request, user=Depends(functions.basic_auth)
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder, file_name, threshold = body.get('folder'), body.get('fileName'), float(body.get('threshold'))
+        folder, file_name, threshold = body.get('folder'), body.get('fileName'), int(body.get('threshold'))
         content = data_functions.stream_detector(project_name, folder, file_name, threshold)
         return JSONResponse(content)
     except Exception as e:
@@ -612,10 +598,10 @@ async def start_download_soil(request: Request, user=Depends(functions.basic_aut
     flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
     terrain_path = os.path.normpath(os.path.join(flow_dir, 'raw', 'dtm_raw.tif'))
     if not os.path.exists(terrain_path):
-        return JSONResponse({'status': 'error', 'message': "Cannot find terrain data in the scenario.\nUpload terrain first."})
+        return JSONResponse({'status': 'error', 'message': "Cannot find terrain data in the scenario.\nProcess terrain first."})
     catchment_path = os.path.normpath(os.path.join(flow_dir, "catchment", 'catchment.geojson'))
     if not os.path.exists(catchment_path):
-        return JSONResponse({'status': 'error', 'message': "Cannot find catchment data in the scenario.\nDefine catchment first."})
+        return JSONResponse({'status': 'error', 'message': "Cannot find catchment data in the scenario.\nUpload terrain and define catchment first."})
     redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:

@@ -21,10 +21,9 @@ const obj = {
     projectName: $('project-name'), projectList: $('project-list'), projectCreator: $('create-btn'),
     projectDelete: $('delete-btn'), terrainBtn: $('terrain-btn'), terrainInputFile: $('terrain-input-file'),
     terrainInputText: $('terrain-input-text'), terrainName: $('dem-text'), colorBar: $('custom-colorbar'),
-    uploadContainer: $('upload-container'), downloadContainer: $('download-container'),
-    terrainDrawBtn: $('flow-draw-btn'), terrainTopLeft: $('flow-top-left'), terrainBottomRight: $('flow-bottom-right'),
-    terrainDownloadBtn: $('flow-terrain-download-btn'), terrainResolution: $('flow-terrain-resolution'),
-    streamBtn: $('stream-btn'), threshold: $('threshold'), snapDistance: $('snap-dist'),
+    uploadContainer: $('upload-container'), downloadContainer: $('download-container'), terrainDrawBtn: $('flow-draw-btn'), 
+    terrainTopLeft: $('flow-top-left'), terrainBottomRight: $('flow-bottom-right'), terrainDownloadBtn: $('flow-terrain-download-btn'), 
+    terrainResolution: $('flow-terrain-resolution'), streamBtn: $('stream-btn'), threshold: $('threshold'),
     catchmentRadio: $('catchment-radio'), catchmentCheckbox: $('catchment-checkbox'), catchmentLat: $('catchment-lat'), 
     catchmentLon: $('catchment-lon'), clipCatchmentBtn: $('clip-catchment-btn'), exportCatchmentBtn: $('export-catchment-btn'), 
     waterUploadBtn: $('water-upload-btn'), waterCheckbox: $('water-checkbox'), waterDeleteBtn: $('water-delete-btn'), 
@@ -188,7 +187,7 @@ function settingManager() {
         tab.addEventListener('click', async () => {
             const tabName = tab.getAttribute('data-tab');
             if (tabName !== 'terrain-tab') {
-                obj.catchmentCheckbox.checked = false;
+                obj.catchmentCheckbox.checked = false; drawChecker = '';
                 if (pointLayer) { pointLayer.remove(); }
                 if (catchmentLayer) { catchmentLayer.remove(); }; 
                 if (lastRadio) lastRadio.checked = true;
@@ -288,7 +287,7 @@ function topographyManager() {
         const threshold = obj.threshold.value;
         if (threshold === '') { alert('Please enter the threshold value.'); return; }
         try {
-            signalSender('showOverlay', 'Detecting streams. Please wait ...');
+            signalSender('showOverlay', 'Detecting stream orders. Please wait ...');
             const contents = {
                 projectName: currentProject, folder: `flows/${name}`,
                 fileName: dtmName.replace('.tif', ''), threshold: threshold
@@ -301,7 +300,7 @@ function topographyManager() {
             streamTileURL = data.content.tile_url; streamLayer = clearMap(streamLayer, mapObj);
             streamLayer = await displayTerrain(mapObj, streamTileURL, streamBounds);
             await drawColorbar(obj.colorBar, streamMinMax, 'Stream', 'terrain');
-        } catch (error) { alert(`Detecting streams failed: ${error.message}`); }
+        } catch (error) { alert(`Detecting stream orders failed: ${error.message}`); }
         lastRadio = document.querySelector('input[name="terrain"][value="terrain-stream"]');
         if (lastRadio) lastRadio.checked = true;
     });
@@ -332,9 +331,6 @@ function topographyManager() {
         }
         if (obj.terrainName.value.trim() === '') {
             alert('Please upload DEM first.'); e.target.checked = false; return;
-        }
-        if (obj.snapDistance.value === '') {
-            alert('Please define snap distance first.'); e.target.checked = false; return;
         }
         obj.catchmentLat.value = ''; obj.catchmentLon.value = '';
         if (!streamLayer) {
@@ -881,8 +877,7 @@ function mapOptions(map) {
                 const name = obj.projectName.value.trim(), dem = obj.terrainName.value.trim().replace(".tif", "");
                 obj.catchmentLat.value = lat; obj.catchmentLon.value = lon;
                 const content = {
-                    projectName: currentProject, folder: `flows/${name}`, fileName: dem,
-                    lat: lat, lon: lon, snapDistance: Number(obj.snapDistance.value),
+                    projectName: currentProject, folder: `flows/${name}`, fileName: dem, lat: lat, lon: lon
                 }
                 signalSender('showOverlay', 'Defining catchment. Please wait...');
                 const data = await jsonLoader('catchment_definer', content);

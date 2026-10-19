@@ -100,8 +100,8 @@
                                     <input type="text" id="dem-text">
                                 </div>
                                 <div class="field-inline">
-                                    <label for="threshold">Threshold (m):</label>
-                                    <input type="text" id="threshold" value="100" style="max-width: 150px;">
+                                    <label for="threshold">Stream Order:</label>
+                                    <input type="text" id="threshold" value="1" style="max-width: 150px;">
                                     <button type="button" id="stream-btn">Extract Streams</button>
                                 </div>
                                 <div class="field-inline">
@@ -126,15 +126,11 @@
                         </div>
                         <div class="tile" style="grid-column: span 3;"><h3>3. Catchment</h3>
                             <div class="row">
-                                <div class="field-inline" style="margin-top: 0;">
-                                    <label>Snap distance (m):</label>
-                                    <input type="text" id="snap-dist" value="10.0" style="max-width: 200px;">
+                                <div class="field-inline">
                                     <div class="checkbox-group">
                                         <input type="checkbox" id="catchment-checkbox">
                                         <label for="catchment-checkbox">Select Pourpoint</label>
                                     </div>
-                                </div>
-                                <div class="field-inline">
                                     <input type="text" id="catchment-lat" placeholder="Latitude" readonly>
                                     <input type="text" id="catchment-lon" placeholder="Longitude" readonly>
                                 </div>
@@ -338,7 +334,7 @@
                                     <button type="button" id="river-assign-btn">Save selected segment</button>
                                 </div>
                                 <div class="field-inline">
-                                    <button type="button" id="river-save-btn">Save River to Project</button>
+                                    <button type="button" id="river-save-btn">Save All Rivers to Project</button>
                                     <button type="button" id="river-export-file-btn">Export Rivers</button>
                                 </div>
                             </div>

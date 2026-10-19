@@ -491,7 +491,8 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
             except Exception: pass
             logger.removeHandler(h)
 
-def soil_downloader(project_name, processes, process_key, flow_name, soil_source, water, dtm_path, catchment_path):
+def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name:str, 
+    soil_source:str, water:str, dtm_path:str, catchment_path:str):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
     flow_dir = os.path.join(project_dir, "flows", flow_name)
     # Work with log
@@ -509,7 +510,6 @@ def soil_downloader(project_name, processes, process_key, flow_name, soil_source
             crs, transform = src.crs, src.transform
             height, width = src.height, src.width
             resolution_x, resolution_y = src.res
-            dem_bounds = src.bounds
         mask_catchment = None
         if os.path.exists(catchment_path) and os.path.getsize(catchment_path) > 0:
             catchment = gpd.read_file(catchment_path)
@@ -555,6 +555,7 @@ def soil_downloader(project_name, processes, process_key, flow_name, soil_source
                     out_shape=(height, width), transform=transform, fill=nodata
                 )
                 mask_lake = (lake_array != nodata)
+            else: mask_lake = None
             if mask_lake is not None: soil_thickness_values[mask_lake] = NODATA_SOIL_THICKNESS
             soil_thickness_path = os.path.join(soil_dir, 'soilthickness.tif')
             profile_writer = profile.copy()
@@ -627,21 +628,24 @@ def wflow_check(project_name, processes, process_key, flow_name):
             dem_array, crs, nodata = src.read(1), src.crs, src.nodata
             transform, profile = src.transform, src.profile
             height, width = src.height, src.width
+        if nodata is None: mask_nodata = ~np.isfinite(dem_array)
+        else: mask_nodata = (dem_array == nodata) | ~np.isfinite(dem_array)
+        dem_array = dem_array.astype(np.float32, copy=True)
         logger.info("Checking water area data...")
         water_dir = os.path.join(model_dir, 'water_area')
         water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
-        if len(water_files) == 0:
-            logger.warning("Water area data not found. Water area will not be masked.")
+        # if len(water_files) == 0:
+        #     logger.warning("Water area data not found. Water area will not be masked.")
         if len(water_files) > 0:
             water_path = os.path.normpath(os.path.join(water_dir, water_files[0]))
-            lake = gpd.read_file(water_path)
-            lake_reproj = lake.to_crs(crs)
-            lake_array = rasterize(
-                shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
-                out_shape=(height, width), transform=transform, fill=nodata
-            )
-            mask_lake = (lake_array != nodata)
-        else: mask_lake = None
+        #     lake = gpd.read_file(water_path)
+        #     lake_reproj = lake.to_crs(crs)
+        #     lake_array = rasterize(
+        #         shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
+        #         out_shape=(height, width), transform=transform, fill=nodata
+        #     )
+        #     mask_lake = (lake_array != nodata)
+        # else: mask_lake = None
         logger.info(f"Found water area data at: {water_path}")
         logger.info("="*60)
         logger.info("Checking river data...")
@@ -655,31 +659,37 @@ def wflow_check(project_name, processes, process_key, flow_name):
         logger.info("Creating template hydro data...")
         # Prepare template raster dataset
         hydro_dir = os.path.normpath(os.path.join(model_dir, 'hydro'))
-        if not os.path.exists(hydro_dir): os.makedirs(hydro_dir)
-        # Fill depressions
-        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1)
-        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic)
-        if mask_lake is not None: filled_array[mask_lake] = dem_array[mask_lake] # Replace lake elevation
+        os.makedirs(hydro_dir, exist_ok=True)
+        fill_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
+        flw = pyflwdir.from_dem(fill_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
+        # if mask_lake is not None:  fill_array = np.where(mask_lake, nodata, fill_array)
         # Create basins
         NODATA_FLWDR, NODATA_BASIN = 255, 0
+        flwdir_array = flwdir_array.astype(np.uint8, copy=True)
+        flwdir_array[mask_nodata] = NODATA_FLWDR
         basins_array = flw.basins()
         unique, counts = np.unique(basins_array, return_counts=True)
         largest_basin_id = unique[np.argmax(counts)]
         basins_mask = (basins_array == largest_basin_id)
         basins_array[basins_mask], basins_array[~basins_mask] = 1, NODATA_BASIN
-        elevtn_array = filled_array.copy()
+        elevtn_array = fill_array.copy()
         # Create slope
         dx, dy = transform.a, abs(transform.e)
         # Gradient elevation
-        gradient_array = filled_array.copy()
+        valid_dem = np.isfinite(fill_array)
+        if nodata is not None: valid_dem &= (fill_array != nodata)
+        gradient_array = fill_array.astype(np.float64, copy=True)
+        gradient_array[~valid_dem] = np.nan
         gy, gx = np.gradient(gradient_array, dy, dx)
-        slope_array = np.sqrt(gx**2 + gy**2)
+        slope_array = np.hypot(gx, gy)
+        slope_array[~valid_dem] = nodata
         # Create stream order
         uparea_array = flw.upstream_area(unit='km2')
         # Create stream mask and stream order
         strord_array = flw.stream_order(type='strahler')
         # Create upstream grid
         upstream_array = flw.upstream_area(unit='cell')
+        upstream_array[~valid_dem] = NODATA_BASIN
         # Create river width
         river_path = os.path.normpath(os.path.join(river_dir, 'river.gpkg'))
         river = gpd.read_file(river_path).to_crs(crs)

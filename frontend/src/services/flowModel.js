@@ -67,13 +67,6 @@ function modelManager() {
             obj.modelLogContainer.style.display = 'none'; obj.modelMapContainer.style.display = 'block';
         } catch (error) { alert(`Getting upstream area failed: ${error.message}`); }
     });
-    obj.upstreamCheckbox.addEventListener('change', async (e) => { 
-        layerChecker = e.target.checked; 
-        if (e.target.checked) { 
-            obj.modelMapContainer.style.display = 'block'; obj.modelLogContainer.style.display = 'none';
-            if (pointLayer) { mapObj.removeLayer(pointLayer); pointLayer = null; }
-        }
-    });
     obj.modelCheckBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), key = 'wflow_check';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
@@ -94,7 +87,13 @@ function modelManager() {
             });
         } catch (error) { alert(`Checking model parameters failed: ${error.message}`); }
     });
-
+    obj.upstreamCheckbox.addEventListener('change', async (e) => { 
+        layerChecker = e.target.checked; 
+        if (e.target.checked) { 
+            obj.modelMapContainer.style.display = 'block'; obj.modelLogContainer.style.display = 'none';
+            if (pointLayer) { mapObj.removeLayer(pointLayer); pointLayer = null; }
+        }
+    });
     obj.pointStreamBtn.addEventListener('click', async () => {
         const name = obj.projectName.value;
         if (name === '') { alert('Please select a scenario from the tab "Settings" first.'); return; }
