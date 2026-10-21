@@ -391,7 +391,7 @@ async def get_boundary_params(request: Request, user=Depends(functions.basic_aut
         input_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "input"))
         type_path = os.path.normpath(os.path.join(input_dir, f"{boundary_type}.bc"))
         mdu_path = os.path.normpath(os.path.join(input_dir, "FlowFM.mdu"))
-        if not os.path.exists(type_path): return JSONResponse({"status": 'new'})
+        if not os.path.exists(type_path) or not os.path.exists(mdu_path): return JSONResponse({"status": 'new'})
         with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
             for raw_line in f:
                 line = raw_line.split("#")[0].strip()
@@ -572,7 +572,7 @@ async def save_obs(request: Request, user=Depends(functions.basic_auth)):
 async def save_meteo(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    content = 'QUANTITY=humidity_airtemperature_cloudiness_solarradiation\n' + \
+    content = 'QUANTITY=humidity_airtemperature_cloudiness\n' + \
         'FILENAME=FlowFM_meteo.tim\n' + 'FILETYPE=1\n' + 'METHOD=1\n' + 'OPERAND=O'
     # Time difference in minutes
     time_zone, data = body.get('timeZone'), body.get('data')

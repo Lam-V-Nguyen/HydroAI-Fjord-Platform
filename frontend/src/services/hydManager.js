@@ -176,7 +176,7 @@ async function hydManager(){
     obj.gridPathFile.addEventListener('change', async (event) => {
         await fileUploader(
             obj.gridPathFile, obj.gridPathText, obj.projectName.value,
-            'FlowFM_net.nc', 'Uploading the unstructured grid to project...', 'grid'
+            obj.gridPathFile.files[0].name, 'Uploading the Unstructured Grid...', 'grid'
         ); event.target.value = '';
         // Plot grid on map
         const content = { 
@@ -203,7 +203,7 @@ async function hydManager(){
     obj.meteoUploadText.addEventListener('click', () => { obj.meteoUploadFile.click(); });
     obj.meteoUploadFile.addEventListener('change', async (event) => {
         await csvUploader(
-            event, obj.meteoUploadText, obj.meteoTable, 5
+            event, obj.meteoUploadText, obj.meteoTable, 4
         ); event.target.value = '';
     });
     obj.weatherCSVUploadText.addEventListener('click', () => { obj.weatherCSVUploadFile.click(); });
@@ -214,7 +214,7 @@ async function hydManager(){
     });
     // Copy and paste to tables
     copyPaste(obj.boundaryEditTable, 2); copyPaste(obj.sourceTable, 5);
-    copyPaste(obj.meteoTable, 5); copyPaste(obj.weatherTable, 3); 
+    copyPaste(obj.meteoTable, 4); copyPaste(obj.weatherTable, 3); 
     copyPaste(obj.obsPointTable, 3);
     // Add point to table
     obj.obsPointAddList.addEventListener('click', () => {
@@ -241,7 +241,7 @@ async function hydManager(){
         addRowToTable(obj.sourceTable, ['YYYY-MM-DD HH:MM:SS', 'Discharge', 'Salinity', 'Temperature', 'Contaminant'])
     );
     obj.meteoAddBtn.addEventListener('click', () => 
-        addRowToTable(obj.meteoTable, ['YYYY-MM-DD HH:MM:SS', 'Humidity', 'Air temperature', 'Cloud coverage', 'Solar radiation'])
+        addRowToTable(obj.meteoTable, ['YYYY-MM-DD HH:MM:SS', 'Humidity', 'Air temperature', 'Cloud coverage'])
     );
     obj.weatherAddRow.addEventListener('click', () => 
         addRowToTable(obj.weatherTable, ['YYYY-MM-DD HH:MM:SS', 'Magnitude', 'Direction'])
