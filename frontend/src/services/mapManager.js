@@ -1,6 +1,5 @@
 import { CENTER, ZOOM, L, getPendingRequest, clearPendingRequest, origin } from "./constant.js";
 import { signalSender, jsonLoader } from "./commonFunctions.js";
-import { mapPlotter, buildTooltip } from "./flowFunctions.js";
 
 const layerConfig = {
     terrainLayer: {

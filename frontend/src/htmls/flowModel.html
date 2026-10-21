@@ -114,7 +114,7 @@
                 <!-- Tab 2: Model Execution -->
                 <div class="tabpanel main-panel" data-panel="model-run-tab">
                     <div class="grid">
-                        <div class="tile output-parameters" style="grid-column: span 8;"><h3>Model Outputs</h3>
+                        <div class="tile output-parameters" style="grid-column: span 6;"><h3>Model Outputs</h3>
                             <div class="tab-header" id="sub-main-tabs">
                                 <div class="tabs-list">
                                     <button class="tab-btn" data-tab="wflow-setting-1">Overland Flow Outputs</button>
@@ -342,84 +342,18 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 2;"><h3>Upstream Settings</h3>
+                        <div class="tile" style="grid-column: span 2;"><h3>Model Runner</h3>
                             <div class="row">
-                                <div class="field-inline">
-                                    <label>Area (km²)</label>
-                                    <input type="text" id="upstream-area" value="1">
-                                    <button type="button" id="upstream-check-btn">Check Upstream Area</button>
-                                </div>
                                 <button type="button" id="model-check-btn">Check Wflow Model</button>
-                            </div>
-                        </div>
-                        <div class="tile" style="grid-column: span 4;"><h3>Model Investigation</h3>
-                            <div class="row">
                                 <div class="field-inline">
-                                    <div class="checkbox-group">
-                                        <input type="checkbox" id="upstream-checkbox">
-                                        <label for="upstream-checkbox">Upstream Pourpoint</label>
-                                    </div>
+                                    <label>Outlet</label>
                                     <input type="text" id="model-lat" placeholder="Latitude (°)" style="width: auto;">
                                     <input type="text" id="model-lon" placeholder="Longitude (°)" style="width: auto;">
                                 </div>
-                                
-                                <div class="field-inline">
-                                    <button type="button" id="stream-points-btn">Stream Points</button>
-                                    <input type="text" id="stream-points" style="width: auto;" placeholder="Candidate Points from Stream Order">
-                                </div>
-                                <table class="attributes-table" id="stream-points-table"
-                                    style="flex: 1; height: inherit; min-height: 0; display: flex; flex-direction: column;">
-                                    <thead style="flex-shrink: 0; display: table; width: 100%; table-layout: fixed;">
-                                        <tr><th>Id</th><th>Lat (°)</th><th>Lon (°)</th><th>Dist (m)</th></tr>
-                                    </thead>
-                                    <tbody style="flex: 1; display: block; overflow-y: auto; width: 100%; max-height: 120px;"></tbody>
-                                </table>
-                                <div class="field-inline">
-                                    <label>Select top</label>
-                                    <input type="text" id="stream-points-selected" style="max-width: 70px;">
-                                    <label>nearnest candidates to the pourpoint</label>
-                                </div>
-                                <div class="field-inline">
-                                    <button type="button" id="model-run-btn">Run Wflow Model</button>
-                                </div>
+                                <button type="button" id="model-run-btn">Run Wflow Model</button>
                             </div>
                         </div>
-                        <div class="tile flow-map" style="grid-column: span 8;" id="flow-map-container">
-                            <!-- Add the map -->
-                            <div class="map-container" id="map-container">
-                                <div class="leaflet-map" id="leaflet-map-flow-checking"></div>
-                                <img class="leaflet-compass" src="/src_frontend/images/compass.png">
-                                <div class="basemap-container">
-                                    <button type="button" class="leaflet-basemap-btn" id="basemap-btn">
-                                        <img src="/src_frontend/images/basemap.png">
-                                    </button>
-                                    <div class="basemap-popup">
-                                        <div><strong>Select Base Map</strong></div>
-                                        <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open
-                                            Street Map</button>
-                                        <button class="basemap-option"
-                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
-                                        <button class="basemap-option"
-                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
-                                    </div>
-                                </div>
-                                <!-- Legend -->
-                                <div class="colorbar-container" id="custom-colorbar">
-                                    <div class="colorbar-wrapper">
-                                        <div class="colorbar-title" id="colorbar-title">Legend</div>
-                                        <div class="colorbar-gradient" id="colorbar-gradient"></div>
-                                        <div class="colorbar-labels" id="colorbar-label">
-                                            <div></div> <!-- max -->
-                                            <div></div> <!-- 75% -->
-                                            <div></div> <!-- 50% -->
-                                            <div></div> <!-- 25% -->
-                                            <div></div> <!-- min -->
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="tile" style="grid-column: span 8; display: none;" id="model-log-container"><h3>Process Log</h3>
+                        <div class="tile" style="grid-column: span 8;" id="model-log-container"><h3>Process Log</h3>
                             <div class="log-container">
                                 <textarea wrap="off" class="log-text" id="model-log" placeholder="Logs..." readonly></textarea>
                             </div>

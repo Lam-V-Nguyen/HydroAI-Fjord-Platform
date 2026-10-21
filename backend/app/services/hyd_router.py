@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from services import functions
 from config import PROJECT_ROOT, SOURCE_BACKEND
-import numpy as np, pandas as pd
+import numpy as np
 from datetime import datetime, timezone, timedelta
 
 router = APIRouter()

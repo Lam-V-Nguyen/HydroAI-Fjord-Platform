@@ -202,9 +202,7 @@ export function numberFormatter(num, decimals=3) {
 
 export async function displayTerrain(map, tileUrl, bounds = null) {
     const terrainLayer = L.tileLayer(tileUrl, {
-        minZoom: 0, maxZoom: 22, opacity: 0.8,
-        attribution: 'Terrain data: Kartverket',
-        bounds: bounds || undefined
+        minZoom: 0, maxZoom: 22, opacity: 0.8, bounds: bounds || undefined
     });
     terrainLayer.addTo(map);
     if (bounds) { map.fitBounds(bounds); }
@@ -332,13 +330,13 @@ export async function saveFileSmart(data, suggestedName, zip = false) {
     return true;
 }
 
-export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog = false) {
+export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog=false, log_file='log.txt') {
     const new_key = `${currentProject}_${key}`; let lastOffset = 0; activeProject = new_key;
     async function loop() {
         if (activeProject !== new_key) return;
         try {
             const res = await fetch(
-                `/log_tail_download/${currentProject}?offset=${lastOffset}&log_file=log.txt`
+                `/log_tail_download/${currentProject}?offset=${lastOffset}&log_file=${log_file}`
             );
             const content = { projectName: currentProject, key: key };
             const statusRes = await jsonLoader('check_download_status', content);

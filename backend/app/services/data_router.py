@@ -653,32 +653,26 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                     target=flow_functions.wflow_check, 
                     args=(project_name, processes, key_process, flow_name), daemon=True
                 ).start()
-                return JSONResponse({"status": "ok", 'content': {}})
+                point_path = os.path.join(flow_dir, "catchment", "outlet.geojson")
+                if os.path.exists(point_path):
+                    gdf = gpd.read_file(point_path)
+                    lat, lon = gdf.geometry.y[0], gdf.geometry.x[0]
+                else: lat, lon = '', ''
+                return JSONResponse({"status": "ok", 'content': {'lat_lon': [lat, lon]}})
             elif key == "run":
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
                 processes[key_process] = {"status": "running", "message": "Running Wflow model..."}
                 step, start, end = int(body.get('step')), body.get('start'), body.get('end')
-                up_area, time_zone = float(body.get('upArea')), body.get('timeZone')
-                pourpoint_lat, pourpoint_lon = float(body.get('lat')), float(body.get('lon'))
-                df = pd.DataFrame({'id': ['pourpoint'], 'lat': [pourpoint_lat], 'lon': [pourpoint_lon]})
-
+                params_input, params_output = body.get('params_input'), body.get('params_output')
+                lat, lon, time_zone = float(body.get('lat')), float(body.get('lon')), body.get('timeZone')
+                df = pd.DataFrame({'id': ['outlet'], 'lat': [lat], 'lon': [lon]})
                 df = df[['id','lat','lon']]
                 df['id'] = df['id'].astype(str)
-                point = pd.DataFrame(data=body.get('points'), columns=['id','lat','lon','dis'])
-                point = point[['id','lat','lon']]
-                df = pd.concat([df, point], ignore_index=True)
-
-
-                
-                # point = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(x=df['lon'], y=df['lat']), crs='EPSG:4326')
-                # point_path = os.path.normpath(os.path.join(flow_dir, 'catchment', 'upstream_point.geojson'))
-                # point.to_file(point_path, driver='GeoJSON')
                 lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
                 des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
                 shutil.copy(lib_path, des_path)
                 data_lib = [os.path.normpath(des_path)]
-                params_input, params_output = body.get('params_input'), body.get('params_output')
                 lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
                 strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
                 with rasterio.open(strord_path) as strord_src:
@@ -686,7 +680,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 soil_layers = [50, 100, 150, 300, 400, 600]
                 threading.Thread(target=flow_functions.wflow_run,
                     args=(project_name, processes, key_process, flow_name, 'wflow_model', df, src_crs, 
-                        start, end, step, time_zone, data_lib, up_area, resolution, soil_layers, 
+                        start, end, step, time_zone, data_lib, resolution, soil_layers, 
                         params_input, params_output, lulc_fn, lulc_mapping, lai_fn
                     ), daemon=False
                 ).start()

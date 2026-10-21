@@ -3,7 +3,6 @@ import traceback, sys, shutil, cdsapi, calendar, json, asyncio
 from rasterio.warp import calculate_default_transform, reproject, transform_bounds
 from rasterio.shutil import copy as rio_copy # type: ignore
 from shapely.geometry import Point, shape
-from shapely.ops import unary_union
 from rasterio.enums import Resampling
 from rasterio.features import shapes
 import pandas as pd, xarray as xr, numpy as np, geopandas as gpd
@@ -15,7 +14,6 @@ from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 import dask.array as da
 from pyflwdir import dem
-
 
 
 variables = {
@@ -631,30 +629,6 @@ def catchment_detector(directory:str, dem_name:str, lat:float, lon:float):
     catchment = catchment.to_crs("EPSG:4326")
     return {'status': 'ok', 'content': json.loads(catchment.to_json()), 'area': area}
 
-def upstream_area(directory:str, project_name:str, folder:str, area:float):
-    try:
-        dem_path = os.path.normpath(os.path.join(directory, "raw", "dtm_raw.tif"))
-        if not os.path.exists(dem_path):
-            return {'status': 'error', 'message': "DEM file not found."}
-        with rasterio.open(dem_path) as src:
-            dem_array, crs, nodata = src.read(1), src.crs, src.nodata
-            transform, profile = src.transform, src.profile
-            flw = pyflwdir.from_dem(dem_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
-            # Create stream order
-            uparea_array = flw.upstream_area(unit='km2')
-            uparea_array[~(uparea_array >= area)] = 0
-            upstream_name = "upstream_area.tif"
-            upstream_path = os.path.normpath(os.path.join(directory, upstream_name))
-            profile_writer = profile.copy()
-            profile_writer.update({'dtype': np.int32})
-            flow_functions.write_geotif(uparea_array, profile_writer, upstream_path, 0)
-            west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
-            bounds = [[south, west], [north, east]]
-            tile_url = f"/{project_name}/{folder}/{upstream_name}/{{z}}/{{x}}/{{y}}.png"
-            contents = {"tile_url": tile_url, "bounds": bounds, 'min_max': [0, 1]}
-        return {'status': 'ok', 'content': contents}
-    except Exception as e: return {'status': 'error', 'message': str(e)}
-    
 def raster_vector(raster_path:str, lookup_table:pd.DataFrame, catchment:gpd.GeoDataFrame):
     with rioxarray.open_rasterio(raster_path) as src:
         land = src.squeeze(drop=True).load()
@@ -785,4 +759,3 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         print('/write_forcing:\n==============')
         traceback.print_exc()
         return {"status": "failed", "message": str(e)}
-

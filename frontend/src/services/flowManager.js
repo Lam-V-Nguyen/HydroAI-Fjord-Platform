@@ -5,11 +5,9 @@ import {
     nameChecker, csvUploader, getProjectList, jsonLoader, fillTable,
     deleteTable, addRowToTable, getDataFromTable, formatDate, updateLog
 } from "./commonFunctions.js";
-import {
-    geoJSONExporter, mapPlotter, isInvalidNumber, buildTooltip, setElementsEnabled
-} from "./flowFunctions.js";
+import { geoJSONExporter, isInvalidNumber, setElementsEnabled } from "./flowFunctions.js";
 import { projectRender } from "./projectManager.js";
-import { initMap } from "./visualizationMap.js";
+import { initMap, mapPlotter, buildTooltip } from "./visualizationMap.js";
 
 const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
@@ -43,7 +41,7 @@ const obj = {
     weatherTable: $('weather-table'), weatherSelector: $('weather-source'), weatherInterval: $('weather-interval'), 
     downloadWeatherBtn: $('weather-download-btn'), weatherLog: $('weather-download-text'), era5APIBtn: $('era5-api-btn'),
     weatherTableContainer: $('weather-table-container'), weatherDownloadContainer: $('weather-download-container'), 
-    era5APIContainer: $('era5-api-container'), saveWeatherBtn: $('weather-save-btn'), era5APIKey: $('era5-api-key'), 
+    era5APIContainer: $('era5-api-container'), saveWeatherBtn: $('weather-save-btn'), era5APIKey: $('era5-api-key')
 }
 
 let currentProject, demLayer = null, drawChecker = '', mapContainer = null, pointCollections = [],
@@ -349,11 +347,14 @@ function topographyManager() {
     obj.clipCatchmentBtn.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
         if (name === '') { alert('Please select a scenario first.'); return; }
+        const lat = obj.catchmentLat.value.trim(), lon = obj.catchmentLon.value.trim();
+        if (lat === '' || lon === '') { alert('Please select an outlet.'); return; }
         if (catchmentLayer === null) { alert('Please detect a catchment first.'); return; }
         try {
             signalSender('showOverlay', 'Clipping DEM to catchment.\nPlease wait...');
             const content = {
-                projectName: currentProject, flowName: name, catchment: catchmentLayer.toGeoJSON()
+                projectName: currentProject, flowName: name, 
+                catchment: catchmentLayer.toGeoJSON(), lat: lat, lon: lon
             };
             const request = await jsonLoader('clip_dem', content);
             signalSender('hideOverlay'); alert(request.message);
@@ -522,20 +523,20 @@ function riverManager() {
             const value = e.target.value;
             if (value === 'river-raster') {
                 obj.riverContainer.style.display = 'flex';
-                setElementsEnabled(true,
-                    obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn,
-                );
-                if (obj.waterInputText.value.trim() !== '') {
-                    setElementsEnabled(true, obj.riverLakeClipBtn);
-                } else {
-                    setElementsEnabled(false, obj.riverLakeClipBtn);
-                }
+                // setElementsEnabled(true,
+                //     obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn,
+                // );
+                // if (obj.waterInputText.value.trim() !== '') {
+                //     setElementsEnabled(true, obj.riverLakeClipBtn);
+                // } else {
+                //     setElementsEnabled(false, obj.riverLakeClipBtn);
+                // }
                 obj.riverUploadBtn.innerHTML = 'Upload DEM (*.tif)';
             } else if (value === 'river-vector') {
                 obj.riverContainer.style.display = 'none';
-                setElementsEnabled(false,
-                    obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn, obj.riverLakeClipBtn
-                );
+                // setElementsEnabled(false,
+                //     obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn, obj.riverLakeClipBtn
+                // );
                 obj.riverUploadBtn.innerHTML = 'Upload River (*.geojson)';
             }
         });
@@ -591,7 +592,7 @@ function riverManager() {
         if (waterBodies === '') { alert('Please upload a water area in tab "Water Bodies".'); return; }
         signalSender('showOverlay', 'Getting water bodies data.\nPlease wait...');
         const res = {
-            projectName: currentProject, key: 'water-body', flowName: name, waterArea: waterBodies,
+            projectName: currentProject, key: 'water', flowName: name, water: waterBodies,
         }
         const data = await jsonLoader('data_upload', res); signalSender('hideOverlay');
         if (data.status === 'error') { alert(data.message); return; }
@@ -816,7 +817,7 @@ function weatherManager() {
                 const contentChecker = { projectName: currentProject, key: keyChecker };
                 const statusRes = await jsonLoader('check_download_status', contentChecker);
                 if (statusRes.status === "running") { alert("Weather download is running."); return; }
-                obj.weatherLog.value = '';                
+                obj.weatherLog.value = '';
                 const content = {
                     projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
                     start: startTime, end: endTime, key: keyChecker, apiKey: apiKey

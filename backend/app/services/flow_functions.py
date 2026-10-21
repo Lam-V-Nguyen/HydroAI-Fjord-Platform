@@ -1,13 +1,12 @@
 import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
 import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
-from shapely.geometry import Polygon, MultiPolygon, Point
+from shapely.geometry import Polygon, MultiPolygon
 from scipy.spatial import cKDTree
 from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
 from rasterio.features import rasterize
-from rasterio.transform import xy as rasterio_xy
 from services import functions, flow_functions
 from pathlib import Path
 from datetime import datetime
@@ -225,18 +224,6 @@ def create_forcing(values, ny, nx, mask_nan, single_value, idx=None, weight=None
     return data
 
 def setup_logger(name, log_path: str):
-    # logger = logging.getLogger(name)
-    # logger.setLevel(logging.INFO)
-    # logger.propagate = False
-    # if logger.handlers: return logger
-    # file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-    # file_handler.setLevel(logging.INFO)
-    # formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    # file_handler.setFormatter(formatter)
-    # logger.handlers.clear()
-    # logger.addHandler(file_handler)
-    # return logger
-
     log_path = os.path.abspath(log_path)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     logger = logging.getLogger(name)
@@ -321,6 +308,7 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
         time_index, time_step = 0, 'hours'
         x_coords = transform.c + (np.arange(width) + 0.5) * transform.a
         y_coords = transform.f + (np.arange(height) + 0.5) * transform.e
+        logger.info("Creating NetCDF file...")
         nc = Dataset(forcing_path, "w", format="NETCDF4")
         nc.createDimension("time", None)
         nc.createDimension("y", ny)
@@ -338,8 +326,9 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
         try: crs_var.epsg_code = crs.to_epsg()
         except Exception: pass
         for var, (_, unit) in forcing.items():
+            logger.info(f"Creating variable {var}...")
             nc_vars[var] = nc.createVariable(
-                var, "f4", ("time", "y", "x"), zlib=True, complevel=7, fill_value=-9999.0,
+                var, "f4", ("time", "y", "x"), zlib=True, complevel=4, fill_value=-9999.0,
                 shuffle=True, chunksizes=(24, 128, 128), least_significant_digit=2
             )
             nc_vars[var].units, nc_vars[var].grid_mapping = unit, "crs"
@@ -359,6 +348,7 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
             # Days to download
             days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
             for key, var in variables.items():
+                logger.info(f"Downloading {var} for {year}-{month:02d}...")
                 request = {
                     'product_type': 'reanalysis', 'variable': [key],
                     'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
@@ -600,98 +590,56 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
             h.close()
             logger.removeHandler(h)
 
-def wflow_check(project_name, processes, process_key, flow_name):
-    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
-    # Work with log
-    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
-    if os.path.exists(log_path): os.remove(log_path)    
-    try:
-        logger = setup_logger("wflow", log_path)
-        logger.info("Checking wflow inputs...")
-        logger.info("="*60)
-        logger.info("Checking weather forcing data...")
-        forcing_path = os.path.normpath(os.path.join(model_dir, 'forcing', 'weather_forcing.nc'))
-        if not os.path.exists(forcing_path):
-            logger.info("Weather forcing data not found.")
-            processes[process_key] = {"status": "failed", "message": "Weather forcing data not found."}
-        logger.info(f"Found weather forcing data at: {forcing_path}")
-        logger.info("="*60)
-        logger.info("Checking terrain data...")
-        terrain_path = os.path.normpath(os.path.join(model_dir, 'raw', 'dtm_raw.tif'))
-        if not os.path.exists(terrain_path):
-            logger.info("Terrain data not found.")
-            processes[process_key] = {"status": "failed", "message": "Terrain data not found."}
-        logger.info(f"Found terrain data at: {terrain_path}")
-        logger.info("="*60)
-        with rasterio.open(terrain_path) as src:
-            dem_array, crs, nodata = src.read(1), src.crs, src.nodata
-            transform, profile = src.transform, src.profile
-            height, width = src.height, src.width
-        if nodata is None: mask_nodata = ~np.isfinite(dem_array)
-        else: mask_nodata = (dem_array == nodata) | ~np.isfinite(dem_array)
-        dem_array = dem_array.astype(np.float32, copy=True)
-        logger.info("Checking water area data...")
-        water_dir = os.path.join(model_dir, 'water_area')
-        water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
-        # if len(water_files) == 0:
-        #     logger.warning("Water area data not found. Water area will not be masked.")
-        if len(water_files) > 0:
-            water_path = os.path.normpath(os.path.join(water_dir, water_files[0]))
-        #     lake = gpd.read_file(water_path)
-        #     lake_reproj = lake.to_crs(crs)
-        #     lake_array = rasterize(
-        #         shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
-        #         out_shape=(height, width), transform=transform, fill=nodata
-        #     )
-        #     mask_lake = (lake_array != nodata)
-        # else: mask_lake = None
-        logger.info(f"Found water area data at: {water_path}")
-        logger.info("="*60)
-        logger.info("Checking river data...")
-        river_dir = os.path.normpath(os.path.join(model_dir, 'river'))
-        river_files = [f for f in os.listdir(river_dir)]
-        if len(river_files) != 2:
-            logger.info("Number of river files is not equal to 2.")
-            processes[process_key] = {"status": "failed", "message": "Please upload river data."}
-        logger.info(f"Found river data at: {river_dir}")
-        logger.info("="*60)
-        logger.info("Creating template hydro data...")
-        # Prepare template raster dataset
-        hydro_dir = os.path.normpath(os.path.join(model_dir, 'hydro'))
-        os.makedirs(hydro_dir, exist_ok=True)
-        fill_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
-        flw = pyflwdir.from_dem(fill_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
-        # if mask_lake is not None:  fill_array = np.where(mask_lake, nodata, fill_array)
-        # Create basins
+def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, river_path:str, water_path:str):
+    with rasterio.open(dem_path) as src:
+        dem_array = src.read(1)
+        crs, nodata = src.crs, src.nodata
+        transform, profile = src.transform, src.profile
+        height, width = src.height, src.width
+        # Fill depressions
+        logger.info("Filling depressions...")
+        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
+        logger.info("Creating flow directions...")
+        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
+        mask_lake = None
+        if water_path is not None:
+            logger.info("Masking lake area...")
+            lake = gpd.read_file(water_path)
+            lake_reproj = lake.to_crs(crs)
+            lake_array = rasterize(
+                shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
+                out_shape=(height, width), transform=transform, fill=nodata
+            )
+            mask_lake = (lake_array != nodata)
+        if mask_lake is not None:  filled_array[mask_lake] = dem_array[mask_lake] # Replace lake elevation
         NODATA_FLWDR, NODATA_BASIN = 255, 0
-        flwdir_array = flwdir_array.astype(np.uint8, copy=True)
-        flwdir_array[mask_nodata] = NODATA_FLWDR
+        # Create basins
+        logger.info("Creating basins...")
         basins_array = flw.basins()
         unique, counts = np.unique(basins_array, return_counts=True)
         largest_basin_id = unique[np.argmax(counts)]
         basins_mask = (basins_array == largest_basin_id)
         basins_array[basins_mask], basins_array[~basins_mask] = 1, NODATA_BASIN
-        elevtn_array = fill_array.copy()
+        logger.info("Creating elevation profile...")
+        elevtn_array = filled_array.copy()
         # Create slope
+        logger.info("Creating slope...")
         dx, dy = transform.a, abs(transform.e)
         # Gradient elevation
-        valid_dem = np.isfinite(fill_array)
-        if nodata is not None: valid_dem &= (fill_array != nodata)
-        gradient_array = fill_array.astype(np.float64, copy=True)
-        gradient_array[~valid_dem] = np.nan
+        gradient_array = filled_array.copy()
         gy, gx = np.gradient(gradient_array, dy, dx)
-        slope_array = np.hypot(gx, gy)
-        slope_array[~valid_dem] = nodata
+        slope_array = np.sqrt(gx**2 + gy**2)
         # Create stream order
+        logger.info("Creating stream order...")
         uparea_array = flw.upstream_area(unit='km2')
         # Create stream mask and stream order
-        strord_array = flw.stream_order(type='strahler')
+        stream_mask = (uparea_array >= area_km2)
+        strord_array = flw.stream_order(type='strahler', mask=stream_mask)
         # Create upstream grid
+        logger.info("Creating upstream grid...")
         upstream_array = flw.upstream_area(unit='cell')
-        upstream_array[~valid_dem] = NODATA_BASIN
         # Create river width
-        river_path = os.path.normpath(os.path.join(river_dir, 'river.gpkg'))
+        logger.info("Creating river width...")
         river = gpd.read_file(river_path).to_crs(crs)
         shape = ((geom, value) for geom, value in zip(river.geometry, river["rivwth"]))
         rivwth_array = rasterize(
@@ -711,11 +659,63 @@ def wflow_check(project_name, processes, process_key, flow_name):
         profile_writer = profile.copy()
         for file, array in files_float.items():
             profile_writer.update({'dtype': array[2]})
-            file_path = os.path.normpath(os.path.join(hydro_dir, file))
-            if not os.path.exists(file_path):
-                logger.info(f"Writing data to: {file_path}")
-                flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
-            else: logger.info(f"File already exists: {file_path}")
+            file_path = os.path.normpath(os.path.join(directory, file))
+            logger.info(f"Creating data: {file_path}")
+            logger.info(f"Writing data to: {file_path}")
+            flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
+
+def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str, area:float=10):
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+    # Work with log
+    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    if os.path.exists(log_path): os.remove(log_path)
+    try:
+        logger = setup_logger("wflow", log_path)
+        logger.info("Checking wflow inputs...")
+        logger.info("="*60)
+        logger.info("Checking weather forcing data...")
+        forcing_path = os.path.normpath(os.path.join(model_dir, 'forcing', 'weather_forcing.nc'))
+        if not os.path.exists(forcing_path):
+            logger.info("Weather forcing data not found.")
+            processes[process_key] = {"status": "failed", "message": "Weather forcing data not found."}
+        logger.info(f"Found weather forcing data at: {forcing_path}")
+        logger.info("="*60)
+        logger.info("Checking terrain data...")
+        terrain_path = os.path.normpath(os.path.join(model_dir, 'raw', 'dtm_raw.tif'))
+        if not os.path.exists(terrain_path):
+            logger.info("Terrain data not found.")
+            processes[process_key] = {"status": "failed", "message": "Terrain data not found."}
+        logger.info(f"Found terrain data at: {terrain_path}")
+        logger.info("="*60)
+        logger.info("Checking water area data...")
+        water_dir = os.path.join(model_dir, 'water_area')
+        water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
+        if len(water_files) == 0:
+            logger.warning("Water area data not found. Water area will not be masked.")
+            water_path = None
+        else:
+            water_path = os.path.normpath(os.path.join(water_dir, water_files[0]))
+            logger.info(f"Found water area data at: {water_path}")
+        logger.info("="*60)
+        logger.info("Checking river data...")
+        river_dir = os.path.normpath(os.path.join(model_dir, 'river'))
+        river_files = [f for f in os.listdir(river_dir)]
+        if len(river_files) != 2:
+            logger.info("Number of river files is not equal to 2.")
+            processes[process_key] = {"status": "failed", "message": "Please upload river data."}
+        river_path = os.path.normpath(os.path.join(river_dir, 'river.gpkg'))
+        logger.info(f"Found river data at: {river_dir}")
+        logger.info("="*60)
+        logger.info("Checking template hydro data...")
+        # Prepare template raster dataset
+        hydro_dir = os.path.normpath(os.path.join(model_dir, 'hydro'))
+        if os.path.exists(hydro_dir):
+            logger.info(f"Deleting hydro data at: {hydro_dir}")
+            shutil.rmtree(hydro_dir)
+        os.makedirs(hydro_dir, exist_ok=True)
+        logger.info(f"Creating template hydro data at: {hydro_dir}")
+        hydro_creator(hydro_dir, terrain_path, area, logger, river_path, water_path)
         logger.info("Write hydro data completed.")
         logger.info("=" * 60)
         logger.info("Checking landcover data...")
@@ -750,29 +750,6 @@ def wflow_check(project_name, processes, process_key, flow_name):
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-
-def get_candidates_from_strord(strord_path, center_xy):
-    with rasterio.open(strord_path) as src:
-        strord, nodata = src.read(1), src.nodata
-        transform, src_crs = src.transform, src.crs
-    if nodata is not None: mask = (strord == np.max(strord)) & (strord != nodata)
-    else: mask = strord > 0
-    rows, cols = np.where(mask)
-    if len(rows) == 0: return []
-    xs, ys = rasterio_xy(transform, rows, cols)
-    xs, ys = np.array(xs), np.array(ys)
-    strord_vals = strord[rows, cols]
-    cx, cy = center_xy
-    dist = (xs - cx)**2 + (ys - cy)**2
-    order = np.argsort(dist)
-    xs, ys = xs[order], ys[order]
-    strord_vals = strord_vals[order]
-    dist = dist[order]
-    gdf = gpd.GeoDataFrame(
-        {'id': np.arange(start=1, stop=len(xs)+1), 'distance_m': np.round(dist, 2)},
-        geometry=[Point(x, y) for x, y in zip(xs, ys)], crs=src_crs,
-    )
-    return gdf
 
 def _safe_rmtree(path, max_retries=5, delay=1.0, logger=None):
     if not os.path.exists(path): return True
@@ -885,7 +862,7 @@ def _cleanup_after_failure(model_dir, model_folder, logger=None):
     except Exception: pass
 
 def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, time_zone, data_lib, 
-    upstream_area, region, resolution, soil_layers, params_input, params_output, log_path, 
+    region, resolution, soil_layers, params_input, params_output, log_path, 
     lulc_function, lulc_mapping_fn, lai_fn, logger=None):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
@@ -922,7 +899,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model_temp['water_mass_balance__flag'] = False # Include water mass balance error computations
         model_temp['snow_gravitational_transport__flag'] = True # Include gravitational lateral snow transport
         model_temp['glacier__flag'] = False # Include glacier modelling
-        model_temp['soil_infiltration_reduction__flag'] = False # Enable reduction factor applied to the soil infiltration capacity
+        model_temp['soil_infiltration_reduction__flag'] = True # Enable reduction factor applied to the soil infiltration capacity
         model_temp['snow__flag'] = True # Include snow modelling
         # Saturated hydraulic conductivity depth profile for SBM soil model
         # optional, one of ("exponential", "exponential_constant", "layered", "layered_exponential"), default is "exponential"
@@ -933,104 +910,106 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model_temp['land_kinematic_wave__time_step'] = 3600
         model_temp['kinematic_wave__adaptive_time_step_flag'] = False # Enable kinematic wave adaptive (internal) time stepping
         # ========== Output variables ==========
-        output_temp = model_temp.setdefault('netcdf_grid', {})
-        output_temp['path'] = 'output.nc'
-        output_temp['compressionlevel'] = 2
+        configs['dir_output'] = 'run_default'
+        output_temp = configs.setdefault('output', {})
+        grid_temp = output_temp.setdefault('netcdf_grid', {})
+        grid_temp['path'] = 'output.nc'
+        grid_temp['compressionlevel'] = 3
         # Source: https://deltares.github.io/Wflow.jl/previews/PR586/model_docs/parameters_routing.html
-        var_temp = output_temp.setdefault('variables', {})
+        var_temp = grid_temp.setdefault('variables', {})
         # Overland flow variables
-        if params_output['overland_flow']:
+        if params_output.get('overland_flow', False):
             var_temp['land_surface_water__volume_flow_rate'] = 'overland_flow'  # Overland discharge (average over timestep)	m³ s⁻¹
-        if params_output['overland_depth']:
+        if params_output.get('overland_depth', False):
             var_temp['land_surface_water__depth'] = 'overland_depth'  # Overland depth (average over timestep)	m
-        if params_output['overland_volume']:
+        if params_output.get('overland_volume', False):
             var_temp['land_surface_water__volume'] = 'overland_volume' # Overland volume (average over timestep)	m³
         # Soil variables
-        if params_output['soil_evapotranspiration']:
+        if params_output.get('soil_evapotranspiration', False):
             var_temp['land_surface__evapotranspiration_volume_flux'] = 'soil_evapotranspiration'  # Total actual evapotranspiration	mm
-        if params_output['soil_storage_total']:
+        if params_output.get('soil_storage_total', False):
             var_temp['land_water~storage~total__depth'] = 'soil_storage_total'  # Total water storage (excluding floodplains, lakes and reservoirs)	mm
-        if params_output['soil_infiltration_volume']:
+        if params_output.get('soil_infiltration_volume', False):
             var_temp['soil_water__infiltration_volume_flux'] = 'soil_infiltration_volume'  # Actual infiltration into the unsaturated zone	mm Δt⁻¹
-        if params_output['soil_transpiration_volume']:
+        if params_output.get('soil_transpiration_volume', False):
             var_temp['soil_water__transpiration_volume_flux'] = 'soil_transpiration_volume'  # Transpiration from vegetation	mm Δt⁻¹
-        if params_output['soil_runoff']:
+        if params_output.get('soil_runoff', False):
             var_temp['soil_surface_water__runoff_volume_flux'] = 'soil_runoff'  # Total surface runoff from infiltration and saturation excess	mm Δt⁻¹
-        if params_output['soil_net_runoff']:
+        if params_output.get('soil_net_runoff', False):
             var_temp['soil_surface_water__net_runoff_volume_flux'] = 'soil_net_runoff'  # Net surface runoff (after open water evaporation)	mm Δt⁻¹
-        if params_output['soil_water_volume_fraction']:
+        if params_output.get('soil_water_volume_fraction', False):
             var_temp['soil_layer_water__volume_fraction'] = 'soil_water_volume_fraction'  # Volumetric water content per soil layer (including residual water content and saturated zone)
-        if params_output['soil_water_volume_percentage']:
+        if params_output.get('soil_water_volume_percentage', False):
             var_temp['soil_layer_water__volume_percentage'] = 'soil_water_volume_percentage'  # Volumetric water content per soil layer (including residual water content and saturated zone)	%
-        if params_output['soil_water_rootzone_volume_fraction']:
+        if params_output.get('soil_water_rootzone_volume_fraction', False):
             var_temp['soil_water_root-zone__volume_fraction'] = 'soil_water_rootzone_volume_fraction'  # Volumetric water content in root zone (including residual water content and saturated zone)
-        if params_output['soil_water_rootzone_volume_percentage']:
+        if params_output.get('soil_water_rootzone_volume_percentage', False):
             var_temp['soil_water_root-zone__volume_percentage'] = 'soil_water_rootzone_volume_percentage'  # Volumetric water content in root zone (including residual water content and saturated zone)	%
-        if params_output['soil_water_rootzone_depth']:
+        if params_output.get('soil_water_rootzone_depth', False):
             var_temp['soil_water_root-zone__depth'] = 'soil_water_rootzone_depth'  # Root water storage in unsaturated and saturated zone (excluding residual water content)	mm
-        if params_output['soil_water_unsatzone_depth']:
+        if params_output.get('soil_water_unsatzone_depth', False):
             var_temp['soil_water_unsat-zone__depth'] = 'soil_water_unsatzone_depth'  # Amount of water in the unsaturated store	mm
-        if params_output['soil_water_satzone_capillary_volume_flux']:
+        if params_output.get('soil_water_satzone_capillary_volume_flux', False):
             var_temp['soil_water_sat-zone_top__capillary_volume_flux'] = 'soil_water_satzone_capillary_volume_flux'  # Actual capillary rise	mm Δt⁻¹
-        if params_output['soil_water_satzone_recharge_volume_flux']:
+        if params_output.get('soil_water_satzone_recharge_volume_flux', False):
             var_temp['soil_water_sat-zone_top__recharge_volume_flux'] = 'soil_water_satzone_recharge_volume_flux'  # Downward flux from unsaturated to saturated zone	mm Δt⁻¹
-        if params_output['soil_water_satzone_net_recharge_volume_flux']:
+        if params_output.get('soil_water_satzone_net_recharge_volume_flux', False):
             var_temp['soil_water_sat-zone_top__net_recharge_volume_flux'] = 'soil_water_satzone_net_recharge_volume_flux'  # Net recharge to saturated zone	mm Δt⁻¹
-        if params_output['soil_water_satzone_leakage_volume_flux']:
+        if params_output.get('soil_water_satzone_leakage_volume_flux', False):
             var_temp['soil_water_sat-zone_bottom__leakage_volume_flux'] = 'soil_water_satzone_leakage_volume_flux'  # Actual leakage from saturated store	mm Δt⁻¹
-        if params_output['soil_water_satzone_depth']:
+        if params_output.get('soil_water_satzone_depth', False):
             var_temp['soil_water_sat-zone_top__depth'] = 'soil_water_satzone_depth'  # Pseudo-water table depth (top of the saturated zone)	mm
         # Lake variables
-        if params_output['lake_volume']:
+        if params_output.get('lake_volume', False):
             var_temp['lake_water__volume'] = 'lake_volume' # Lake volume (average over timestep), m³
-        if params_output['lake_level']:
+        if params_output.get('lake_level', False):
             var_temp['lake_water_surface__elevation'] = 'lake_level' # Lake water level (average over timestep), m
-        if params_output['lake_outflow']:
+        if params_output.get('lake_outflow', False):
             var_temp['lake_water~outgoing__volume_flow_rate'] = 'lake_outflow' # Outflow of the lake (average over timestep)	m³ s⁻¹
-        if params_output['lake_inflow']:
+        if params_output.get('lake_inflow', False):
             var_temp['lake_water~incoming__volume_flow_rate'] = 'lake_inflow' # Inflow into the lake (average over timestep)	m³ s⁻¹
-        if params_output['lake_evaporation']:
+        if params_output.get('lake_evaporation', False):
             var_temp['lake_water__evaporation_volume_flux'] = 'lake_evaporation' # Average actual evaporation over the lake area	mm Δt⁻¹
-        if params_output['lake_precipitation']:
+        if params_output.get('lake_precipitation', False):
             var_temp['lake_water__precipitation_volume_flux'] = 'lake_precipitation' # Average precipitation over the lake area	mm Δt⁻¹
-        if params_output['lake_potential_evaporation']:
+        if params_output.get('lake_potential_evaporation', False):
             var_temp['lake_water__potential_evaporation_volume_flux'] = 'lake_potential_evaporation' # Average potential evaporation over the lake area	mm Δt⁻¹
         # Reservoir variables
-        if params_output['reservoir_volume']:
+        if params_output.get('reservoir_volume', False):
             var_temp['reservoir_water__volume'] = 'reservoir_volume' # Reservoir volume (average over the timestep)	m³
-        if params_output['reservoir_outflow']:
+        if params_output.get('reservoir_outflow', False):
             var_temp['reservoir_water~outgoing__volume_flow_rate'] = 'reservoir_outflow' # Outflow of the reservoir (average over the timestep)	m³ s⁻¹
-        if params_output['reservoir_inflow']:
+        if params_output.get('reservoir_inflow', False):
             var_temp['reservoir_water~incoming__volume_flow_rate'] = 'reservoir_inflow' # Inflow into the reservoir (average over the timestep)	m³ s⁻¹
-        if params_output['reservoir_evaporation']:
+        if params_output.get('reservoir_evaporation', False):
             var_temp['reservoir_water__evaporation_volume_flux'] = 'reservoir_evaporation' # Average actual evaporation over the reservoir area	mm Δt⁻¹
-        if params_output['reservoir_precipitation']:
+        if params_output.get('reservoir_precipitation', False):
             var_temp['reservoir_water__precipitation_volume_flux'] = 'reservoir_precipitation' # Average precipitation over the reservoir area	mm Δt⁻¹
-        if params_output['reservoir_potential_evaporation']:
+        if params_output.get('reservoir_potential_evaporation', False):
             var_temp['reservoir_water__potential_evaporation_volume_flux'] = 'reservoir_potential_evaporation' # Average potential evaporation over the reservoir area	mm Δt⁻¹
         # River variables (Kinematic wave)
-        if params_output['river_discharge']:
+        if params_output.get('river_discharge', False):
             var_temp['river_water__volume_flow_rate'] = 'river_discharge' # River discharge (average over timestep)	m³ s⁻¹
-        if params_output['river_depth']:
+        if params_output.get('river_depth', False):
             var_temp['river_water__depth'] = 'river_depth' # River depth (average over timestep)	m
-        if params_output['river_volume']:
+        if params_output.get('river_volume', False):
             var_temp['river_water__volume'] = 'river_volume' # River volume (average over timestep)	m³
-        if params_output['river_lateral_inflow']:
+        if params_output.get('river_lateral_inflow', False):
             var_temp['river_water_inflow~lateral__volume_flow_rate'] = 'river_lateral_inflow' # Lateral inflow into the river (average over timestep)	m³ s⁻¹
         # Snow variables
-        if params_output['snow_water']:
+        if params_output.get('snow_water', False):
             var_temp['snowpack__leq-depth'] = 'snow_water'  # Liquid-water equivalent of snow pack (SWE)	mm
-        if params_output['snow_melt']:
+        if params_output.get('snow_melt', False):
             var_temp['snowpack_meltwater__volume_flux'] = 'snow_melt'  # Amount of snow melt	mm Δt⁻¹
-        if params_output['snow_runoff']:
+        if params_output.get('snow_runoff', False):
             var_temp['snowpack_water__runoff_volume_flux'] = 'snow_runoff'  # Runoff from snowpack	mm Δt⁻¹
         # Glacier variables
-        if params_output['glacier_melt']:
+        if params_output.get('glacier_melt', False):
             var_temp['glacier_ice__melt_volume_flux'] = 'glacier_melt'  # Melt from the glacier	mm Δt⁻¹
         # Vegetation variables
-        if params_output['vegetation_stemflow']:
+        if params_output.get('vegetation_stemflow', False):
             var_temp['vegetation_canopy_water__stemflow_volume_flux'] = 'vegetation_stemflow'  # Stemflow	mm Δt⁻¹
-        if params_output['vegetation_throughfall']:
+        if params_output.get('vegetation_throughfall', False):
             var_temp['vegetation_canopy_water__throughfall_volume_flux'] = 'vegetation_throughfall'  # Throughfall	mm Δt⁻¹
         model.setup_config(configs)
         # Setup basemaps: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_basemaps.html
@@ -1046,7 +1025,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         }
         model.setup_rivers(
             hydrography_fn='my_hydro', river_geom_fn='river_network', 
-            river_upa=upstream_area, # Minimum upstream area threshold for the river map [km2]
+            river_upa=10, # Minimum upstream area threshold for the river map [km2]
             rivdph_method='powlaw', # 'gvf', 'manning', 'powlaw'
             slope_len=2, #  Length over which the river slope is calculated [km]
             min_rivlen_ratio=0, min_rivdph=1.0, # Minimum river depth [m]
@@ -1115,7 +1094,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         # === Write model ===
         model.write(
             grid_filename='static_grid.nc', geoms_folder='staticgeoms', 
-            forcing_filename='weather_forcing.nc', states_filename='output_state.nc'
+            forcing_filename='weather_forcing.nc', states_filename='model_state.nc'
         )
         logger.info(f"Prepare HydroMT completed.")
         logger.handlers[0].flush()
@@ -1180,7 +1159,6 @@ def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str
             error = RuntimeError(f"wflow_cli exited with code: {process.returncode}")
         logger.info("=" * 36)
         logger.handlers[0].flush()
-        if error is None: logger.info("Run HydroMT completed.")
     except Exception as e:
         print('/run_hydromt:\n==============')
         traceback.print_exc()
@@ -1196,7 +1174,7 @@ def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str
     if error is not None: raise error
 
 def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, model_folder:str, df:pd.DataFrame, 
-    crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, up_area:float, resolution:int,
+    crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, resolution:int,
     soil_layers:list, params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str):
     # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
@@ -1250,17 +1228,10 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
                 if gdf.crs != crs: gdf = gdf.to_crs(crs)
                 x, y = round(gdf.geometry.x[0], 1), round(gdf.geometry.y[0], 1)
                 # https://deltares.github.io/hydromt/v0.8.0/_generated/hydromt.workflows.basin_mask.parse_region.html
-                region = {
-                    'subbasin': [x, y], #"uparea": 10,
-                    # 'strord': 4, # snapped to a river with minimum stream order (strord) of 4
-                    # 'bounds': [11.70, 45.35, 12.95, 46.70] # within the given bounds [xmin, ymin, xmax, ymax] (WGS84)
-                
-                    # 'basin': [12.2051, 45.8331] # derive the basin belonging to the given x,y coordinates
-                }
-                print(region)
+                region = {'subbasin': [x, y]}
                 # Prepare model
                 prepare_hydromt(project_name, flow_name, model_folder, 
-                    start, end, step, time_zone, data_lib, up_area, region, 
+                    start, end, step, time_zone, data_lib, region, 
                     resolution, soil_layers, params_input, params_output, log_path,
                     lulc_function, lulc_mapping_fn, lai_fn, logger
                 )

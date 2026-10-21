@@ -6,9 +6,8 @@ import geopandas as gpd, numpy as np, pandas as pd
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
-from rasterio.mask import mask
 from rasterio.io import MemoryFile
-from shapely.geometry import LineString, mapping
+from shapely.geometry import LineString, Point
 from shapely.ops import unary_union, linemerge
 from shapely import force_2d
 from pyflwdir import dem
@@ -169,43 +168,47 @@ async def clip_dem(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         flow_name, catchment = body.get('flowName'), body.get('catchment')
+        lat, lon = float(body.get('lat')), float(body.get('lon'))
         flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
         features = catchment.get("features", [])
         if not features: return JSONResponse({'status': 'error', 'message': 'Catchment geometry is empty.'})
         catchment_WGS84 = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
         catchment_WGS84 = catchment_WGS84[catchment_WGS84.geometry.notna() & ~catchment_WGS84.geometry.is_empty]
         if catchment_WGS84.empty: return JSONResponse({'status': 'error', 'message': 'Catchment geometry is invalid or empty.'})
-        terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem_filled.tif'))
+        terrain_path = os.path.normpath(os.path.join(flow_dir, 'dem.tif'))        
         if not os.path.exists(terrain_path):
             return JSONResponse({'status': 'error', 'message': "Cannot find terrain data. Please upload and process terrain first."})
-        with rasterio.open(terrain_path) as src:
-            if src.crs is None: return JSONResponse({"status": "error", "message": "DEM has no CRS defined."})
-            catchment_reprojected = catchment_WGS84.to_crs(src.crs)
+        with rioxarray.open_rasterio(terrain_path) as src:
+            terrain = src.squeeze(drop=True).load()
+            if terrain.rio.crs is None:
+                return JSONResponse({'status': 'error', 'message': 'DEM has no CRS defined.'})
+            catchment = catchment_WGS84.to_crs(terrain.rio.crs)
+            buffer = 10*terrain.rio.resolution()[0] if not terrain.rio.crs.is_geographic else 0.001
+            catchment_buffer = catchment.buffer(buffer)
+            minx, miny, maxx, maxy = catchment_buffer.total_bounds
+            terrain_clipped = terrain.rio.clip_box(minx, miny, maxx, maxy)
+            terrain_values, nodata = terrain_clipped.values, -9999.0
+            height, width = terrain_clipped.rio.height, terrain_clipped.rio.width
+            crs, transform = terrain_clipped.rio.crs, terrain_clipped.rio.transform()
+            # Write catchment to raw directory
             catch_dir = os.path.normpath(os.path.join(flow_dir, 'catchment'))
             os.makedirs(catch_dir, exist_ok=True)
             catchment_path = os.path.normpath(os.path.join(catch_dir, 'catchment.geojson'))
-            catchment_reprojected.to_file(catchment_path, driver='GeoJSON')
-            # Merge multiple features into one geometry
-            catchment_geom = catchment_reprojected.geometry.union_all()
-            # buffer = 10*src.res[0] if not src.crs.is_geographic else 0.001
-            # catchment_geom = catchment_geom.buffer(buffer)
-            output_nodata = src.nodata if src.nodata is not None else -9999.0
-            clipped, clipped_transform = mask(
-                src, [mapping(catchment_geom)], crop=True,
-                all_touched=False, filled=True, nodata=output_nodata
-            )
-            clipped = clipped.astype(np.float32)
-            dem_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
-            os.makedirs(dem_dir, exist_ok=True)
-            dem_path = os.path.normpath(os.path.join(dem_dir, 'dtm_raw.tif'))
-            profile_writer = src.profile.copy()
-            profile_writer.update({
-                "driver": "GTiff", "height": clipped.shape[1], "width": clipped.shape[2],
-                "transform": clipped_transform, "dtype": "float32", "nodata": output_nodata, "count": 1
-            })
-            with rasterio.open(dem_path, "w", **profile_writer) as dst:
-                dst.write(clipped[0], 1)
-        return JSONResponse({"status": "ok", "message": f"DEM was clipped successfully."})
+            catchment_buffer.to_file(catchment_path, driver='GeoJSON')
+            # Write outlet
+            point = gpd.GeoDataFrame([{'geometry': Point(lon, lat)}], crs='EPSG:4326')
+            point_path = os.path.normpath(os.path.join(catch_dir, 'outlet.geojson'))
+            point.to_file(point_path, driver='GeoJSON')
+            # Write terrain to raw directory
+            raw_dir = os.path.normpath(os.path.join(flow_dir, 'raw'))
+            os.makedirs(raw_dir, exist_ok=True)
+            raw_path = os.path.normpath(os.path.join(raw_dir, 'dtm_raw.tif'))
+            profile = {
+                "driver": "GTiff", "count": 1, "dtype": np.float32, "crs": crs,
+                "height": height, "width": width, "transform": transform
+            }
+            flow_functions.write_geotif(terrain_values, profile, raw_path, nodata)
+        return JSONResponse({"status": "ok", "message": f"DEM is clipped successfully."})
     except Exception as e:
         print('/clip_dem:\n==============')
         traceback.print_exc()
@@ -243,6 +246,7 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
             if not os.path.exists(water_path):
                 return JSONResponse({'status': 'error', 'message': "Cannot find water area data. Please upload water area first."})
             gdf = gpd.read_file(water_path)
+            if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
             content = json.loads(gdf.to_json())
         elif key == "land-open":
             land_path = os.path.normpath(os.path.join(flow_dir, 'landcover', 'corine.tif'))
@@ -317,11 +321,11 @@ async def data_upload(request: Request, user=Depends(functions.basic_auth)):
                 gdf = data_functions.raster_vector(land_path, df, catchment_buffer)
                 if len(gdf) == 0: return JSONResponse({'status': 'error', 'message': 'No Land Cover data found.'})
                 content = json.loads(gdf.to_json())
-        elif key == "water-body":
-            water_path = os.path.normpath(os.path.join(flow_dir, 'water_area', body.get('waterArea')))
-            if not os.path.exists(water_path):
-                return JSONResponse({'status': 'error', 'message': 'No water area data found. Please upload water area first.'})
-            gdf = gpd.read_file(water_path)
+        elif key == "check-river":
+            river_path = os.path.normpath(os.path.join(flow_dir, 'river', 'river.gpkg'))
+            if not os.path.exists(river_path):
+                return JSONResponse({'status': 'error', 'message': 'No river data found.'})
+            gdf = gpd.read_file(river_path)
             if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
             content = json.loads(gdf.to_json())
         return JSONResponse({'status': status, 'content': content})
@@ -347,14 +351,10 @@ async def check_soil(request: Request, user=Depends(functions.basic_auth)):
                 flow_functions.soil_type_reverse[soil_type],
                 flow_functions.soil_depth_reverse[soil_depth]
             ]
-            content.append({
-                'value': file.removesuffix('.tif'), 'label': (' - ').join(temp)
-            })
+            content.append({'value': file.removesuffix('.tif'), 'label': (' - ').join(temp)})
         content.append({'value': 'soilthickness', 'label': 'soilthickness'})
         if len(content) != 43: 
-            return JSONResponse({
-                'status': 'error', 'message': 'Not all soil data found. Please check your soil data.'
-            })
+            return JSONResponse({'status': 'error', 'message': 'Not all soil data found. Please check your soil data.'})
         return JSONResponse({'status': 'ok', 'content': content})
     except Exception as e:
         print('/check_soil:\n==============')
@@ -529,54 +529,3 @@ async def save_forcing_weather(request: Request, user=Depends(functions.basic_au
         print('/save_forcing_weather:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-@router.post("/upstream_area")
-async def upstream_area(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_name, area = body.get('flowName'), float(body.get('area'))
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
-        content = data_functions.upstream_area(flow_dir, project_name, f"flows/{flow_name}", area)
-        return JSONResponse(content)
-    except Exception as e:
-        print('/upstream_area:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-
-
-
-
-
-
-@router.post("/check_stream_points")
-async def check_stream_points(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get('projectName'), user)
-        flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", body.get('flowName')))
-        redis, lat, lon = request.app.state.redis, float(body.get('lat')), float(body.get('lon'))
-        lock = redis.lock(f"{project_name}:wflow_stream-point", timeout=1000, blocking_timeout=10)
-        async with lock:
-            strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
-            with rasterio.open(strord_path) as strord_src:
-                src_crs = strord_src.crs
-            gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([lon], [lat]), crs='EPSG:4326')
-            gdf = gdf.to_crs(src_crs)
-            center_xy = [gdf.geometry.x[0], gdf.geometry.y[0]]
-            candidates = flow_functions.get_candidates_from_strord(strord_path, center_xy)
-            if len(candidates) == 0:
-                return JSONResponse({'status': 'error', 'message': "No candidate found."})
-            candidates = candidates.to_crs('EPSG:4326')
-            candidates['lat'], candidates['lon'] = candidates.geometry.y, candidates.geometry.x
-            candidates['id'] = candidates['id']
-            candidates = candidates[['id', 'lat', 'lon', 'distance_m']].values.tolist()
-            # selected = int(0.2*len(candidates))
-            selected = 10
-            content = {'points': len(candidates), 'data': candidates, 'selected': selected}
-            return JSONResponse({"content": content})
-    except Exception as e:
-        print('/check_stream_points:\n==============')
-        traceback.print_exc()
-        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
-

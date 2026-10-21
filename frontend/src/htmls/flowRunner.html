@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
+    <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
+    <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
+</head>
+<body>
+    <div class="wrapper">
+        <div class="page-title">
+            <label for="project-name">Scenario:</label>
+            <div class="project-name-wrapper">
+                <input type="text" id="project-name" placeholder="Select a scenario">
+                <ul id="project-list"></ul>
+            </div>
+            <button class="tab-btn" id="open-btn">Open Scenario</button>
+        </div>
+        <section class="main-tab" id="control-tab">
+            <div class="tab-header" id="main-tabs">
+                <div class="tabs-list">
+                    <button class="tab-btn" data-tab="settings-tab">Settings</button>
+                    <button class="tab-btn" data-tab="model-run-tab">Model Execution</button>
+                </div>
+            </div>
+            <div class="tabs-content">
+                <!-- Tab 1: Settings -->
+                <div class="tabpanel main-panel" data-panel="settings-tab">
+                    <div class="grid">
+                        <div class="tile" style="grid-column: span 2;"><h3>Simulation Options</h3>
+
+                        </div>
+                    
+                
+                
+                        <div class="tile flow-map" style="grid-column: span 8;" id="flow-map-container">
+                            <!-- Add the map -->
+                            <div class="map-container" id="map-container">
+                                <div class="leaflet-map" id="leaflet-map-flow-estimation"></div>
+                                <img class="leaflet-compass" src="/src_frontend/images/compass.png">
+                                <div class="basemap-container">
+                                    <button type="button" class="leaflet-basemap-btn" id="basemap-btn">
+                                        <img src="/src_frontend/images/basemap.png">
+                                    </button>
+                                    <div class="basemap-popup">
+                                        <div><strong>Select Base Map</strong></div>
+                                        <button class="basemap-option" data-url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png">Open
+                                            Street Map</button>
+                                        <button class="basemap-option"
+                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}">Satellite</button>
+                                        <button class="basemap-option"
+                                            data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
+                                    </div>
+                                </div>
+                                <!-- Legend -->
+                                <div class="colorbar-container" id="custom-colorbar">
+                                    <div class="colorbar-wrapper">
+                                        <div class="colorbar-title" id="colorbar-title">Legend</div>
+                                        <div class="colorbar-gradient" id="colorbar-gradient"></div>
+                                        <div class="colorbar-labels" id="colorbar-label">
+                                            <div></div> <!-- max -->
+                                            <div></div> <!-- 75% -->
+                                            <div></div> <!-- 50% -->
+                                            <div></div> <!-- 25% -->
+                                            <div></div> <!-- min -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr(".datetime", {
+            enableTime: true, enableSeconds: true, dateFormat: "Y-m-d H:i:S", time_24hr: true,
+            defaultHour: 0, defaultMinute: 0, defaultSecond: 0
+        });
+    </script>
+    <script type="module" src="/src_frontend/services/flowRunner.js"></script>
+</body>
+</html>
