@@ -21,9 +21,9 @@ const obj = {
     dischargeTable: $('discharge-table'), sourceLocation: $('hyd-source-picker-btn'), 
     sourceLat: $('hyd-source-lat'), sourceLon: $('hyd-source-lon'), colorBar: $('custom-colorbar'),
     sourceInitTemp: $('hyd-source-temperature'), sourceInitSalinity: $('hyd-source-salinity'),
-    sourceInitContaminant: $('hyd-source-contaminant'), sourceDrawBtn: $('hyd-source-draw-btn'),
-    sourceTopLeft: $('hyd-source-top-left'), sourceBottomRight: $('hyd-source-bottom-right'),
-    sourceDEM: $('hyd-source-terrain-download-btn'), sourceDEMResolution: $('hyd-source-terrain-resolution'),
+    sourceDrawBtn: $('hyd-source-draw-btn'), sourceTopLeft: $('hyd-source-top-left'), 
+    sourceBottomRight: $('hyd-source-bottom-right'), sourceDEM: $('hyd-source-terrain-download-btn'), 
+    sourceDEMResolution: $('hyd-source-terrain-resolution'),
     sourceThreshold: $('hyd-source-threshold'), sourceFlowBtn: $('hyd-source-flow-btn'),
     sourceArea: $('hyd-source-area'), sourceContainer: $('hyd-source-container'),
     sourceComputeBtn: $('hyd-source-compute-btn'), sourceTable: $('hyd-source-table'), 
@@ -235,13 +235,11 @@ async function sourceManagement() {
         if (initTemp === '') { alert('Please define initial temperature.'); return; }
         const initSalinity = obj.sourceInitSalinity.value;
         if (initSalinity === '') { alert('Please define initial salinity.'); return; }
-        const initContaminant = obj.sourceInitContaminant.value;
-        if (initContaminant === '') { alert('Please define initial contaminant.'); return; }
         try {
             deleteTable(obj.sourceTable); obj.sourceContainer.style.display = 'block';
             dischargeData.rows.forEach(row => {
                 const discharge = Number(row[1]) * Number(subArea) / Number(basinArea);
-                const values = [row[0], discharge.toFixed(3), initSalinity, initTemp, initContaminant];
+                const values = [row[0], discharge.toFixed(3), initSalinity, initTemp];
                 addRowToTable(obj.sourceTable, values, true);
             });
         } catch (error) { 

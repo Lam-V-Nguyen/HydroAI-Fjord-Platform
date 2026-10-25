@@ -127,16 +127,12 @@
                                     <input type="text" id="hyd-source-lon" placeholder="Longitude (°)">
                                 </div>
                                 <div class="field-inline" style="margin-top: -15px;">
-                                    <label for="hyd-source-temperature" style="width: 220px;">Initial Temperature (°C):</label>
-                                <input type="text" id="hyd-source-temperature" placeholder="Temperature" value="0.02">
-                                </div>
-                                <div class="field-inline" style="margin-top: -15px;">
                                     <label for="hyd-source-salinity" style="width: 220px;">Initial Salinity (ppt):</label>
                                     <input type="text" id="hyd-source-salinity" placeholder="Salinity" value="0.02">
                                 </div>
                                 <div class="field-inline" style="margin-top: -15px;">
-                                    <label for="hyd-source-contaminant" style="width: 220px;">Initial Contaminant (kg/m³):</label>
-                                    <input type="text" id="hyd-source-contaminant" placeholder="contaminant" value="0">
+                                    <label for="hyd-source-temperature" style="width: 220px;">Initial Temperature (°C):</label>
+                                <input type="text" id="hyd-source-temperature" placeholder="Temperature" value="0.02">
                                 </div>
                                 <button type="button" id="hyd-source-compute-btn">Recompute Discharge</button>
                             </div>
@@ -148,18 +144,15 @@
                                     style="margin-top: -20px; max-width: 200px;">Save Source Data</button>
                             </div>
                             <table class="attributes-table" id="hyd-source-table">
-                                <thead>
-                                    <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
-                                        <th>Water Temperature (°C)</th><th>Contaminant (kg/m³)</th>
-                                    </tr>
-                                </thead>
+                                <thead><tr>
+                                    <th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th><th>Water Temperature (°C)</th>
+                                </tr></thead>
                                 <tbody>
                                     <tr>
                                         <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
                                         <td><input type="text" placeholder="Discharge"></td>
                                         <td><input type="text" placeholder="Salinity"></td>
                                         <td><input type="text" placeholder="Water Temperature"></td>
-                                        <td><input type="text" placeholder="Contaminant"></td>
                                     </tr>
                                 </tbody>
                             </table>

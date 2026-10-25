@@ -28,12 +28,12 @@ soils = [
     ['0', '5', '15', '30', '60', '100', '200']
 ]
 soil_types = {
-    'bulk density': ['BLDFIE_M', 'bd', 1000, np.int16, -32768],
-    'clay': ['CLYPPT_M', 'clyppt', 1, np.uint8, 255], 
-    'sand': ['SNDPPT_M', 'sndppt', 1, np.uint8, 255],
-    'silt': ['SLTPPT_M', 'sltppt', 1, np.uint8, 255],  
-    'organic carbon': ['OCDENS_M', 'oc', 1, np.int16, -32768], 
-    'pH': ['PHIHOX_M', 'ph', 10, np.uint8, 255]
+    'bulk density': ['BLDFIE_M', 'bd', 1000, np.float32, -9999.0],
+    'clay': ['CLYPPT_M', 'clyppt', 1, np.float32, -9999.0], 
+    'sand': ['SNDPPT_M', 'sndppt', 1, np.float32, -9999.0],
+    'silt': ['SLTPPT_M', 'sltppt', 1, np.float32, -9999.0],  
+    'organic carbon': ['ORCDRC_M', 'oc', 10, np.float32, -9999.0], 
+    'pH': ['PHIHOX_M', 'ph', 10, np.float32, -9999.0]
 }
 soil_depths = {
     '0cm': 'sl1', '5cm': 'sl2', '15cm': 'sl3', '30cm': 'sl4', 
@@ -50,7 +50,7 @@ variables = {
     '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
     'surface_pressure': 'sp',  # Pressure
     'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-    'surface_thermal_radiation_downwards': 'strd', # Longwave radiation
+    'toa_incident_solar_radiation': 'tisr', # Longwave radiation
 }
 
 class StreamToLogger:
@@ -251,9 +251,9 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
     # Remove old log
-    project_dir = os.path.join(PROJECT_ROOT, project_name)
-    flow_dir = os.path.join(project_dir, "flows", flow_name)
-    log_path = os.path.join(project_dir, "log.txt")
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
     logger, CDS_url = setup_logger("cdsapi", log_path), os.getenv('CDS_URL')
     config_path = Path.home() / '.cdsapirc'
@@ -261,15 +261,15 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
         logger.info("Creating .cdsapirc ...")
         config_path.write_text(f"url: {CDS_url}\nkey: {api_key}\n", encoding='utf-8')
         logger.info(f"Created at: {config_path}")
-    forcing_dir = os.path.join(flow_dir, 'forcing')
+    forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
     os.makedirs(forcing_dir, exist_ok=True)
-    download_dir = os.path.join(forcing_dir, 'download')
+    download_dir = os.path.normpath(os.path.join(forcing_dir, 'download'))
     if not os.path.exists(download_dir): os.makedirs(download_dir)
-    forcing_path = os.path.join(forcing_dir, "weather_forcing.nc")
+    forcing_path = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc"))
     forcing = {
         'precip': ['tp', 'mm'], 'temp': ['t2m', 'degC'],
-        'kin': ['ssrd', 'W/m^2'], 'kout': ['strd', 'W/m^2'],
-        'wind': ['', 'm/s'], 'press_msl': ['sp', 'Pa']
+        'kin': ['ssrd', 'W/m^2'], 'kout': ['tisr', 'W/m^2'],
+        'wind': ['', 'm/s'], 'press_msl': ['sp', 'hPa']
     }
     dataset, nc = 'reanalysis-era5-single-levels', None
     old_stdout, old_stderr = sys.stdout, sys.stderr
@@ -279,10 +279,11 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
     if (start_time >= end_time):
         logger.info("Start time must be before end time.")
         processes[process_key] = {"status": "failed", "message": "Start time must be before end time."}
+        return
     try:
         logger.info("Weather downloader started.")
         logger.info("Preparing output NetCDF...")
-        raw_path = os.path.join(flow_dir, "raw", "dtm_raw.tif")      
+        raw_path = os.path.normpath(os.path.join(flow_dir, "raw", "dtm_raw.tif"))      
         with rasterio.open(raw_path) as src:
             dem_array, crs = src.read(1), src.crs
             transform, nodata = src.transform, src.nodata
@@ -290,10 +291,11 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
         mask_nan = np.isnan(dem_array) | (dem_array == nodata)
         mask_nan = mask_nan.astype(bool)
         ny, nx = dem_array.shape[0], dem_array.shape[1]
-        catchment_path = os.path.join(flow_dir, 'catchment', "catchment.geojson")
+        catchment_path = os.path.normpath(os.path.join(flow_dir, 'catchment', "catchment.geojson"))
         if not os.path.exists(catchment_path):
             logger.info("No catchment found.")
             processes[process_key] = {"status": "failed", "message": "No catchment found. Please process terrain first."}
+            return
         catchment = gpd.read_file(catchment_path)
         if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
@@ -356,7 +358,7 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
                     'data_format': 'netcdf', 'download_format': 'unarchived'
                 }
                 out_file = f"{year}_{month:02d}_{var}.nc"
-                out_path = os.path.join(download_dir, out_file)
+                out_path = os.path.normpath(os.path.join(download_dir, out_file))
                 client.retrieve(dataset, request, out_path)
                 # Check valid files
                 if flow_functions.is_valid_netcdf(out_path, var): files.append(out_path)
@@ -398,10 +400,10 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
                 ds = ds_u = ds_v = None
                 try:
                     if var == 'wind':
-                        u_file = os.path.join(download_dir,f"{year}_{month:02d}_u10.nc")
-                        v_file = os.path.join(download_dir,f"{year}_{month:02d}_v10.nc")
+                        u_file = os.path.normpath(os.path.join(download_dir,f"{year}_{month:02d}_u10.nc"))
+                        v_file = os.path.normpath(os.path.join(download_dir,f"{year}_{month:02d}_v10.nc"))
                         ds_u, ds_v = Dataset(u_file), Dataset(v_file)
-                    else: ds = Dataset(os.path.join(download_dir, f"{year}_{month:02d}_{col}.nc"))
+                    else: ds = Dataset(os.path.normpath(os.path.join(download_dir, f"{year}_{month:02d}_{col}.nc")))
                     for start in range(0, n_time, chunk_size):
                         start_eff = max(0, start - overlap)
                         end_eff = min(n_time, start + chunk_size + overlap)
@@ -412,6 +414,7 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
                         else: data = ds[col][start_eff:end_eff].astype(np.float32)
                         if var == "precip": data *= 1000
                         elif var == "temp": data -= 273.15
+                        elif var == "press_msl": data /= 100
                         elif var in ("kin", "kout"): data /= 3600
                         if np.isnan(data).any():
                             da = xr.DataArray(data, dims=("valid_time", "latitude", "longitude"))
@@ -424,6 +427,7 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
                         if data_3d is None:
                             logger.info("FAILED: No valid data found for interpolation")
                             processes[process_key] = {"status": "failed", "message": "No valid data found for interpolation."}
+                            return
                         t0, t1 = start, min(start + chunk_size, n_time)
                         chunk_start = t0 - start_eff
                         chunk_end = chunk_start + (t1 - t0)
@@ -483,16 +487,16 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
 
 def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name:str, 
     soil_source:str, water:str, dtm_path:str, catchment_path:str):
-    project_dir = os.path.join(PROJECT_ROOT, project_name)
-    flow_dir = os.path.join(project_dir, "flows", flow_name)
+    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
+    flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     # Work with log
-    log_path = os.path.join(project_dir, "log.txt")
+    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
     try:
         logger = setup_logger("soil", log_path)
         # Download soil data 2017 from ISRIC: https://files.isric.org/soilgrids/former/2017-03-10/
         logger.info("Preparing data download...")
-        soil_dir = os.path.join(flow_dir, "soil")
+        soil_dir = os.path.normpath(os.path.join(flow_dir, "soil"))
         if os.path.exists(soil_dir): shutil.rmtree(soil_dir)
         os.makedirs(soil_dir, exist_ok=True)
         with rasterio.open(dtm_path) as src:
@@ -536,7 +540,7 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
             # Clip to catchment
             if mask_catchment is not None: soil_thickness_values[~mask_catchment] = NODATA_SOIL_THICKNESS
             # Clip to lake
-            water_path, mask_lake = os.path.join(flow_dir, 'water_area', water), None
+            water_path, mask_lake = os.path.normpath(os.path.join(flow_dir, 'water_area', water)), None
             if os.path.exists(water_path) and os.path.getsize(water_path) > 0:
                 lake = gpd.read_file(water_path)
                 lake_reproj = lake.to_crs(crs)
@@ -547,7 +551,7 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                 mask_lake = (lake_array != nodata)
             else: mask_lake = None
             if mask_lake is not None: soil_thickness_values[mask_lake] = NODATA_SOIL_THICKNESS
-            soil_thickness_path = os.path.join(soil_dir, 'soilthickness.tif')
+            soil_thickness_path = os.path.normpath(os.path.join(soil_dir, 'soilthickness.tif'))
             profile_writer = profile.copy()
             profile_writer.update(dtype=np.int32)
             flow_functions.write_geotif(soil_thickness_values, profile_writer, soil_thickness_path, NODATA_SOIL_THICKNESS)
@@ -567,14 +571,10 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                     mask_valid = soil_array != nodata
                     logger.info(f"Interpolating {file}_{depth}_250m_ll.tif...")
                     soil_values = flow_functions.interpolate_extrapolate(soil_array, ~mask_valid, True)
-                    if name == 'BLDFIE_M': bulk_density = soil_values + 1e-6
-                    if name == 'OCDENS_M':
-                        # Convert Organic Carbon Density (kg/m³) to Organic Carbon Content (%)
-                        soil_values = soil_values / bulk_density * 100
                     soil_values = soil_values / scale
                     if mask_lake is not None: soil_values[mask_lake] = nodata_soil
                     if mask_catchment is not None: soil_values[~mask_catchment] = nodata_soil
-                    path = os.path.join(soil_dir, f'{name}_{depth}.tif')
+                    path = os.path.normpath(os.path.join(soil_dir, f'{name}_{depth}.tif'))
                     profile_writer.update(dtype=dtype)
                     flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil)
                     logger.info(f"Saved downloaded data to: {path}")
@@ -679,6 +679,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
         if not os.path.exists(forcing_path):
             logger.info("Weather forcing data not found.")
             processes[process_key] = {"status": "failed", "message": "Weather forcing data not found."}
+            return
         logger.info(f"Found weather forcing data at: {forcing_path}")
         logger.info("="*60)
         logger.info("Checking terrain data...")
@@ -686,6 +687,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
         if not os.path.exists(terrain_path):
             logger.info("Terrain data not found.")
             processes[process_key] = {"status": "failed", "message": "Terrain data not found."}
+            return
         logger.info(f"Found terrain data at: {terrain_path}")
         logger.info("="*60)
         logger.info("Checking water area data...")
@@ -704,6 +706,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
         if len(river_files) != 2:
             logger.info("Number of river files is not equal to 2.")
             processes[process_key] = {"status": "failed", "message": "Please upload river data."}
+            return
         river_path = os.path.normpath(os.path.join(river_dir, 'river.gpkg'))
         logger.info(f"Found river data at: {river_dir}")
         logger.info("="*60)
@@ -724,6 +727,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
         if len(landcover_files) != 3:
             logger.info("Number of landcover files is not equal to 3.")
             processes[process_key] = {"status": "failed", "message": "Please download landcover data."}
+            return
         logger.info(f"Found landcover data at: {landcover_dir}")
         logger.info("=" * 60)
         logger.info("Checking soil data...")
@@ -737,6 +741,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
             """
             logger.info(f"\n\n\n{message}\n")
             processes[process_key] = {"status": "failed", "message": "Please download soil data."}
+            return
         logger.info(f"Found soil data at: {soil_dir}")
         logger.info("=" * 60)
         logger.handlers[0].flush()
@@ -862,7 +867,7 @@ def _cleanup_after_failure(model_dir, model_folder, logger=None):
     except Exception: pass
 
 def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, time_zone, data_lib, 
-    region, resolution, soil_layers, params_input, params_output, log_path, 
+    region, uparea, resolution, soil_layers, params_input, params_output, log_path, 
     lulc_function, lulc_mapping_fn, lai_fn, logger=None):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
@@ -893,8 +898,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model_temp = configs.setdefault('model', {})
         model_temp['type'] = 'sbm' # model type: [sbm, sbm_gwf]
         model_temp['cold_start__flag'] = True  # Initialize model with cold (cold_start__flag = true) or warm state
-        # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
-        model_temp['cell_length_in_meter__flag'] = False
+        
         model_temp['reservoir__flag'] = False #Include reservoir modelling
         model_temp['water_mass_balance__flag'] = False # Include water mass balance error computations
         model_temp['snow_gravitational_transport__flag'] = True # Include gravitational lateral snow transport
@@ -1025,7 +1029,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         }
         model.setup_rivers(
             hydrography_fn='my_hydro', river_geom_fn='river_network', 
-            river_upa=10, # Minimum upstream area threshold for the river map [km2]
+            river_upa=uparea, # Minimum upstream area threshold for the river map [km2]
             rivdph_method='powlaw', # 'gvf', 'manning', 'powlaw'
             slope_len=2, #  Length over which the river slope is calculated [km]
             min_rivlen_ratio=0, min_rivdph=1.0, # Minimum river depth [m]
@@ -1035,6 +1039,8 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
             elevtn_map='land_elevation', # Name of the elevation map in the current WflowBaseModel.staticmaps
             output_names=output_names
         )
+        # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
+        model.setup_config({"model": {"cell_length_in_meter__flag": not model.crs.is_geographic}})
         model.setup_river_roughness(
             rivman_mapping_fn='river_manning_mapping', # Name of the river manning n map in the current WflowBaseModel.river_maps
             strord_name='meta_streamorder', # Name of the stream order map in the current WflowBaseModel.staticmaps
@@ -1068,7 +1074,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model.setup_precip_forcing(precip_fn='weather_forcing')
         model.setup_temp_pet_forcing(
             temp_pet_fn='weather_forcing', pet_method='debruin', # 'debruin', 'makkink', 'penman-monteith_rh_simple', 'penman-monteith_tdew'
-            press_correction=True, temp_correction=True, wind_correction=True,
+            press_correction=False, temp_correction=True, wind_correction=True,
             wind_altitude=10, reproj_method='nearest', fillna_method='nearest',
             dem_forcing_fn='dtm', skip_pet=False
         )
@@ -1174,8 +1180,8 @@ def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str
     if error is not None: raise error
 
 def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, model_folder:str, df:pd.DataFrame, 
-    crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, resolution:int,
-    soil_layers:list, params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str):
+    crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, resolution:int, soil_layers:list, 
+    params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str, uparea:float=10.0):
     # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
@@ -1228,10 +1234,10 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
                 if gdf.crs != crs: gdf = gdf.to_crs(crs)
                 x, y = round(gdf.geometry.x[0], 1), round(gdf.geometry.y[0], 1)
                 # https://deltares.github.io/hydromt/v0.8.0/_generated/hydromt.workflows.basin_mask.parse_region.html
-                region = {'subbasin': [x, y]}
+                region = {'subbasin': [x, y], 'uparea': uparea}
                 # Prepare model
                 prepare_hydromt(project_name, flow_name, model_folder, 
-                    start, end, step, time_zone, data_lib, region, 
+                    start, end, step, time_zone, data_lib, region, uparea,
                     resolution, soil_layers, params_input, params_output, log_path,
                     lulc_function, lulc_mapping_fn, lai_fn, logger
                 )

@@ -9,7 +9,7 @@
 ' '
 INCLUDE 'includes_deltashell/B1_t0.inc'             ; From UI: Time stamp
 INCLUDE 'includes_deltashell/B1_sublist.inc'        ; From UI: Substance list
-#1;
+#1
 
 ;###############################################################################
 ; Second input block
@@ -21,7 +21,7 @@ INCLUDE 'includes_deltashell/B2_outlocs.inc'        ; From UI: Definition of out
  2                                                  ; No monitoring cross areas
 INCLUDE 'includes_deltashell/B2_outputtimers.inc'   ; From UI: Simulation timers
 
-#2;
+#2
 ;###############################################################################
 ; Third input block
 INCLUDE 'includes_deltashell/B3_ugrid.inc'          ; Reference to the waqgeom file for UGRID NetCDF output
@@ -31,7 +31,7 @@ INCLUDE 'includes_deltashell/B3_nrofseg.inc'        ; From UI: Nr of segments (m
 INCLUDE 'includes_deltashell/B3_attributes.inc'     ; From UI: attributes file
 
 INCLUDE 'includes_deltashell/B3_volumes.inc'        ; From UI: volumes-file
-#3;
+#3
 ;###############################################################################
 ; Fourth input block
 INCLUDE 'includes_deltashell/B4_nrofexch.inc'       ; From UI: Nr of exchanges (number-horizontal-exchanges  followed by a zero and number-vertical-exchanges from HYD)
@@ -52,7 +52,7 @@ INCLUDE 'includes_deltashell/B4_flows.inc'          ; From UI: flows file from h
 1                                                   ; Vary in space
 INCLUDE 'includes_deltashell/B4_length.inc'         ; From UI: length file from hyd-file
 
-#4;
+#4
 ;###############################################################################
 ; Fifth input block, water quality calculation
 
@@ -65,14 +65,14 @@ INCLUDE 'includes_deltashell/B5_boundaliases.inc'   ; From UI: Boundary location
 INCLUDE 'includes_deltashell/B5_bounddata.inc'      ; From UI: Boundary data
 
 
-#5;
+#5
 ;###############################################################################
 ; Sixth input block, Dry Waste Loads block
 INCLUDE 'includes_deltashell/B6_loads.inc'          ; From UI: dry waste load definitions
 INCLUDE 'includes_deltashell/B6_loads_aliases.inc'  ; From UI: dry waste load location aliases
 INCLUDE 'includes_deltashell/B6_loads_data.inc'     ; From UI: dry waste load data
 
-#6;
+#6
 ;###############################################################################
 ; Seventh input block
 

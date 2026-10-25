@@ -1,8 +1,8 @@
 import { signalSender, jsonLoader, initOptions } from "./commonFunctions.js";
-import { L, getStateVisualization, setStateVisualization, 
-    getMap, getLastTimeZone
+import { L, getStateVisualization, setStateVisualization, getMap, getLastTimeZone
 } from "./constant.js";
 import { plot2DMapStatic, plot2DMapDynamic, plot2DVectorMap } from "./map2DManager.js";
+
 
 const $ = (id) => document.getElementById(id);
 const obj = { 
@@ -64,8 +64,7 @@ export async function spatialMapManager(projectName) {
                 query: query, key: 'substance_check', 
                 projectName: projectName, timeZone: getLastTimeZone()
             };
-            const data = await jsonLoader('process_data', content);
-            signalSender('hideOverlay');
+            const data = await jsonLoader('process_data', content); signalSender('hideOverlay');
             if (data.status === "error") { 
                 document.querySelector('.hide-maps').click();
                 alert(data.message); return; 
@@ -146,6 +145,30 @@ export async function spatialMapManager(projectName) {
                 obj.colorbarContainer, key, title, colorbarKey
             );
         });
+    });
+    // Velocity
+    document.querySelector('#velocity').addEventListener('click', async () => {
+        const flowPanel = document.getElementById('velocity-container');
+        if (!flowPanel) return; flowPanel.style.display = 'block';
+        const { initMovement } = await import("./moveManager.js");
+        const mapObj = getMap(), $$ = (id) => document.getElementById(id);
+        const objMovement = {
+            modelName: $$("modelName"), timeObj: $$("time"), monthObj: $$("months"),
+            playObj: $$("play"), playIcon: $$("playIcon"), backObj: $$("back"),
+            fwdObj: $$("fwd"), rateObj: $$("rate"), legendObj: $$("legend"),
+            rampObj: $$("ramp"), legendMinObj: $$("legMin"), legendMidObj: $$("legMid"),
+            legendMaxObj: $$("legMax"), collapseObj: $$("collapse"), panelObj: $$("panel"),
+            probeHintObj: $$("probeHint"), readoutObj: $$("readout"), traceObj: $$("trace"),
+            rSpeedObj: $$("rSpeed"), rDirObj: $$("rDir"), rDepthObj: $$("rDepth"),
+            clockObj: $$("clock"), dateObj: $$("date"), loadingObj: $$("loading"),
+            resObj: $$("resInput"), motionObj: $$("motion"), curveObj: $$("curve"),
+        }
+        const layerObj = document.getElementById('layerInput'); if (!layerObj) return;
+        await initOptions(layerObj, 'layer_hyd', projectName);
+        layerObj.onchange = async (e) => {
+            await initMovement(projectName, e.target.value, mapObj, objMovement, getLastTimeZone()); 
+        }
+        await initMovement(projectName, layerObj.value, mapObj, objMovement, getLastTimeZone()); 
     });
     // Hide maps
     document.querySelector('.hide-maps').addEventListener('click', () => {

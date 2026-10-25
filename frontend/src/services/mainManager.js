@@ -101,7 +101,7 @@ function widgetMenuManager() {
             title = 'Data Preparation for HYD Scenario'; }
         else if (id === 'grid-generation') { w = 12; h = 10; }
         else if (id === 'new-hyd' || id === 'new-waq') { w = 11; h = 9; }
-        else if (id === 'run-hyd' || id === 'run-waq') { w = 9; h = 3; }
+        else if (id === 'run-hyd' || id === 'run-waq') { w = 11; h = 3; }
         else if (id === 'visualization') { w = 12; h = 9; }
         else if (id === 'flow-preparation') { 
             w = 12; h = 11; title = 'Data Preparation for Flow Estimation'; }
@@ -181,8 +181,8 @@ function updateComponent() {
             renderPreview({ requestId: event.data.type });
         } else if (event.data.type === 'waqPoint' || event.data.type === 'loadsPoint') { 
             renderPreview({ requestId: event.data.type, content: event.data.content });
-//         } else if (event.data.type === 'clearGridMap') { 
-//             renderPreview({ source: event.source, requestId: event.data.type });
+        } else if (event.data.id === 'clearGridMap') { 
+            renderPreview({ source: event.source, requestId: event.data.id });
 //         } else if (event.data.type === 'colorbarOption') { 
 //             renderPreview({ 
 //                 source: event.source, content: event.data.content,

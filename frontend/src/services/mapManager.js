@@ -39,8 +39,6 @@ const layerConfig = {
     }
 }
 
-const mapping = { river: { key: 'river', fields: ['Width', 'Depth'] } };
-
 
 export let currentMap;
 let currentTileLayer = null, timeCounter = null, html = '', markersObs = [],
@@ -48,7 +46,7 @@ let currentTileLayer = null, timeCounter = null, html = '', markersObs = [],
     pathCrossSection = null, pathBoundary = null, currentPointsCross = [],
     currentPointsBoundary = [], waqObs = [], waqLoads = [], mapContainer = null,
     markerLayer = null, terrainLayer = null, streamLayer = null, gridLayer = null,
-    isPourpointActive = false, lastLayer = null, layer = null;
+    isPourpointActive = false;
 const configCrossSectionPoint = { color: 'blue', fillColor: 'yellow', radius: 4, fill: true, fillOpacity: 1 },
     configBoundaryPoint = { color: 'red', fillColor: 'green', radius: 4, fill: true, fillOpacity: 1 },
     configCrossSectionPath = { color: 'blue', weight: 2, dashArray: '5,5' },
@@ -149,7 +147,8 @@ export async function renderPreview(request = null) {
                 fillOpacity: 0.2, opacity: request.content.opacity
             },
         }).addTo(currentMap);
-    
+    } else if (requestId === 'clearGridMap') {
+        if (gridLayer) { gridLayer = clearMap(gridLayer, currentMap); }
     }
 }
 
@@ -200,9 +199,9 @@ export function initMap(mapId = 'map') {
         } else if (req.requestId === 'pickSource') {
             html = 'Select a HYD source';
         } else if (req.requestId === 'waqPoint') {
-            html = 'Select a WAQ observation point.<br>Point must be inside the area covered by the grid.';
+            html = '- Select a WAQ observation point.<br>- Point must be inside the area covered by the grid.';
         } else if (req.requestId === 'loadsPoint') {
-            html = 'Select a WAQ load point.<br>Point must be inside the area covered by the grid.';
+            html = '- Select a WAQ load point.<br>- Point must be inside the area covered by the grid.';
         } else if (req.requestId === 'drawChecked') {
             html = 'Draw a polygon using the left mouse button.';
         } else if (req.requestId === 'updateObsPoint') {
@@ -318,10 +317,10 @@ export function clearMap(layer, map) {
     return null;
 }
 
-function resetMap(map) {
-    // Hide all layers
-    Object.keys(layerConfig).forEach(key => {
-        let subLayer = layerConfig[key].getLayer();
-        if (subLayer) map.removeLayer(subLayer);
-    });
-}
+// function resetMap(map) {
+//     // Hide all layers
+//     Object.keys(layerConfig).forEach(key => {
+//         let subLayer = layerConfig[key].getLayer();
+//         if (subLayer) map.removeLayer(subLayer);
+//     });
+// }

@@ -523,20 +523,9 @@ function riverManager() {
             const value = e.target.value;
             if (value === 'river-raster') {
                 obj.riverContainer.style.display = 'flex';
-                // setElementsEnabled(true,
-                //     obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn,
-                // );
-                // if (obj.waterInputText.value.trim() !== '') {
-                //     setElementsEnabled(true, obj.riverLakeClipBtn);
-                // } else {
-                //     setElementsEnabled(false, obj.riverLakeClipBtn);
-                // }
                 obj.riverUploadBtn.innerHTML = 'Upload DEM (*.tif)';
             } else if (value === 'river-vector') {
                 obj.riverContainer.style.display = 'none';
-                // setElementsEnabled(false,
-                //     obj.riverCatchmentUploadBtn, obj.riverCatchmentClipBtn, obj.riverLakeClipBtn
-                // );
                 obj.riverUploadBtn.innerHTML = 'Upload River (*.geojson)';
             }
         });

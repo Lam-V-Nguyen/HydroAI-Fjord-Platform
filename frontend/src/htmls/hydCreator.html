@@ -73,16 +73,16 @@
                                     <!-- Layer -->
                                     <div class="tile"><h3>Layers</h3>
                                         <div class="row">
-                                        <label for="n-layer">Nr. Sigma Layers:</label>
-                                        <input type="number" id="n-layer" placeholder="Number of layers" value=10 min=1>
+                                            <label for="n-layer">Nr. Sigma Layers:</label>
+                                            <input type="number" id="n-layer" placeholder="Number of layers" value=10 min=1>
                                         </div>
                                     </div>
                                     <!-- Unstructured grid -->
                                     <div class="tile"><h3>Unstructured Grid</h3>
                                         <div class="row">
-                                        <label for="grid-file">Click to Upload Grid:</label>
-                                        <input type="text" id="grid-text" placeholder="Click to Upload Grid" readonly>
-                                        <input type="file" id="grid-file" accept=".nc" hidden>
+                                            <label for="grid-file">Click to Upload Grid:</label>
+                                            <input type="text" id="grid-text" placeholder="Click to Upload Grid" readonly>
+                                            <input type="file" id="grid-file" accept=".nc" hidden>
                                         </div>
                                     </div>
                                 </div>
@@ -394,17 +394,15 @@
                                             <button type="button" id="save-source-btn">Create/Update Source Data</button>
                                         </div>
                                         <table class="attributes-table" id="source-table">
-                                            <thead>
-                                                <tr><th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th>
-                                                    <th>Temperature (°C)</th><th>Contaminant (kg/m³)</th></tr>
-                                            </thead>
+                                            <thead><tr>
+                                                <th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th><th>Temperature (°C)</th>
+                                            </tr></thead>
                                             <tbody>
                                                 <tr>
                                                     <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
                                                     <td><input type="text" placeholder="Discharge"></td>
                                                     <td><input type="text" placeholder="Salinity"></td>
                                                     <td><input type="text" placeholder="Temperature"></td>
-                                                    <td><input type="text" placeholder="Contaminant"></td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -414,13 +412,13 @@
                             <!-- Tab 2: Meteological Parameters -->
                             <div class="tabpanel" data-panel="hydro-meteo-2">
                                 <div class="grid">
-                                    <div class="tile" style="grid-column: span 8;"><h3>Meteo Data</h3>
+                                    <div class="tile" style="grid-column: span 5;"><h3>Meteo Data</h3>
                                         <div class="row">
                                             <label for="meteo-picker-file">Click to Upload CSV:</label>
                                             <input type="file" id="meteo-picker-file" accept=".csv" hidden>
                                             <input type="text" id="meteo-picker-text" placeholder="Click to Upload Meteo data">
                                         </div>
-                                        <div class="tile" style="grid-column: span 8;"><h3>Attribute Table</h3>
+                                        <div class="tile" style="grid-column: span 5;"><h3>Attribute Table</h3>
                                             <div class="row">
                                                 <button type="button" id="add-meteo-btn">Add Row</button>
                                                 <button type="button" id="plot-meteo-btn">Plot Data</button>
@@ -444,7 +442,7 @@
                                             </tbody>
                                         </table>
                                     </div>
-                                    <div class="tile"><h3>Weather Data</h3>
+                                    <div class="tile" style="grid-column: span 3;"><h3>Weather Data</h3>
                                         <div class="row">
                                             <label for="option-weather">Select item:</label>
                                             <select id="option-weather">
@@ -499,7 +497,7 @@
                                 <div class="tile"><h3>History</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-his-file">
-                                        <label for="write-his-file">Write His file:</label>
+                                        <label for="write-his-file">Write His file</label>
                                     </div>
                                     <div class="row-block">
                                         <label for="his-output-interval-date">Interval:</label>
@@ -519,7 +517,7 @@
                                 <div class="tile"><h3>Map</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-map-file">
-                                        <label for="write-map-file">Write Map File:</label>
+                                        <label for="write-map-file">Write Map File</label>
                                     </div>                                  
                                     <div class="row-block">
                                         <label for="map-output-interval-date">Interval:</label>
@@ -559,7 +557,7 @@
                                 <div class="tile" hidden><h3>Restart</h3>
                                     <div class="row-checkbox">
                                         <input type="checkbox" id="write-restart-file">
-                                        <label for="write-restart-file">Write Restart File:</label>                                    
+                                        <label for="write-restart-file">Write Restart File</label>                                    
                                     </div>
                                     <div class="row-block">
                                         <label for="restart-interval-date">Interval:</label>

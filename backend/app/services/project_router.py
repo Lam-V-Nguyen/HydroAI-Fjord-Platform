@@ -35,6 +35,8 @@ async def reset_config(request: Request, user=Depends(functions.basic_auth)):
             config_dir = os.path.normpath(os.path.join(folder, "output", "config"))
             if not os.path.exists(config_dir): return JSONResponse({"message": "Configuration folder doesn't exist."})
             shutil.rmtree(config_dir, onerror=functions.remove_readonly)
+            movement_dir = os.path.normpath(os.path.join(folder, "output", "movement"))
+            if os.path.exists(movement_dir): shutil.rmtree(movement_dir, onerror=functions.remove_readonly)
             # Delete config in Redis
             await redis.hdel(project_name, "config", "layer_reverse_hyd", "layer_reverse_waq")
             return JSONResponse({"status": "ok", "message": "Configuration reset successfully!"})

@@ -122,7 +122,7 @@ export async function saveProject(elements, timeZone) {
     data.set('initial_salinity', initSalinity.value);
     data.set('initial_temperature', initTemperature.value);
     // Get hydrological parameters
-    const queryHydro = {projectName: name, forceName: 'FlowFM_hyd.ext'};
+    const queryHydro = {projectName: name, forceName: 'FlowFM.ext'};
     const checkHydro = await jsonLoader('check_condition', queryHydro);
     if (checkHydro.status === 'ok') data.set('external_forcing', 'FlowFM.ext'); 
     else data.set('external_forcing', '');

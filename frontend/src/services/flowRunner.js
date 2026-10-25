@@ -35,13 +35,6 @@ async function getProject() {
 }
 
 
-
-
-
-
-
-
-
 function mapOptions(map) {
     const mapElement = map.getContainer();
     const mapContainer = mapElement.parentElement;
@@ -76,3 +69,4 @@ function mapOptions(map) {
     //     }
     // });
 }
+

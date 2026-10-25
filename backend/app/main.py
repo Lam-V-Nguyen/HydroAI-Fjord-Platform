@@ -12,7 +12,8 @@ if backend_dir not in sys.path:
 from config import SOURCE_BACKEND, SOURCE_FRONTEND, lifespan
 from services import hyd_router, process_router, \
     project_router, route_page, data_router, flow_router, \
-    grid_router, sim_router, calibration_router, waq_router
+    grid_router, sim_router, calibration_router, waq_router, \
+    movement_router
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -26,7 +27,7 @@ all_routers = [
     route_page.router, project_router.router, data_router.router, 
     grid_router.router, hyd_router.router, process_router.router,
     sim_router.router, waq_router.router, flow_router.router,
-    calibration_router.router
+    calibration_router.router, movement_router.router
 ]
 for router in all_routers:
     app.include_router(router)

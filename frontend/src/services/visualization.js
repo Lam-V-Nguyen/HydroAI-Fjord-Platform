@@ -140,7 +140,7 @@ export async function showPopupMenu(project, waqName, id, htmlFile) {
         }
         if (id === '1') generalOptionsManager(project); // Events on General Options submenu
         if (id === '2') timeSeriesManager(project); // Events on Time series Measurement submenu
-        if (id === '3') spatialMapManager(project); // Events on Map submenu
+        if (id === '3') spatialMapManager(project);  // Events on Map submenu
         if (id === '4') {
             const checkBox = popupContent.querySelectorAll('input[type="checkbox"]');
             if (checkBox === null || checkBox.length === 0 ) return;

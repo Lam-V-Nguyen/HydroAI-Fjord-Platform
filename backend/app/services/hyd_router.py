@@ -16,10 +16,21 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
         name, time_zone = body.get('projectName'), body.get('timeZone')
         project_name, _ = functions.project_definer(name, user)
         project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-        in_dir, data = os.path.normpath(os.path.join(project_dir, "input")), {}
+        in_dir = os.path.normpath(os.path.join(project_dir, "input"))
         mdu_path = os.path.normpath(os.path.join(in_dir, "FlowFM.mdu"))
+        default_data = {
+            "avgLat": "", "gridPath": "", "nLayers": "10", "startDate": "", "stopDate": "",
+            "obsPointTable": [], "crossSectionTable": [], "boundaryTable": [], "weatherPath": [],
+            "userTimestepDate": "0", "userTimestepTime": "12:00:00", "nodalTimestepDate": "0", 
+            "nodalTimestepTime": "12:00:00", "wqIntervalDate": "1", "wqIntervalTime": "00:00:00", 
+            "wqStart": "", "wqStop": "", "hisIntervalDate": "0", "hisIntervalTime": "06:00:00", 
+            "hisStart": "", "hisStop": "", "mapIntervalDate": "0", "mapIntervalTime": "06:00:00", 
+            "mapStart": "", "mapStop": "", "statisticDate": "1", "statisticTime": "00:00:00", 
+            "timingDate": "1", "timingTime": "00:00:00", "initWaterLevel": "0", "initSalinity": "0.02", 
+            "initTemperature": "5", "weatherName": "", "meteoName": "", "weatherType": "", "meteoPath": []
+        }
         if os.path.exists(mdu_path):
-            ref_date, start_sim = end_sim = 0, None
+            ref_date, start_sim, data = end_sim = 0, None, default_data.copy()
             with open(mdu_path, 'r', encoding=functions.encoding_detect(mdu_path)) as f:
                 for raw_line in f:
                     line = raw_line.split("#")[0].strip()
@@ -135,7 +146,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                                 start = ref_date + timedelta(seconds=temp_start)
                                 data["hisStart"] = functions.utc_to_local(start, time_zone)
                                 temp_stop = float(temp_parts[2].strip())
-                                end = ref_date + timedelta(temp_stop)
+                                end = ref_date + timedelta(seconds=temp_stop)
                                 data["hisStop"] = functions.utc_to_local(end, time_zone)
                     elif line.startswith('MapInterval'):
                         parts = [p.strip() for p in line.split("=") if p.strip()]
@@ -214,7 +225,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
             if data["meteoName"] == '': 
                 return JSONResponse({"status": 'error', "message": "No meteorological parameter detected. Please check the scenario again."})
             headers = [x.strip() for x in variables.split('_')]
-            data["meteoPath"], meteos = '', []
+            data["meteoPath"], meteos = [], []
             meteo_path = os.path.normpath(os.path.join(in_dir, data["meteoName"]))
             if os.path.exists(meteo_path):
                 with open(meteo_path, 'r', encoding=functions.encoding_detect(meteo_path)) as f:
@@ -245,7 +256,7 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                 if len(temp) == 3: data["weatherType"] = "wind-magnitude-direction"
                 data["weatherPath"] = weathers
             return JSONResponse({"status": 'ok', "content": data})
-        else: return JSONResponse({"status": 'new'})
+        else: return JSONResponse({"status": 'new', "content": default_data})
     except Exception as e:
         print('/get_scenario:\n==============')
         traceback.print_exc()

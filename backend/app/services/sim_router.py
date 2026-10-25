@@ -175,14 +175,14 @@ async def check_sim_status_waq(request: Request, user=Depends(functions.basic_au
     process_key = f"{project_name}:{body.get('waqName')}"
     info = processes.get(process_key)
     if not info:
-        return JSONResponse({"status": "not_started", "progress": 0, "message": 'Simulation not started yet'})
+        return JSONResponse({"status": "not_started", "progress": 0, "message": 'Simulation not started yet.'})
     if info["status"] in ("finished", "failed", "error"): processes.pop(process_key, None)
     if info["status"] == "finished":
         return JSONResponse({"status": "finished", "progress": 100,
-            "message": info.get("message", 'Simulation completed')})
+            "message": info.get("message", 'Simulation completed.')})
     if info["status"] == "failed":
         return JSONResponse({"status": "failed", "progress": info["progress"],
-            "message": info.get("message", 'Simulation failed')})
+            "message": info.get("message", 'Simulation failed.')})
     if info["status"] == "reorganizing":
         return JSONResponse({"status": "reorganizing", "progress": 100, "message": 'Reorganizing outputs. Please wait...'})
     return JSONResponse({"status": info["status"], "progress": info["progress"],
@@ -202,7 +202,7 @@ async def start_sim_waq(request: Request, user=Depends(functions.basic_auth)):
             if old in ("finished", "error"): processes.pop(process_key)
             return JSONResponse({"status": old, "message": processes[process_key]["message"]})
         asyncio.create_task(run_waq_simulation(project_name, waq_name))
-    return JSONResponse({"status": "ok", "message": "Simulation started"})
+    return JSONResponse({"status": "ok", "message": "Simulation started."})
 
 async def run_waq_simulation(project_name, waq_name):
     process_key = f"{project_name}:{waq_name}"
@@ -297,7 +297,7 @@ async def run_waq_simulation(project_name, waq_name):
             text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=output_folder)
         processes[process_key] = {"process": process, "progress": 0.0, 
             "status": "running", "message": 'Checking inputs for WAQ simulation...'}
-        log_file.write("Checking inputs for WAQ simulation\n\n")
+        log_file.write("Checking inputs for WAQ simulation...\n\n")
         log_file.write("=== Starting simulation ===\n\n")
         # Stream logs
         def stream_logs():
@@ -362,6 +362,7 @@ async def run_waq_simulation(project_name, waq_name):
                     processes[process_key]["message"] = f"Simulation completed."
                     log_file.write(f"\n=== Simulation {project_name} completed ===")
                     log_file.flush(); log_file.close()
+                    # if os.path.exists(output_folder): functions.safe_remove(output_folder)
                 except Exception as e:
                     processes[process_key]["status"], processes[process_key]["message"] = "failed", f"Simulation failed: {e}."
                     log_file.write(f"Simulation failed: {e}.")

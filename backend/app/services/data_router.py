@@ -670,6 +670,10 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 df = df[['id','lat','lon']]
                 df['id'] = df['id'].astype(str)
                 lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
+
+
+
+                
                 des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
                 shutil.copy(lib_path, des_path)
                 data_lib = [os.path.normpath(des_path)]

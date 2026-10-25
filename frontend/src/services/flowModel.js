@@ -3,6 +3,7 @@ import { getUser, signalSender, getProjectList, jsonLoader, updateLog, nameCheck
 } from "./commonFunctions.js";
 import { projectRender } from "./projectManager.js";
 import { getLastTimeZone } from "./constant.js";
+import { isInvalidNumber } from "./flowFunctions.js";
 
 
 const $ = (id) => document.getElementById(id);
@@ -12,7 +13,7 @@ const obj = {
     modelCheckBtn: $('model-check-btn'), modelLogText: $('model-log'), 
     modelLat: $('model-lat'), modelLon: $('model-lon'), modelRunBtn: $('model-run-btn')
 }
-const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 18144000};
+const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 2592000};
 
 let currentProject;
 
@@ -71,14 +72,12 @@ function modelManager() {
             const statusRes = await jsonLoader('check_download_status', contentCheck);
             if (statusRes.status === "running") { alert("Running Wflow model is in progress."); return; }
             obj.modelLogText.value = '';
-            const params_in = Object.fromEntries(
-                [...document.querySelectorAll(".input-parameters input")]
-                .map(input => [input.id, Number(input.value)])
-            );
-            const params_out = Object.fromEntries(
-                [...document.querySelectorAll(".output-parameters input")]
-                .map(output => [output.id, output.checked])
-            );
+            const inputs = [...document.querySelectorAll(".input-parameters input")];
+            const bad = inputs.filter(i => isInvalidNumber(i.value)).map(i => i.id);
+            if (bad.length) { alert(`Invalid parameters: ${bad.join(', ')}`); return; }
+            const params_in = Object.fromEntries(inputs.map(i => [i.id, Number(i.value)]));
+            const outputs = [...document.querySelectorAll(".output-parameters input")];
+            const params_out = Object.fromEntries(outputs.map(o => [o.id, o.checked]));
             const content = { 
                 projectName: currentProject, flowName: name, key: 'run', 
                 start: start, end: end, timeZone: getLastTimeZone(), 

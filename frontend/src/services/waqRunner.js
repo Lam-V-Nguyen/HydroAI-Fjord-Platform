@@ -24,7 +24,7 @@ async function waqComponents() {
     obj.showCheckbox.addEventListener('change', (e) => { 
         if (e.target.checked && (obj.progressText.innerText === 'No simulation running' 
             || obj.progressText.innerText === 'Simulation completed successfully')) { obj.infoArea.value = ''; }
-        obj.textareaWrapper.style.display = e.target.checked ? 'flex' : 'none';
+        obj.textareaWrapper.style.display = e.target.checked ? 'block' : 'none';
     });
     obj.scenarioSelector.addEventListener('change', async() => {
         const projectName = obj.scenarioSelector.value;

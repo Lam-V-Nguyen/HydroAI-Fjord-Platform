@@ -27,7 +27,6 @@
                 </div>
             </div>
             <div class="tabs-content">
-                <!-- Tab 1: Settings -->
                 <div class="tabpanel main-panel" data-panel="settings-tab">
                     <div class="grid">
                         <div class="tile" style="grid-column: span 2;"><h3>Simulation Options</h3>
@@ -37,7 +36,6 @@
                 
                 
                         <div class="tile flow-map" style="grid-column: span 8;" id="flow-map-container">
-                            <!-- Add the map -->
                             <div class="map-container" id="map-container">
                                 <div class="leaflet-map" id="leaflet-map-flow-estimation"></div>
                                 <img class="leaflet-compass" src="/src_frontend/images/compass.png">
@@ -55,17 +53,16 @@
                                             data-url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}">Street</button>
                                     </div>
                                 </div>
-                                <!-- Legend -->
                                 <div class="colorbar-container" id="custom-colorbar">
                                     <div class="colorbar-wrapper">
                                         <div class="colorbar-title" id="colorbar-title">Legend</div>
                                         <div class="colorbar-gradient" id="colorbar-gradient"></div>
                                         <div class="colorbar-labels" id="colorbar-label">
-                                            <div></div> <!-- max -->
-                                            <div></div> <!-- 75% -->
-                                            <div></div> <!-- 50% -->
-                                            <div></div> <!-- 25% -->
-                                            <div></div> <!-- min -->
+                                            <div></div>
+                                            <div></div>
+                                            <div></div>
+                                            <div></div>
+                                            <div></div>
                                         </div>
                                     </div>
                                 </div>
@@ -88,3 +85,5 @@
     <script type="module" src="/src_frontend/services/flowRunner.js"></script>
 </body>
 </html>
+
+

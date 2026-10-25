@@ -22,7 +22,7 @@ variables = {
     '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
     'surface_pressure': 'sp',  # Pressure
     'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-    'surface_thermal_radiation_downwards': 'strd', # Longwave radiation
+    'toa_incident_solar_radiation': 'tisr', # Longwave radiation
     'total_cloud_cover': 'tcc', # Cloud cover
 }
 
@@ -30,7 +30,7 @@ var_revert = {
     'tp': 'Total Precipitation (mm)', 't2m': 'Temperature (degC)',
     'u10': 'Wind (u Component) (m/s)', 'v10': 'Wind (v Component) (m/s)',
     'sp': 'Surface Pressure (Pa)', 'tcc': 'Total Cloud Cover (%)',
-    'ssrd': 'Shortwave Radiation (W/m^2)', 'strd': 'Longwave Radiation (W/m^2)',
+    'ssrd': 'Shortwave Radiation (W/m^2)', 'tisr': 'Longwave Radiation (W/m^2)',
     'Time': 'Time', 'wind_speed': 'Wind Speed (m/s)',
     'wind_direction': 'Wind Direction (degrees)'
 }
@@ -258,7 +258,7 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
         if 't2m' in columns: df_result['t2m'] -= 273.15
         if 'tcc' in columns: df_result['tcc'] *= 100
         if 'ssrd' in columns: df_result['ssrd'] /= 3600
-        if 'strd' in columns: df_result['strd'] /= 3600
+        if 'tisr' in columns: df_result['tisr'] /= 3600
         if 'wind_speed' in vars:
             df_result['wind_speed'] = np.sqrt(df_result['u10']**2 + df_result['v10']**2)
             df_result['wind_direction'] = np.arctan2(df_result['v10'], df_result['u10'])
@@ -729,7 +729,7 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         forcing = {
             'precip': ['Precipitation (mm)', 'mm'], 'temp': ['Temperature (°C)', 'degC'],
             'kin': ['Shortwave Radiation (W/m²)', 'W/m^2'], 'kout': ['Longwave Radiation (W/m²)', 'W/m^2'],
-            'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (Pa)', 'Pa']
+            'wind': ['Wind Speed (m/s)', 'm/s'], 'press_msl': ['Pressure (hPa)', 'hPa']
         }
         for var, (col, unit) in forcing.items():
             values = df[col].to_numpy().astype(np.float32)
@@ -754,7 +754,7 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         }
         ds_final = ds_final.chunk({"time": 1, "y": chunksizes[1], "x": chunksizes[2]})
         ds_final.to_netcdf(out_path, engine='netcdf4', encoding=encoding)
-        return {"status": "completed", "message": "Forcing data saved successfully."}
+        return {"status": "completed", "message": "Weather forcing data saved successfully."}
     except Exception as e:
         print('/write_forcing:\n==============')
         traceback.print_exc()

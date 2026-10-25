@@ -110,6 +110,7 @@ async function projectOptions(){
         }
         signalSender('showOverlay', `Deleting scenario '${name}'. Please wait...`);
         const data = await jsonLoader('delete_project', {projectName: name});
+        window.location.reload(); // refresh page
         obj.projectName.value = ''; const respond = await getProjectList();
         await projectRender(obj.projectName, obj.projectList, respond);
         signalSender('hideOverlay'); alert(data.message);
@@ -188,32 +189,32 @@ async function hydManager(){
     // Event when user uploads CSV file
     obj.obsPointUploadText.addEventListener('click', () => { obj.obsPointUploadFile.click(); });
     obj.obsPointUploadFile.addEventListener('change', async (event) => { 
-        await csvUploader(
-            event, obj.obsPointUploadText, obj.obsPointTable, 3
-        ); event.target.value = '';
+        await csvUploader(event, obj.obsPointUploadText, obj.obsPointTable, 3); event.target.value = '';
     });
     obj.sourceUploadText.addEventListener('click', () => { obj.sourceUploadFile.click(); });
     obj.sourceUploadFile.addEventListener('change', async (event) => { 
-        deleteTable(obj.sourceTable);
+        if (getDataFromTable(obj.sourceTable).rows.length >0) deleteTable(obj.sourceTable);
         await csvUploader(
-            event, obj.sourceUploadText, obj.sourceTable, 5, false, 
+            event, obj.sourceUploadText, obj.sourceTable, 4, obj.startDate.value, obj.stopDate.value, 
             obj.sourceName, obj.sourceLatitude, obj.sourceLongitude
         ); event.target.value = ''; 
     });
     obj.meteoUploadText.addEventListener('click', () => { obj.meteoUploadFile.click(); });
     obj.meteoUploadFile.addEventListener('change', async (event) => {
+        if (getDataFromTable(obj.meteoTable).rows.length >0) deleteTable(obj.meteoTable);
         await csvUploader(
-            event, obj.meteoUploadText, obj.meteoTable, 4
+            event, obj.meteoUploadText, obj.meteoTable, 4, obj.startDate.value, obj.stopDate.value
         ); event.target.value = '';
     });
     obj.weatherCSVUploadText.addEventListener('click', () => { obj.weatherCSVUploadFile.click(); });
     obj.weatherCSVUploadFile.addEventListener('change', async (event) => {
+        if (getDataFromTable(obj.weatherTable).rows.length >0) deleteTable(obj.weatherTable);
         await csvUploader(
-            event, obj.weatherCSVUploadText, obj.weatherTable, 3
+            event, obj.weatherCSVUploadText, obj.weatherTable, 3, obj.startDate.value, obj.stopDate.value
         ); event.target.value = '';
     });
     // Copy and paste to tables
-    copyPaste(obj.boundaryEditTable, 2); copyPaste(obj.sourceTable, 5);
+    copyPaste(obj.boundaryEditTable, 2); copyPaste(obj.sourceTable, 4);
     copyPaste(obj.meteoTable, 4); copyPaste(obj.weatherTable, 3); 
     copyPaste(obj.obsPointTable, 3);
     // Add point to table
@@ -238,7 +239,7 @@ async function hydManager(){
         addRowToTable(obj.boundaryEditTable, ['YYYY-MM-DD HH:MM:SS', 'Value'])
     );
     obj.sourceAddBtn.addEventListener('click', () => 
-        addRowToTable(obj.sourceTable, ['YYYY-MM-DD HH:MM:SS', 'Discharge', 'Salinity', 'Temperature', 'Contaminant'])
+        addRowToTable(obj.sourceTable, ['YYYY-MM-DD HH:MM:SS', 'Discharge', 'Salinity', 'Temperature'])
     );
     obj.meteoAddBtn.addEventListener('click', () => 
         addRowToTable(obj.meteoTable, ['YYYY-MM-DD HH:MM:SS', 'Humidity', 'Air temperature', 'Cloud coverage'])
@@ -282,12 +283,9 @@ async function hydManager(){
     });
     // Update boundary option
     obj.boundaryEditUpdate.addEventListener('click', async () => {
-        const nameProject = obj.projectName.value.trim();
-        const nameBoundary = obj.boundaryName.value.trim();
-        const subBoundary = obj.boundarySelector.value;
-        const boundaryType = obj.boundaryTypeSelector.value;
-        if (nameProject === '' || nameBoundary === '' || 
-            subBoundary === '' || boundaryType === '') 
+        const nameProject = obj.projectName.value.trim(), nameBoundary = obj.boundaryName.value.trim();
+        const subBoundary = obj.boundarySelector.value, boundaryType = obj.boundaryTypeSelector.value;
+        if (nameProject === '' || nameBoundary === '' || subBoundary === '' || boundaryType === '') 
         { alert('Please check: \n     1. Name of project/boundary/sub-boundary option is required.' + 
             '\n     2. Boundary type is required.' + '\n     3. Reference date is required.'); return;
         }
@@ -313,8 +311,7 @@ async function hydManager(){
     const handleBoundaryChange = async () => {
         const content = {
             projectName: obj.projectName.value.trim(), timeZone: getLastTimeZone(),
-            boundaryName: obj.boundarySelector.value, 
-            boundaryType: obj.boundaryTypeSelector.value
+            boundaryName: obj.boundarySelector.value, boundaryType: obj.boundaryTypeSelector.value
         };
         const data = await jsonLoader('get_boundary_params', content);
         if (data.status === 'new') { obj.boundaryEditRemove.click(); return; }
@@ -349,8 +346,7 @@ async function hydManager(){
             obj.boundarySelectorView.value = ''; alert(data.message);
             obj.boundaryViewContainer.style.display = 'none'; return;
         };
-        obj.boundaryText.value = data.content; 
-        obj.boundaryViewContainer.style.display = 'flex';
+        obj.boundaryText.value = data.content; obj.boundaryViewContainer.style.display = 'flex';
     });
     // Delete boundary
     obj.boundaryRemove.addEventListener('click', async () => {
@@ -492,18 +488,16 @@ async function loadScenario(scenarioName){
     // Get average latitude
     const content = { projectName: scenarioName, timeZone: getLastTimeZone() };
     const data = await jsonLoader('get_scenario', content);
-    if (data.status === 'new') { return; }
     if (data.status === 'error') { alert(data.message); return; }
     obj.latitude.value = data.content.avgLat;
     obj.nLayers.value = data.content.nLayers;
     const gridName = data.content.gridPath;
     if (gridName != '') {
         const contentGrid = { 
-            projectName: scenarioName, key: 'hyd' , 
-            gridName: gridName, opacity: 1
+            projectName: scenarioName, key: 'hyd', gridName: gridName, opacity: 1
         }
         iframeConnector(null, null, 'gridPlot', contentGrid);
-    }
+    } else { iframeConnector(null, null, 'clearGridMap', {}); }
     obj.gridPathText.value = gridName;
     obj.startDate.value = data.content.startDate;
     obj.stopDate.value = data.content.stopDate;
@@ -511,18 +505,24 @@ async function loadScenario(scenarioName){
     obj.userTimestepTime.value = data.content.userTimestepTime;
     obj.nodalTimestepDate.value = data.content.nodalTimestepDate;
     obj.nodalTimestepTime.value = data.content.nodalTimestepTime;
-    if (data.content.obsPointTable !== undefined && data.content.obsPointTable !== '') {
+    if (data.content.obsPointTable !== undefined && data.content.obsPointTable.length > 0) {
         fillTable(data.content.obsPointTable, obj.obsPointTable);
-    }
-    if (data.content.crossSectionTable !== undefined && data.content.crossSectionTable !== '') {
+    } else { deleteTable(obj.obsPointTable); obj.obsPointAddRow.click(); }
+    if (data.content.crossSectionTable !== undefined && data.content.crossSectionTable.length > 0) {
         fillTable(data.content.crossSectionTable, obj.crossSectionTable); 
+    } else { 
+        deleteTable(obj.crossSectionTable); 
+        addRowToTable(obj.crossSectionTable, ['Cross-Section Name', 'Latitude', 'Longitude']); 
     }
     let defaultOption = `<option value="" selected>--- No selected ---</option>`;
-    if (data.content.boundaryTable !== undefined && data.content.boundaryTable !== '') {
+    if (data.content.boundaryTable !== undefined && data.content.boundaryTable.length > 0) {
         fillTable(data.content.boundaryTable, obj.boundaryTable);
         // Update boundary option
         const options = data.content.boundaryTable.map(row => `<option value="${row[0]}">${row[0]}</option>`).join(' ');
         defaultOption = defaultOption + options;
+    } else { 
+        deleteTable(obj.boundaryTable);
+        addRowToTable(obj.boundaryTable, ['Boundary Name', 'Latitude', 'Longitude']);
     }
     obj.boundarySelector.innerHTML = defaultOption;
     obj.initWaterLevel.value = data.content.initWaterLevel;
@@ -530,19 +530,19 @@ async function loadScenario(scenarioName){
     obj.initTemperature.value = data.content.initTemperature;
     // Get source data if exist
     updateTable(obj.sourceRemoveTable, obj.sourceSelectorRemove, scenarioName);
-    if (data.content.meteoPath !== '') { 
+    if (data.content.meteoPath.length > 0) { 
         obj.meteoUploadText.value = data.content.meteoName;
         const meteoPath = data.content.meteoPath;
+        if (meteoPath.length === 0) return;
         const header = meteoPath[0], content = meteoPath.slice(1);
         const thead = obj.meteoTable.querySelector('thead');
         thead.innerHTML = ''; const tr = document.createElement('tr');
         header.forEach(item => {
             const th = document.createElement('th');
             th.textContent = item; tr.appendChild(th);
-        }); thead.appendChild(tr);
-        fillTable(content, obj.meteoTable);
-    }
-    if (data.content.weatherPath !== '') {
+        }); thead.appendChild(tr); fillTable(content, obj.meteoTable);
+    } else { deleteTable(obj.meteoTable); obj.meteoAddBtn.click(); }
+    if (data.content.weatherPath.length > 0) {
         obj.weatherSelector.value = data.content.weatherType;
         obj.weatherCSVUploadText.value = data.content.weatherName;
         obj.weatherPanel.style.display = 'block'; obj.weatherTable.style.display = 'block';
@@ -551,6 +551,7 @@ async function loadScenario(scenarioName){
     } else { 
         obj.weatherPanel.style.display = 'none'; obj.weatherTable.style.display = 'none';
         obj.weatherUpload.style.display = 'none'; obj.weatherRemove.style.display = 'none';
+        obj.weatherSelector.value = ''; deleteTable(obj.weatherTable); obj.weatherAddRow.click(); 
     }
     obj.hisIntervalDate.value = data.content.hisIntervalDate;
     obj.hisIntervalTime.value = data.content.hisIntervalTime;

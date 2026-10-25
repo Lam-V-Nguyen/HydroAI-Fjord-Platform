@@ -139,9 +139,10 @@ function generalEvents(){
         );
         signalSender('hideOverlay'); objContent.thermoclineOptions.style.display = 'none';
     });
-    objContent.resetConfig.addEventListener('click', async() => { 
+    objContent.resetConfig.addEventListener('click', async() => {
+        await jsonLoader('close_movement', {projectName: currentProject});
         const data = await jsonLoader('reset_config', {projectName: currentProject});
-        resetStateVisualization(); alert(data.message); location.reload(); return;
+        resetStateVisualization(); alert(data.message); location.reload();
     });
 }
 
