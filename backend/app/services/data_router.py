@@ -652,12 +652,13 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
                 processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow..."}
+                thread = threading.Thread(
+                    target=flow_functions.wflow_check, 
+                    args=(project_name, processes, key_process, flow_name), daemon=True
+                )
+                thread.start(); thread.join()
                 result = yml_update.YML_updater(lib_path, wflow_dir, des_path)
                 if result is None: 
-                    threading.Thread(
-                        target=flow_functions.wflow_check, 
-                        args=(project_name, processes, key_process, flow_name), daemon=True
-                    ).start()
                     point_path = os.path.join(flow_dir, "catchment", "outlet.geojson")
                     if os.path.exists(point_path):
                         gdf = gpd.read_file(point_path)

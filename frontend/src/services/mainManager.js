@@ -108,7 +108,7 @@ function widgetMenuManager() {
         else if (id === 'run-flow-model') { w = 12; h = 9; }
         else if (id === 'calibration') { w = 12; h = 11; }
         else if (id === 'flow-estimation') { 
-            w = 12; h = 10; title = 'Flow Estimation'; }
+            w = 12; h = 12; title = 'Flow Estimation'; }
         else if (id === 'help-docs') { pdfOpener(url); closeMenu(); return; }
         else if (id === 'about') { w = 8; h = 5; }
         addWidget(w, h, title, id, url); closeMenu();

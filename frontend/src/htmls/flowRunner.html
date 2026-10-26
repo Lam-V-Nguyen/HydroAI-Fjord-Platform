@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/src_frontend/styles/tabControler.css">
     <link rel="stylesheet" href="/src_frontend/styles/flowPreparation.css">
     <link rel="stylesheet" href="/src_frontend/styles/mapConfiguration.css">
+    <link rel="stylesheet" href="/src_frontend/styles/movement.css">
 </head>
 <body>
     <div class="wrapper">
@@ -35,8 +36,8 @@
                     
                 
                 
-                        <div class="tile flow-map" style="grid-column: span 8;" id="flow-map-container">
-                            <div class="map-container" id="map-container">
+                        <div class="tile flow-map" style="grid-column: span 8; height: 500px;" id="flow-map-container">
+                            <div class="map-container" id="map-container" style="height: 480px;">
                                 <div class="leaflet-map" id="leaflet-map-flow-estimation"></div>
                                 <img class="leaflet-compass" src="/src_frontend/images/compass.png">
                                 <div class="basemap-container">
@@ -67,10 +68,108 @@
                                     </div>
                                 </div>
                             </div>
+                            <!-- Panel -->
+                            <div class="mv-dark" id="velocity-container" style="display: block;">
+                                <aside class="panel" id="panel">
+                                    <header class="panel-head">
+                                        <p class="model-name" id="modelName">Loading Data…</p>
+                                        <time class="clock" id="clock">--:--</time>
+                                        <p class="date" id="date"></p>
+                                        <div class="panel-actions">
+                                            <button class="collapse" id="collapse" aria-expanded="true" aria-controls="panelBody" title="Collapse panel">–</button>
+                                            <button class="collapse" id="close" title="Close panel">x</button>
+                                        </div>
+                                    </header>
+                                    <div class="panel-body" id="panelBody">
+                                    <section>
+                                        <h2>Grid Resolution</h2>
+                                        <div class="row4">
+                                            <label for="resInput">Resolution</label>
+                                            <input type="text" id="resInput" inputmode="decimal" placeholder="auto" style="text-align: center;"
+                                                title="Grid cell size in metres, or 'auto'. Press Enter to rebuild.">
+                                            <label for="layerInput">Layer</label>
+                                            <select class="rate" id="layerInput"></select>
+                                        </div>
+                                        <p class="hint">Resolution in metres (empty or <b>auto</b> = automatic, Enter to rebuild).</p>
+                                    </section>
+                                    <section>
+                                        <h2>Background Layer</h2>
+                                        <div class="seg" role="radiogroup" data-key="raster">
+                                            <button role="radio" data-v="speed" aria-checked="true">Velocity</button>
+                                            <button role="radio" data-v="depth">Depth</button>
+                                            <button role="radio" data-v="none">Hide</button>
+                                        </div>
+                                        <div class="legend" id="legend">
+                                            <div class="ramp" id="ramp"></div>
+                                            <div class="ticks"><span id="legMin">0</span><span id="legMid"></span><span id="legMax"></span></div>
+                                        </div>
+                                    </section>
+                                    <section><h2>Flow Particles</h2>
+                                        <div class="row2">
+                                            <label for="motion">Motion</label>
+                                            <select id="motion">
+                                                <option value="always" selected>Always moving</option>
+                                                <option value="playing">Freeze when paused</option>
+                                                <option value="physical">Real simulation time</option>
+                                            </select>
+                                        </div>
+                                        <div class="row2">
+                                            <label for="curve">Speed curve</label>
+                                            <select id="curve">
+                                                <option value="linear">Linear</option>
+                                                <option value="sqrt" selected>Square root – boost slow flow</option>
+                                                <option value="log">Logarithmic – strong boost</option>
+                                            </select>
+                                        </div>
+                                        <label class="row">Particles Density<output id="countOut"></output>
+                                        <input type="range" id="count" min="1000" max="20000" step="500" value="5000"></label>
+                                        <label class="row">Particles Speed<output id="speedOut"></output>
+                                        <input type="range" id="pspeed" min="0.2" max="4" step="0.1" value="1"></label>
+                                        <label class="row">Trail Length<output id="trailOut"></output>
+                                        <input type="range" id="trail" min="0.80" max="0.985" step="0.005" value="0.93"></label>
+                                        <div class="seg small" role="radiogroup" data-key="pcolor">
+                                            <button role="radio" data-v="white" aria-checked="true">White Particles</button>
+                                            <button role="radio" data-v="speed">Color by Speed</button>
+                                        </div>
+                                    </section>
+                                    <section class="probe" id="probe">
+                                        <h2>Observation Point</h2>
+                                        <p class="hint" id="probeHint">Click on a point inside the area to view the time series.</p>
+                                        <dl class="readout" id="readout" hidden>
+                                            <div><dt>Velocity</dt><dd id="rSpeed">–</dd></div>
+                                            <div><dt>Direction</dt><dd id="rDir">–</dd></div>
+                                            <div><dt>Depth</dt><dd id="rDepth">–</dd></div>
+                                        </dl>
+                                    </section>
+                                    </div>
+                                </aside>
+                                <footer class="timebar">
+                                    <button class="play" id="play" aria-label="Play">
+                                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path id="playIcon" d="M7 4l13 8-13 8z"/></svg>
+                                    </button>
+                                    <button class="step" id="back" aria-label="Back 1 hour">−1 h</button>
+                                    <button class="step" id="fwd" aria-label="Forward 1 hour">+1 h</button>
+                                    <label class="rate">Speed
+                                        <select id="rate">
+                                            <option value="0.5">0,5 h/s</option>
+                                            <option value="1">1 h/s</option>
+                                            <option value="3" selected>3 h/s</option>
+                                            <option value="6">6 h/s</option>
+                                            <option value="12">12 h/s</option>
+                                            <option value="24">1 d/s</option>
+                                        </select>
+                                    </label>
+                                    <div class="track" id="track">
+                                        <svg class="trace" id="trace" preserveAspectRatio="none" aria-hidden="true"></svg>
+                                        <div class="months" id="months"></div>
+                                        <input type="range" id="time" min="0" max="1" step="0.01" value="0" aria-label="Simulation Period">
+                                    </div>
+                                    <span class="loading" id="loading" hidden>Loading Frame…</span>
+                                </footer>
+                            </div>
                         </div>
                     </div>
                 </div>
-
             </div>
         </section>
     </div>

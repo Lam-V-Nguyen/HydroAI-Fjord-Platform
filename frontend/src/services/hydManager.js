@@ -196,7 +196,7 @@ async function hydManager(){
         if (getDataFromTable(obj.sourceTable).rows.length >0) deleteTable(obj.sourceTable);
         await csvUploader(
             event, obj.sourceUploadText, obj.sourceTable, 4, obj.startDate.value, obj.stopDate.value, 
-            obj.sourceName, obj.sourceLatitude, obj.sourceLongitude
+            true, obj.sourceName, obj.sourceLatitude, obj.sourceLongitude
         ); event.target.value = ''; 
     });
     obj.meteoUploadText.addEventListener('click', () => { obj.meteoUploadFile.click(); });

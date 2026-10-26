@@ -410,8 +410,8 @@ export function copyPaste(table, nCols){
     const tbody = table.querySelector('tbody');
     table.addEventListener('paste', (e) => {
         e.preventDefault();
-        const text = (e.clipboardData || window.Clipboard).getData('text'); // Get clipboard data
-        const rows = text.split(/\r?\n/).filter(r => r.trim() !== ''); // Split into rows 
+        const text = (e.clipboardData || window.Clipboard).getData('text');
+        const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
         if (!rows.length) return;
         // Get the first row
         const firstLine = rows[0];
@@ -420,7 +420,7 @@ export function copyPaste(table, nCols){
             alert(`The current table has ${columns.length} columns.\nNumber of columns must be ${nCols}.`); 
             return; }
         tbody.innerHTML = '';
-        const data_arr = rows.map(row => row.split(/\t|,/).slice(0, nCols)); // Split into columns
+        const data_arr = rows.map(row => row.split(/\t|,/).slice(0, nCols));
         fillTable(data_arr, table);
     });
 }
