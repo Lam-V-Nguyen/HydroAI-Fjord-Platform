@@ -51,7 +51,9 @@ function modelManager() {
                 keyChecker: key, timeZone: getLastTimeZone(), 
             };
             const request = await jsonLoader('wflow_model', content);
-            if (request.status === 'error') { alert(request.message); return; }
+            if (request.status === 'error') { 
+                obj.modelLogText.value = request.message; return; 
+            }
             updateLog(currentProject, obj.modelLogText, 2, key, async () => {
                 alert('Checking model parameters completed.');
                 obj.modelLat.value = request.content.lat_lon[0];
@@ -86,7 +88,7 @@ function modelManager() {
             };
             const request = await jsonLoader('wflow_model', content);
             if (request.status === 'error') { alert(request.message); return; }
-            updateLog(currentProject, obj.modelLogText, 3, keyChecker, async () => {
+            updateLog(currentProject, obj.modelLogText, 5, keyChecker, async () => {
                 alert('Running Wflow model completed.'); 
             }, true);
         } catch (error) { alert(`Running Wflow model failed: ${error.message}`); }

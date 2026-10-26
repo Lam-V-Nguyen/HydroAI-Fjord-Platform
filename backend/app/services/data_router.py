@@ -1,9 +1,9 @@
-import os, pickle, json, traceback, threading, requests, ast, shutil, rasterio
+import os, pickle, json, traceback, threading, requests, ast, rasterio
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from services import functions, data_functions, hyd_functions, flow_functions
+from services import functions, data_functions, hyd_functions, flow_functions, yml_update
 from config import PROJECT_ROOT, SOURCE_BACKEND
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
@@ -639,8 +639,11 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    key, flow_name = body.get('key'), body.get('flowName')
+    key, flow_name, wflow_model = body.get('key'), body.get('flowName'), 'wflow_model'
     flow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name))
+    lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
+    des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
+    wflow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", wflow_model))
     try:
         redis, key_process = request.app.state.redis, f"{project_name}:{body.get('keyChecker')}"
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
@@ -649,16 +652,19 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
                 processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow..."}
-                threading.Thread(
-                    target=flow_functions.wflow_check, 
-                    args=(project_name, processes, key_process, flow_name), daemon=True
-                ).start()
-                point_path = os.path.join(flow_dir, "catchment", "outlet.geojson")
-                if os.path.exists(point_path):
-                    gdf = gpd.read_file(point_path)
-                    lat, lon = gdf.geometry.y[0], gdf.geometry.x[0]
-                else: lat, lon = '', ''
-                return JSONResponse({"status": "ok", 'content': {'lat_lon': [lat, lon]}})
+                result = yml_update.YML_updater(lib_path, wflow_dir, des_path)
+                if result is None: 
+                    threading.Thread(
+                        target=flow_functions.wflow_check, 
+                        args=(project_name, processes, key_process, flow_name), daemon=True
+                    ).start()
+                    point_path = os.path.join(flow_dir, "catchment", "outlet.geojson")
+                    if os.path.exists(point_path):
+                        gdf = gpd.read_file(point_path)
+                        lat, lon = gdf.geometry.y[0], gdf.geometry.x[0]
+                    else: lat, lon = '', ''
+                    return JSONResponse({"status": "ok", 'content': {'lat_lon': [lat, lon]}})
+                else: return JSONResponse({"status": "error", "message": f"Error when updating YML file:\n\n{result}"})
             elif key == "run":
                 if key_process in processes and processes[key_process]["status"] == "running":
                     return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
@@ -669,13 +675,6 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 df = pd.DataFrame({'id': ['outlet'], 'lat': [lat], 'lon': [lon]})
                 df = df[['id','lat','lon']]
                 df['id'] = df['id'].astype(str)
-                lib_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'flow_samples', 'config.yml'))
-
-
-
-                
-                des_path = os.path.normpath(os.path.join(flow_dir, 'config.yml'))
-                shutil.copy(lib_path, des_path)
                 data_lib = [os.path.normpath(des_path)]
                 lulc_fn, lulc_mapping, lai_fn = 'corine', 'corine_mapping', 'lai_corine'
                 strord_path = os.path.normpath(os.path.join(flow_dir, 'hydro', "strord.tif"))
@@ -683,7 +682,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                     resolution, src_crs = int(abs(strord_src.transform.a)), strord_src.crs
                 soil_layers = [50, 100, 150, 300, 400, 600]
                 threading.Thread(target=flow_functions.wflow_run,
-                    args=(project_name, processes, key_process, flow_name, 'wflow_model', df, src_crs, 
+                    args=(project_name, processes, key_process, flow_name, wflow_model, df, src_crs, 
                         start, end, step, time_zone, data_lib, resolution, soil_layers, 
                         params_input, params_output, lulc_fn, lulc_mapping, lai_fn
                     ), daemon=False

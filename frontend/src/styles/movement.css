@@ -22,7 +22,11 @@ html[data-theme="dark"] #velocity-container {
   color: var(--mv-ink); background: var(--mv-panel);
   border-radius: 10px; box-shadow: var(--mv-shadow);
 }
-#velocity-container .panel-head { position: relative; padding: 14px 16px 12px; border-bottom: 1px solid var(--mv-line); }
+#velocity-container .panel-head { position: relative; padding: 14px 16px 12px; padding-right: 80px; border-bottom: 1px solid var(--mv-line); }
+#velocity-container .panel-actions {
+  position: absolute; top: 10px; right: 10px;
+  display: flex; align-items: center; gap: 4px;
+}
 #velocity-container .model-name { margin: 0 0 2px; font-size: 1.2rem; color: var(--mv-muted); font-weight: 800; padding-right: 28px; }
 #velocity-container .model-info { font-size: 12px; font-weight: normal; line-height: 1.3; opacity: 0.75; }
 #velocity-container .clock {
@@ -30,10 +34,10 @@ html[data-theme="dark"] #velocity-container {
   font-size: 3.1rem; line-height: 1; font-weight: 600; letter-spacing: -.01em; color: var(--mv-ink);
 }
 #velocity-container .date { margin: 4px 0 0; font-size: 1.05rem; color: var(--mv-silt); font-weight: 600; }
-#velocity-container .collapse {
-  position: absolute; top: 10px; right: 10px; width: 28px; height: 28px;
-  border: 1px solid var(--mv-line); border-radius: 6px; font-size: 1.1rem; cursor: pointer;
-  background: transparent; color: var(--mv-ink);
+#velocity-container .panel-actions .collapse {
+  position: static; flex: 0 0 28px; width: 28px; height: 28px; margin: 0; padding: 0;
+  border: 1px solid var(--mv-line); border-radius: 6px; font-size: 1.1rem;
+  cursor: pointer; background: transparent; color: var(--mv-ink);
 }
 #velocity-container .panel-body section { padding: 12px 16px; border-bottom: 1px solid var(--mv-line); }
 #velocity-container .panel-body section:last-child { border-bottom: 0; }

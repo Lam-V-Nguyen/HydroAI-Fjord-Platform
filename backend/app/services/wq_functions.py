@@ -1,7 +1,7 @@
 import os, json
 from config import SOURCE_BACKEND
 from services import functions
-import geopandas as gpd, xarray as xr
+import geopandas as gpd, xarray as xr, numpy as np
 from shapely.geometry import Point
 from datetime import datetime, timezone
 
@@ -77,6 +77,20 @@ def segmentFinder(lat:float, lon:float, grid:gpd.GeoDataFrame) -> int:
     idx = int(polygon.index[0])
     return idx + 1
 
+def poiInspector(ptr_path: str, n_vertical: int) -> dict:
+    raw = np.fromfile(ptr_path, dtype=np.int32)
+    if raw.size % 4 != 0:
+        raise ValueError(f"Unexpected .poi size: {raw.size} ints (not divisible by 4)")
+    poi = raw.reshape(-1, 4)
+    noq = poi.shape[0]
+    min_ptr = int(poi[:, :2].min())
+    return {
+        'noq': noq, 'exchange_x': noq - int(n_vertical),
+        'n_boundaries': -min_ptr if min_ptr < 0 else 0,
+    }
+
+
+
 def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:str) -> str:
     try:
         sample_path = os.path.normpath(os.path.join(SOURCE_BACKEND, 'templates', 'waq'))
@@ -124,7 +138,9 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         temp_vol = parameters['vol_path'].replace(os.sep, "/")
         params_INC['B3_volumes'] = f"-2 ; volumes will be interpolated from a binary file\n'{temp_vol}' ; volumes file from hyd file"
         # Prepare for the config file B4_nrofexch
-        params_INC['B4_nrofexch'] = f"{parameters['exchange_x']} {parameters['exchange_y']} {parameters['exchange_z']} ; number of exchanges in three directions"
+        poi_info = poiInspector(parameters['ptr_path'], parameters['exchange_z'])
+        params_INC['B4_nrofexch'] = f"{poi_info['exchange_x']} 0 {parameters['exchange_z']} ; number of exchanges in three directions"
+        # params_INC['B4_nrofexch'] = f"{parameters['exchange_x']} {parameters['exchange_y']} {parameters['exchange_z']} ; number of exchanges in three directions"
         # Prepare for the config file B4_pointers
         temp_ptr = parameters['ptr_path'].replace(os.sep, "/")
         params_INC['B4_pointers'] = f"0 ; pointers from binary file.\n'{temp_ptr}' ; pointers file"
@@ -140,15 +156,23 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         temp_length = parameters['length_path'].replace(os.sep, "/")
         params_INC['B4_length'] = f"0 ; Lengths from binary file\n'{temp_length}' ; lengths file"
         # Prepare for the config file B5
+        # params_INC['B5_boundlist'] = [";'NodeID' 'Comment field' 'Boundary name used for data grouping'"]
+        # n_layers, points = int(parameters['n_layers']), parameters['sources']
+        # if (n_layers > 0) and (len(points) > 0):
+        #     count = 0
+        #     for i in range(n_layers):
+        #         params_INC['B5_boundlist'].append(f"; Boundaries for layer {i+1}")
+        #         for point in points:
+        #             count += 1
+        #             params_INC['B5_boundlist'].append(f"'{count}' '' '{point[0]}'")
+        
         params_INC['B5_boundlist'] = [";'NodeID' 'Comment field' 'Boundary name used for data grouping'"]
-        n_layers, points = int(parameters['n_layers']), parameters['sources']
-        if (n_layers > 0) and (len(points) > 0):
-            count = 0
-            for i in range(n_layers):
-                params_INC['B5_boundlist'].append(f"; Boundaries for layer {i+1}")
-                for point in points:
-                    count += 1
-                    params_INC['B5_boundlist'].append(f"'{count}' '' '{point[0]}'")
+        n_bnd = poi_info['n_boundaries']
+        names = [p[0] for p in parameters['sources']] if parameters['sources'] else []
+        for i in range(n_bnd):
+            group = names[i % len(names)] if names else f"Bnd_{i+1}"
+            params_INC['B5_boundlist'].append(f"'{i+1}' '' '{group}'")
+        
         params_INC['B5_boundaliases'], params_INC['B5_bounddata'] = '', ''
         # Prepare for the config file B6_loads
         n_loads = parameters["loads_data"]

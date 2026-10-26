@@ -1,5 +1,5 @@
 import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
-import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
+import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask, tomllib
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from shapely.geometry import Polygon, MultiPolygon
 from scipy.spatial import cKDTree
@@ -7,7 +7,7 @@ from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
 from rasterio.features import rasterize
-from services import functions, flow_functions
+from services import functions, flow_functions, data_functions
 from pathlib import Path
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
@@ -28,12 +28,12 @@ soils = [
     ['0', '5', '15', '30', '60', '100', '200']
 ]
 soil_types = {
-    'bulk density': ['BLDFIE_M', 'bd', 1000, np.float32, -9999.0],
-    'clay': ['CLYPPT_M', 'clyppt', 1, np.float32, -9999.0], 
-    'sand': ['SNDPPT_M', 'sndppt', 1, np.float32, -9999.0],
-    'silt': ['SLTPPT_M', 'sltppt', 1, np.float32, -9999.0],  
-    'organic carbon': ['ORCDRC_M', 'oc', 10, np.float32, -9999.0], 
-    'pH': ['PHIHOX_M', 'ph', 10, np.float32, -9999.0]
+    'bulk density': ['BLDFIE_M', 'bd', 1000, np.float32, -9999.0, "g/cm3"],
+    'clay': ['CLYPPT_M', 'clyppt', 1, np.float32, -9999.0, "%"], 
+    'sand': ['SNDPPT_M', 'sndppt', 1, np.float32, -9999.0, "%"],
+    'silt': ['SLTPPT_M', 'sltppt', 1, np.float32, -9999.0, "%"],  
+    'organic carbon': ['ORCDRC_M', 'oc', 10, np.float32, -9999.0, "%"], 
+    'pH': ['PHIHOX_M', 'ph', 10, np.float32, -9999.0, "-"]
 }
 soil_depths = {
     '0cm': 'sl1', '5cm': 'sl2', '15cm': 'sl3', '30cm': 'sl4', 
@@ -135,7 +135,7 @@ def remove_holes(geom):
         return MultiPolygon([Polygon(p.exterior) for p in geom.geoms])
     else: return geom
 
-def write_geotif(array, profile, output_path, nodata=NODATA_DEM):
+def write_geotif(array, profile, output_path, nodata=NODATA_DEM, units=None):
     temp_path = output_path + ".tmp.tif"
     try:
         array[np.isnan(array)] = nodata
@@ -147,6 +147,7 @@ def write_geotif(array, profile, output_path, nodata=NODATA_DEM):
         })
         with rasterio.open(temp_path, "w", **output_profile) as dst:
             dst.write(array, 1)
+            if units: dst.update_tags(units=units)
         os.replace(temp_path, output_path)
     finally:
         if os.path.exists(temp_path):
@@ -554,11 +555,11 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
             soil_thickness_path = os.path.normpath(os.path.join(soil_dir, 'soilthickness.tif'))
             profile_writer = profile.copy()
             profile_writer.update(dtype=np.int32)
-            flow_functions.write_geotif(soil_thickness_values, profile_writer, soil_thickness_path, NODATA_SOIL_THICKNESS)
+            flow_functions.write_geotif(soil_thickness_values, profile_writer, soil_thickness_path, NODATA_SOIL_THICKNESS, 'cm')
             logger.info(f"Saving soil thickness data to: {soil_thickness_path}")
             # Download soil data
             for _, values in soil_types.items():
-                file, name, scale, dtype, nodata_soil, bulk_density = values[0], values[1], values[2], values[3], values[4], None
+                file, name, scale, dtype, nodata_soil, unit = values[0], values[1], values[2], values[3], values[4], values[5]
                 for depth in depths:
                     file_url = f'{base_url}{file}_{depth}_250m_ll.tif'
                     logger.info(f"Downloading: {file}_{depth}_250m_ll.tif...")
@@ -576,7 +577,7 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                     if mask_catchment is not None: soil_values[~mask_catchment] = nodata_soil
                     path = os.path.normpath(os.path.join(soil_dir, f'{name}_{depth}.tif'))
                     profile_writer.update(dtype=dtype)
-                    flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil)
+                    flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil, unit)
                     logger.info(f"Saved downloaded data to: {path}")
         logger.handlers[0].flush()
         processes[process_key] = {"status": "finished", "message": "\nSoil data downloaded successfully.\n\n"}
@@ -898,7 +899,6 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model_temp = configs.setdefault('model', {})
         model_temp['type'] = 'sbm' # model type: [sbm, sbm_gwf]
         model_temp['cold_start__flag'] = True  # Initialize model with cold (cold_start__flag = true) or warm state
-        
         model_temp['reservoir__flag'] = False #Include reservoir modelling
         model_temp['water_mass_balance__flag'] = False # Include water mass balance error computations
         model_temp['snow_gravitational_transport__flag'] = True # Include gravitational lateral snow transport
@@ -1040,7 +1040,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
             output_names=output_names
         )
         # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
-        model.setup_config({"model": {"cell_length_in_meter__flag": not model.crs.is_geographic}})
+        model.setup_config({"model.cell_length_in_meter__flag": not model.crs.is_geographic})
         model.setup_river_roughness(
             rivman_mapping_fn='river_manning_mapping', # Name of the river manning n map in the current WflowBaseModel.river_maps
             strord_name='meta_streamorder', # Name of the stream order map in the current WflowBaseModel.staticmaps
@@ -1075,8 +1075,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         model.setup_temp_pet_forcing(
             temp_pet_fn='weather_forcing', pet_method='debruin', # 'debruin', 'makkink', 'penman-monteith_rh_simple', 'penman-monteith_tdew'
             press_correction=False, temp_correction=True, wind_correction=True,
-            wind_altitude=10, reproj_method='nearest', fillna_method='nearest',
-            dem_forcing_fn='dtm', skip_pet=False
+            wind_altitude=10, reproj_method='nearest', fillna_method='nearest', dem_forcing_fn='dtm', skip_pet=False
         )
         # === Constant parameters ===
         model.setup_constant_pars(
@@ -1097,11 +1096,22 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
         )
         # === Cold states ===
         model.setup_cold_states()
+        # === Remove invalid values ===
+        for comp in ("staticmaps", "forcing", "states"):
+            ds = getattr(getattr(model, comp, None), "data", None)
+            if isinstance(ds, xr.Dataset): data_functions.sanitize_nc_attrs(ds, logger)
         # === Write model ===
         model.write(
             grid_filename='static_grid.nc', geoms_folder='staticgeoms', 
             forcing_filename='weather_forcing.nc', states_filename='model_state.nc'
         )
+        toml_path = os.path.join(mod_path, 'wflow_sbm.toml')
+        with open(toml_path, 'rb') as f:
+            model_cfg = tomllib.load(f).get('model', {})
+        missing = [k for k in ('type', 'land_routing', 'river_routing') if k not in model_cfg]
+        if missing:
+            logger.info(f"[model] = {model_cfg}")
+            raise ValueError(f"wflow_sbm.toml: [model] doesn't have {missing}")
         logger.info(f"Prepare HydroMT completed.")
         logger.handlers[0].flush()
     except Exception as e:

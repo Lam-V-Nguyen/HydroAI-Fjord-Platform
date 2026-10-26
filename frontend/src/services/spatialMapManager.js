@@ -155,7 +155,7 @@ export async function spatialMapManager(projectName) {
         const objMovement = {
             modelName: $$("modelName"), timeObj: $$("time"), monthObj: $$("months"),
             playObj: $$("play"), playIcon: $$("playIcon"), backObj: $$("back"),
-            fwdObj: $$("fwd"), rateObj: $$("rate"), legendObj: $$("legend"),
+            fwdObj: $$("fwd"), rateObj: $$("rate"), legendObj: $$("legend"), closeObj: $$("close"),
             rampObj: $$("ramp"), legendMinObj: $$("legMin"), legendMidObj: $$("legMid"),
             legendMaxObj: $$("legMax"), collapseObj: $$("collapse"), panelObj: $$("panel"),
             probeHintObj: $$("probeHint"), readoutObj: $$("readout"), traceObj: $$("trace"),

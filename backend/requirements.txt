@@ -21,3 +21,4 @@ rio-tiler==9.4.12
 xugrid>=0.12
 numba-celltree>=0.2
 numba>=0.59
+ruamel.yaml==0.19.1

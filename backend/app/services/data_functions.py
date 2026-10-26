@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 import dask.array as da
 from pyflwdir import dem
+from numbers import Number
 
 
 variables = {
@@ -29,7 +30,7 @@ variables = {
 var_revert = {
     'tp': 'Total Precipitation (mm)', 't2m': 'Temperature (degC)',
     'u10': 'Wind (u Component) (m/s)', 'v10': 'Wind (v Component) (m/s)',
-    'sp': 'Surface Pressure (Pa)', 'tcc': 'Total Cloud Cover (%)',
+    'sp': 'Surface Pressure (hPa)', 'tcc': 'Total Cloud Cover (%)',
     'ssrd': 'Shortwave Radiation (W/m^2)', 'tisr': 'Longwave Radiation (W/m^2)',
     'Time': 'Time', 'wind_speed': 'Wind Speed (m/s)',
     'wind_direction': 'Wind Direction (degrees)'
@@ -352,7 +353,7 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         df["Time"] = pd.to_datetime(df["Time"], utc=True)
         df = df[(df["Time"] >= start_time) & (df["Time"] < end_time)].copy()
         df['Time'] = functions.utc_to_local(df['Time'], time_zone)
-        if "Air Pressure (Pa)" in df.columns: df["Air Pressure (Pa)"] *= 100
+        if "Air Pressure (hPa)" in df.columns: df["Air Pressure (hPa)"] *= 100
         if "Cloud cover (%)" in df.columns: df["Cloud cover (%)"] = cloud_cover_to_percent(df["Cloud cover (%)"])
         csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df.to_csv(csv_path, index=False)
@@ -689,7 +690,7 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         df = df.sort_index()
         required_columns = [
             "Precipitation (mm)", "Temperature (°C)", "Shortwave Radiation (W/m²)",
-            "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (Pa)",
+            "Longwave Radiation (W/m²)", "Wind Speed (m/s)", "Pressure (hPa)",
         ]
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
@@ -741,7 +742,13 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
         ds_final = xr.Dataset(data_vars=datasets, coords={"time": time, "y": y_coords, "x": x_coords})
         ds_final = ds_final.rio.set_spatial_dims(x_dim="x", y_dim="y")
-        ds_final = ds_final.rio.write_crs(crs)
+        ds_final = ds_final.rio.write_crs(crs, inplace=False)
+        for var in datasets:
+            ds_final[var].attrs["grid_mapping"] = "spatial_ref"
+        # Add CRS metadata explicitly
+        crs_attrs = ds_final["spatial_ref"].attrs
+        ds_final.attrs["crs"] = crs.to_string()
+        ds_final.attrs["spatial_ref"] = crs_attrs.get("spatial_ref", crs.to_wkt())
         ds_final["time"].encoding = {
             "units": "hours since 1900-01-01 00:00:00",
             "calendar": "proleptic_gregorian", "dtype": "int64",
@@ -759,3 +766,11 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         print('/write_forcing:\n==============')
         traceback.print_exc()
         return {"status": "failed", "message": str(e)}
+
+def sanitize_nc_attrs(ds, logger=None):
+    valid = (str, bytes, Number, np.number, np.ndarray, list, tuple)
+    for name in [None, *ds.variables]:
+        obj = ds if name is None else ds[name]
+        for k in [k for k, v in obj.attrs.items() if not isinstance(v, valid)]:
+            v = obj.attrs.pop(k)
+            if logger: logger.warning(f"Removed attr '{k}' from {name or 'dataset'}: {v}")

@@ -211,6 +211,11 @@ function bindUI(name, obj, map, layer, timeZone) {
         obj.collapseObj.setAttribute("aria-expanded", String(!c)); 
         obj.collapseObj.innerHTML = c ? "+" : "–"; obj.collapseObj.title = c ? "Expand panel" : "Collapse panel";
     };
+    obj.closeObj.onclick = async () => {
+        const flowPanel = document.getElementById('velocity-container');
+        if (flowPanel) flowPanel.style.display = 'none';
+        destroyMovement(map); await jsonLoader('close_movement', {projectName: name});
+    };
     keyHandler = (e) => {
         if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) && e.target.type !== "range") return;
         if (e.code === "Space") { e.preventDefault(); setPlaying(obj, !S.playing); }
