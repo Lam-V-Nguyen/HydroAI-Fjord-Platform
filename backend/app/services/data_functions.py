@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 import dask.array as da
 from pyflwdir import dem
-from numbers import Number
 
 
 variables = {
@@ -766,11 +765,3 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         print('/write_forcing:\n==============')
         traceback.print_exc()
         return {"status": "failed", "message": str(e)}
-
-def sanitize_nc_attrs(ds, logger=None):
-    valid = (str, bytes, Number, np.number, np.ndarray, list, tuple)
-    for name in [None, *ds.variables]:
-        obj = ds if name is None else ds[name]
-        for k in [k for k, v in obj.attrs.items() if not isinstance(v, valid)]:
-            v = obj.attrs.pop(k)
-            if logger: logger.warning(f"Removed attr '{k}' from {name or 'dataset'}: {v}")

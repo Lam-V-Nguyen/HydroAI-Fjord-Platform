@@ -16,15 +16,80 @@ const obj = {
 const intervalOption = {'1h': 3600, '1d': 86400, '1w': 604800, '1ME': 2592000};
 
 let currentProject;
+const REQUIRED = {
+    overland_flow: "flow direction and particle speed on land",
+    overland_depth: "particle speed and the water depth layer on land",
+    river_discharge: "particle speed in rivers",
+    river_depth: "particle speed and the water depth layer in rivers",
+};
 
-
-setupTabs(document); await getProject(); modelManager();
+setupTabs(document); await getProject(); 
+setupMovementOutputGuard(); modelManager();
 
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
     const respond = await getProjectList(`${currentProject}/flows`, '');
     await projectRender(obj.projectName, obj.projectList, respond);
+}
+
+
+function positionNotice(box, notice) {
+    const rect = box.getBoundingClientRect();
+    // Temporarily show the notice so its dimensions can be measured.
+    const wasHidden = notice.hidden; notice.hidden = false;
+    const width = notice.offsetWidth, height = notice.offsetHeight;
+    const gap = 8, margin = 12;
+    // Align with the checkbox, but keep the notice inside the viewport.
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    // Prefer below the checkbox.
+    let top = rect.bottom + gap;
+    // If there is not enough room below, show it above.
+    if (top + height > window.innerHeight - margin) {
+        top = rect.top - height - gap;
+    }
+    // Prevent overflow at the top of the viewport.
+    top = Math.max(margin, top);
+    notice.style.left = `${left}px`; notice.style.top = `${top}px`;
+    notice.hidden = wasHidden;
+}
+function noticeFor(box) {
+    const id = `${box.id}-keep-notice`;
+    let n = document.getElementById(id);
+    if (n) return n;
+    // Create a floating notice.
+    n = document.createElement("div"); n.id = id;
+    n.className = "output-keep-notice";
+    n.setAttribute("role", "status"); n.hidden = true;
+    n.innerHTML = `
+        <span class="output-keep-text"></span>
+        <button type="button" class="output-keep-btn">Keep it</button>`;
+    n.querySelector(".output-keep-btn").addEventListener("click", () => {
+        box.checked = true;
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+        box.focus();
+    });
+    // Append to body so the notice is not constrained by the checkbox row's layout or stacking context.
+    document.body.appendChild(n);
+    box.setAttribute("aria-describedby", id);
+    return n;
+}
+function update(box) {
+    const n = noticeFor(box);
+    if (box.checked) { n.hidden = true; return; }
+    n.querySelector(".output-keep-text").textContent =
+        `Recommended: keep this output. It is needed for ${REQUIRED[box.id]} in the flow animation.`;
+    // Position the notice immediately below the checkbox.
+    const rect = box.getBoundingClientRect();
+    n.hidden = false; positionNotice(box, n);
+}
+export function setupMovementOutputGuard(root = document) {
+    for (const id of Object.keys(REQUIRED)) {
+        const box = root.querySelector(`#${id}`);
+        if (!box) { console.warn(`[outputs] Cannot find checkbox #${id}`); continue; }
+        box.addEventListener("change", () => update(box));
+        if (!box.checked) update(box);
+    }
 }
 
 function modelManager() {

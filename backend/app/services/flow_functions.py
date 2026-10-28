@@ -1,17 +1,17 @@
 import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
-import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask, tomllib
+import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
 from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import shape
 from scipy.spatial import cKDTree
 from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
-from rasterio.features import rasterize
-from services import functions, flow_functions, data_functions
+from rasterio.features import rasterize, shapes
+from services import functions, flow_functions, wflow_config
 from pathlib import Path
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from hydromt_wflow import WflowSbmModel
 from pyflwdir import dem
 from config import PROJECT_ROOT, WFLOW_PATH
 from dask.distributed import get_client
@@ -21,7 +21,8 @@ if "bool" not in np.__dict__: np.bool = np.bool_
 dotenv.load_dotenv()
 MET_url, MET_client_id = os.getenv('MET_ProstAPI_URL'), os.getenv('MET_ProstAPI_CLIENT_ID')
 NVE_url, NVE_client_id = os.getenv('NVE_URL'), os.getenv('NVE_API_KEY')
-NODATA_DEM, NODATA_INT = -9999.0, 0
+NODATA_DEM, NODATA_INT, NODATA_SOIL_THICKNESS= -9999.0, 0, -99999
+ISRIC_URL = "https://files.isric.org/soilgrids/former/2017-03-10/data/"
 
 soils = [
     ['Clay', 'Sand', 'Silt', 'Bulk density', 'Soil organic carbon', 'Soil pH'],
@@ -486,10 +487,18 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
             except Exception: pass
             logger.removeHandler(h)
 
+def burn(geoms, height, width, transform):
+    geoms = [g for g in geoms if g is not None and not g.is_empty]
+    if not geoms:
+        return None
+    return rasterize([(g, 1) for g in geoms], out_shape=(height, width), 
+        transform=transform, fill=0, dtype="uint8").astype(bool)
+
 def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name:str, 
     soil_source:str, water:str, dtm_path:str, catchment_path:str):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
+    soil_dir = os.path.normpath(os.path.join(flow_dir, "soil"))
     # Work with log
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
@@ -497,35 +506,46 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
         logger = setup_logger("soil", log_path)
         # Download soil data 2017 from ISRIC: https://files.isric.org/soilgrids/former/2017-03-10/
         logger.info("Preparing data download...")
-        soil_dir = os.path.normpath(os.path.join(flow_dir, "soil"))
-        if os.path.exists(soil_dir): shutil.rmtree(soil_dir)
-        os.makedirs(soil_dir, exist_ok=True)
         with rasterio.open(dtm_path) as src:
+            dtm = src.read(1, masked=True)
             nodata, profile = src.nodata, src.profile
             crs, transform = src.crs, src.transform
             height, width = src.height, src.width
             resolution_x, resolution_y = src.res
-        mask_catchment = None
         if os.path.exists(catchment_path) and os.path.getsize(catchment_path) > 0:
             catchment = gpd.read_file(catchment_path)
             catchment_projected = catchment.to_crs(crs)
             buffer = max(abs(resolution_x), abs(resolution_y))
             catchment_buffer = catchment_projected.buffer(buffer)
             catch_array = rasterize(
-                shapes=[geom for geom in catchment_buffer.geometry], dtype=np.float32,
-                out_shape=(height, width), transform=transform, fill=nodata
+                shapes=[geom for geom in catchment_buffer.geometry], dtype=np.uint8,
+                out_shape=(height, width), transform=transform, fill=0, default_value=1
             )
-            mask_catchment = (catch_array != nodata)
+        else:
+            mask_catchment = None
+            valid_mask = ~np.ma.getmaskarray(dtm)
+            if nodata is None: valid_mask = np.isfinite(dtm.data)
+            polygons = [
+                shape(geom)
+                for geom, value in shapes(
+                    valid_mask.astype(np.uint8), mask=valid_mask, transform=transform
+                ) if value == 1
+            ]
+            catchment_buffer = gpd.GeoDataFrame(geometry=[gpd.GeoSeries(polygons).union_all()], crs=crs)
+            catch_array = rasterize(
+                shapes=catchment_buffer.geometry, out_shape=(height, width),
+                transform=transform, dtype=np.uint8, fill=0, default_value=1
+            )
+        mask_catchment = catch_array == 1
         catchment_buffer_wgs84 = catchment_buffer.to_crs("EPSG:4326")
         min_lon, min_lat, max_lon, max_lat = catchment_buffer_wgs84.total_bounds
         if soil_source == "isric":
             soil_depths = flow_functions.soil_depths
             soil_types, depths = flow_functions.soil_types, list(soil_depths.values())
             logger.info("Reading dtm data...")
-            base_url = "https://files.isric.org/soilgrids/former/2017-03-10/data/"
             # Soil thickness
             logger.info("Creating soil thickness data...")
-            soil_thickness_url, NODATA_SOIL_THICKNESS = f"{base_url}BDRICM_M_250m_ll.tif", -99999
+            soil_thickness_url = f"{ISRIC_URL}BDRICM_M_250m_ll.tif"
             # Get raster information
             ref = rioxarray.open_rasterio(dtm_path).squeeze()
             with rioxarray.open_rasterio(soil_thickness_url) as src:
@@ -561,7 +581,7 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
             for _, values in soil_types.items():
                 file, name, scale, dtype, nodata_soil, unit = values[0], values[1], values[2], values[3], values[4], values[5]
                 for depth in depths:
-                    file_url = f'{base_url}{file}_{depth}_250m_ll.tif'
+                    file_url = f'{ISRIC_URL}{file}_{depth}_250m_ll.tif'
                     logger.info(f"Downloading: {file}_{depth}_250m_ll.tif...")
                     with rioxarray.open_rasterio(file_url) as src:
                         data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
@@ -584,12 +604,15 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
     except Exception as e:
         print('/soil_downloader:\n==============')
         traceback.print_exc()
-        logger.exception("Data download failed.")
+        if logger: logger.exception("Data download failed.")
         processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
-        for h in logger.handlers[:]:
-            h.close()
-            logger.removeHandler(h)
+        if logger:
+            for h in logger.handlers[:]:
+                try:
+                    h.flush()
+                    h.close()
+                finally: logger.removeHandler(h)
 
 def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, river_path:str, water_path:str):
     with rasterio.open(dem_path) as src:
@@ -880,238 +903,53 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
     # Clean up existing model directory
     if os.path.exists(mod_path): _safe_rmtree(mod_path, logger=logger)
     os.makedirs(mod_path, exist_ok=True)
-    error, model, configs = None, None, {}
+    error, model, configs, dropped = None, None, {}, {}
     try:
         logger.info("Starting hydromt for preparation...")
         # Prepare model
         logger.info("Creating model instance...")
-        model = WflowSbmModel(
-            root=mod_path, config_filename='wflow_sbm.toml', data_libs=data_lib, mode='w'
-        )
-        start_utc = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-        end_utc = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+        model = wflow_config.model_init(mod_path, data_lib)
         # Setup configurations
         configs = {}
         # Setup time
-        time_temp = configs.setdefault('time', {})
-        time_temp['starttime'], time_temp['endtime'], time_temp['timestepsecs'] = start_utc, end_utc, step
-        # Reference: https://deltares.github.io/Wflow.jl/dev/model_docs/model_settings.html
-        model_temp = configs.setdefault('model', {})
-        model_temp['type'] = 'sbm' # model type: [sbm, sbm_gwf]
-        model_temp['cold_start__flag'] = True  # Initialize model with cold (cold_start__flag = true) or warm state
-        model_temp['reservoir__flag'] = False #Include reservoir modelling
-        model_temp['water_mass_balance__flag'] = False # Include water mass balance error computations
-        model_temp['snow_gravitational_transport__flag'] = True # Include gravitational lateral snow transport
-        model_temp['glacier__flag'] = False # Include glacier modelling
-        model_temp['soil_infiltration_reduction__flag'] = True # Enable reduction factor applied to the soil infiltration capacity
-        model_temp['snow__flag'] = True # Include snow modelling
-        # Saturated hydraulic conductivity depth profile for SBM soil model
-        # optional, one of ("exponential", "exponential_constant", "layered", "layered_exponential"), default is "exponential"
-        model_temp['saturated_hydraulic_conductivity_profile'] = 'exponential'
-        model_temp['land_routing'] = 'kinematic_wave' # Routing approach for overland flow: ["kinematic_wave", "local_inertial"]
-        model_temp['river_routing'] = 'kinematic_wave' # Routing approach for river flow: ["kinematic_wave", "local_inertial"]
-        model_temp['river_kinematic_wave__time_step'] = 900
-        model_temp['land_kinematic_wave__time_step'] = 3600
-        model_temp['kinematic_wave__adaptive_time_step_flag'] = False # Enable kinematic wave adaptive (internal) time stepping
+        logger.info(f"Model time configuration.")
+        configs['time'] = wflow_config.model_time(start, end, step, time_zone)
+        logger.info(f"Model Settings.")
+        configs['model'] = wflow_config.model_setting(step)
         # ========== Output variables ==========
+        logger.info(f"Setup outputs configuration.")
         configs['dir_output'] = 'run_default'
-        output_temp = configs.setdefault('output', {})
-        grid_temp = output_temp.setdefault('netcdf_grid', {})
-        grid_temp['path'] = 'output.nc'
-        grid_temp['compressionlevel'] = 3
-        # Source: https://deltares.github.io/Wflow.jl/previews/PR586/model_docs/parameters_routing.html
-        var_temp = grid_temp.setdefault('variables', {})
-        # Overland flow variables
-        if params_output.get('overland_flow', False):
-            var_temp['land_surface_water__volume_flow_rate'] = 'overland_flow'  # Overland discharge (average over timestep)	m³ s⁻¹
-        if params_output.get('overland_depth', False):
-            var_temp['land_surface_water__depth'] = 'overland_depth'  # Overland depth (average over timestep)	m
-        if params_output.get('overland_volume', False):
-            var_temp['land_surface_water__volume'] = 'overland_volume' # Overland volume (average over timestep)	m³
-        # Soil variables
-        if params_output.get('soil_evapotranspiration', False):
-            var_temp['land_surface__evapotranspiration_volume_flux'] = 'soil_evapotranspiration'  # Total actual evapotranspiration	mm
-        if params_output.get('soil_storage_total', False):
-            var_temp['land_water~storage~total__depth'] = 'soil_storage_total'  # Total water storage (excluding floodplains, lakes and reservoirs)	mm
-        if params_output.get('soil_infiltration_volume', False):
-            var_temp['soil_water__infiltration_volume_flux'] = 'soil_infiltration_volume'  # Actual infiltration into the unsaturated zone	mm Δt⁻¹
-        if params_output.get('soil_transpiration_volume', False):
-            var_temp['soil_water__transpiration_volume_flux'] = 'soil_transpiration_volume'  # Transpiration from vegetation	mm Δt⁻¹
-        if params_output.get('soil_runoff', False):
-            var_temp['soil_surface_water__runoff_volume_flux'] = 'soil_runoff'  # Total surface runoff from infiltration and saturation excess	mm Δt⁻¹
-        if params_output.get('soil_net_runoff', False):
-            var_temp['soil_surface_water__net_runoff_volume_flux'] = 'soil_net_runoff'  # Net surface runoff (after open water evaporation)	mm Δt⁻¹
-        if params_output.get('soil_water_volume_fraction', False):
-            var_temp['soil_layer_water__volume_fraction'] = 'soil_water_volume_fraction'  # Volumetric water content per soil layer (including residual water content and saturated zone)
-        if params_output.get('soil_water_volume_percentage', False):
-            var_temp['soil_layer_water__volume_percentage'] = 'soil_water_volume_percentage'  # Volumetric water content per soil layer (including residual water content and saturated zone)	%
-        if params_output.get('soil_water_rootzone_volume_fraction', False):
-            var_temp['soil_water_root-zone__volume_fraction'] = 'soil_water_rootzone_volume_fraction'  # Volumetric water content in root zone (including residual water content and saturated zone)
-        if params_output.get('soil_water_rootzone_volume_percentage', False):
-            var_temp['soil_water_root-zone__volume_percentage'] = 'soil_water_rootzone_volume_percentage'  # Volumetric water content in root zone (including residual water content and saturated zone)	%
-        if params_output.get('soil_water_rootzone_depth', False):
-            var_temp['soil_water_root-zone__depth'] = 'soil_water_rootzone_depth'  # Root water storage in unsaturated and saturated zone (excluding residual water content)	mm
-        if params_output.get('soil_water_unsatzone_depth', False):
-            var_temp['soil_water_unsat-zone__depth'] = 'soil_water_unsatzone_depth'  # Amount of water in the unsaturated store	mm
-        if params_output.get('soil_water_satzone_capillary_volume_flux', False):
-            var_temp['soil_water_sat-zone_top__capillary_volume_flux'] = 'soil_water_satzone_capillary_volume_flux'  # Actual capillary rise	mm Δt⁻¹
-        if params_output.get('soil_water_satzone_recharge_volume_flux', False):
-            var_temp['soil_water_sat-zone_top__recharge_volume_flux'] = 'soil_water_satzone_recharge_volume_flux'  # Downward flux from unsaturated to saturated zone	mm Δt⁻¹
-        if params_output.get('soil_water_satzone_net_recharge_volume_flux', False):
-            var_temp['soil_water_sat-zone_top__net_recharge_volume_flux'] = 'soil_water_satzone_net_recharge_volume_flux'  # Net recharge to saturated zone	mm Δt⁻¹
-        if params_output.get('soil_water_satzone_leakage_volume_flux', False):
-            var_temp['soil_water_sat-zone_bottom__leakage_volume_flux'] = 'soil_water_satzone_leakage_volume_flux'  # Actual leakage from saturated store	mm Δt⁻¹
-        if params_output.get('soil_water_satzone_depth', False):
-            var_temp['soil_water_sat-zone_top__depth'] = 'soil_water_satzone_depth'  # Pseudo-water table depth (top of the saturated zone)	mm
-        # Lake variables
-        if params_output.get('lake_volume', False):
-            var_temp['lake_water__volume'] = 'lake_volume' # Lake volume (average over timestep), m³
-        if params_output.get('lake_level', False):
-            var_temp['lake_water_surface__elevation'] = 'lake_level' # Lake water level (average over timestep), m
-        if params_output.get('lake_outflow', False):
-            var_temp['lake_water~outgoing__volume_flow_rate'] = 'lake_outflow' # Outflow of the lake (average over timestep)	m³ s⁻¹
-        if params_output.get('lake_inflow', False):
-            var_temp['lake_water~incoming__volume_flow_rate'] = 'lake_inflow' # Inflow into the lake (average over timestep)	m³ s⁻¹
-        if params_output.get('lake_evaporation', False):
-            var_temp['lake_water__evaporation_volume_flux'] = 'lake_evaporation' # Average actual evaporation over the lake area	mm Δt⁻¹
-        if params_output.get('lake_precipitation', False):
-            var_temp['lake_water__precipitation_volume_flux'] = 'lake_precipitation' # Average precipitation over the lake area	mm Δt⁻¹
-        if params_output.get('lake_potential_evaporation', False):
-            var_temp['lake_water__potential_evaporation_volume_flux'] = 'lake_potential_evaporation' # Average potential evaporation over the lake area	mm Δt⁻¹
-        # Reservoir variables
-        if params_output.get('reservoir_volume', False):
-            var_temp['reservoir_water__volume'] = 'reservoir_volume' # Reservoir volume (average over the timestep)	m³
-        if params_output.get('reservoir_outflow', False):
-            var_temp['reservoir_water~outgoing__volume_flow_rate'] = 'reservoir_outflow' # Outflow of the reservoir (average over the timestep)	m³ s⁻¹
-        if params_output.get('reservoir_inflow', False):
-            var_temp['reservoir_water~incoming__volume_flow_rate'] = 'reservoir_inflow' # Inflow into the reservoir (average over the timestep)	m³ s⁻¹
-        if params_output.get('reservoir_evaporation', False):
-            var_temp['reservoir_water__evaporation_volume_flux'] = 'reservoir_evaporation' # Average actual evaporation over the reservoir area	mm Δt⁻¹
-        if params_output.get('reservoir_precipitation', False):
-            var_temp['reservoir_water__precipitation_volume_flux'] = 'reservoir_precipitation' # Average precipitation over the reservoir area	mm Δt⁻¹
-        if params_output.get('reservoir_potential_evaporation', False):
-            var_temp['reservoir_water__potential_evaporation_volume_flux'] = 'reservoir_potential_evaporation' # Average potential evaporation over the reservoir area	mm Δt⁻¹
-        # River variables (Kinematic wave)
-        if params_output.get('river_discharge', False):
-            var_temp['river_water__volume_flow_rate'] = 'river_discharge' # River discharge (average over timestep)	m³ s⁻¹
-        if params_output.get('river_depth', False):
-            var_temp['river_water__depth'] = 'river_depth' # River depth (average over timestep)	m
-        if params_output.get('river_volume', False):
-            var_temp['river_water__volume'] = 'river_volume' # River volume (average over timestep)	m³
-        if params_output.get('river_lateral_inflow', False):
-            var_temp['river_water_inflow~lateral__volume_flow_rate'] = 'river_lateral_inflow' # Lateral inflow into the river (average over timestep)	m³ s⁻¹
-        # Snow variables
-        if params_output.get('snow_water', False):
-            var_temp['snowpack__leq-depth'] = 'snow_water'  # Liquid-water equivalent of snow pack (SWE)	mm
-        if params_output.get('snow_melt', False):
-            var_temp['snowpack_meltwater__volume_flux'] = 'snow_melt'  # Amount of snow melt	mm Δt⁻¹
-        if params_output.get('snow_runoff', False):
-            var_temp['snowpack_water__runoff_volume_flux'] = 'snow_runoff'  # Runoff from snowpack	mm Δt⁻¹
-        # Glacier variables
-        if params_output.get('glacier_melt', False):
-            var_temp['glacier_ice__melt_volume_flux'] = 'glacier_melt'  # Melt from the glacier	mm Δt⁻¹
-        # Vegetation variables
-        if params_output.get('vegetation_stemflow', False):
-            var_temp['vegetation_canopy_water__stemflow_volume_flux'] = 'vegetation_stemflow'  # Stemflow	mm Δt⁻¹
-        if params_output.get('vegetation_throughfall', False):
-            var_temp['vegetation_canopy_water__throughfall_volume_flux'] = 'vegetation_throughfall'  # Throughfall	mm Δt⁻¹
         model.setup_config(configs)
-        # Setup basemaps: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_basemaps.html
-        model.setup_basemaps(
-            region=region, hydrography_fn='my_hydro', res=resolution, upscale_method='ihu' # 'ihu', 'eam', 'dmm'
-        )
-        # Setup rivers: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_rivers.html
-        output_names = {
-            'river__length': 'river_length', 'river__width': 'river_width', 'river__slope': 'river_slope',
-            'river_bank_water__depth': 'river_bank_depth', # Bankfull depth of river, default is 1.0 m
-            'river_water_flow__manning_n_parameter': 'river_manning_n', # Manning's roughness, default is 0.036
-            'river_bank_water__elevation': 'river_bank_elevation', 'river_location__mask': 'river_mask'
-        }
-        model.setup_rivers(
-            hydrography_fn='my_hydro', river_geom_fn='river_network', 
-            river_upa=uparea, # Minimum upstream area threshold for the river map [km2]
-            rivdph_method='powlaw', # 'gvf', 'manning', 'powlaw'
-            slope_len=2, #  Length over which the river slope is calculated [km]
-            min_rivlen_ratio=0, min_rivdph=1.0, # Minimum river depth [m]
-            min_rivwth=30, # Minimum river width [m]
-            smooth_len=5000, # Length [m] over which to smooth the output river width and depth
-            connectivity=8, river_routing='kinematic_wave', # 'kinematic_wave', 'local_inertial'
-            elevtn_map='land_elevation', # Name of the elevation map in the current WflowBaseModel.staticmaps
-            output_names=output_names
-        )
-        # Unit cell length of input rasters in lat/lon degree (cell_length_in_meter__flag = false) or in meter
-        model.setup_config({"model.cell_length_in_meter__flag": not model.crs.is_geographic})
-        model.setup_river_roughness(
-            rivman_mapping_fn='river_manning_mapping', # Name of the river manning n map in the current WflowBaseModel.river_maps
-            strord_name='meta_streamorder', # Name of the stream order map in the current WflowBaseModel.staticmaps
-            output_name='river_manning_n' # Mapping of output variable names.
-        )
-        # Setup soil maps: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_soilmaps.html
-        soil_names = {
-            'soil__thickness': 'soil_thickness', 'soil_layer_water__brooks_corey_exponent': 'soil_brooks_corey_c',
-            'soil_surface_water__vertical_saturated_hydraulic_conductivity': 'soil_ksat_vertical', 
-            'soil_water__residual_volume_fraction': 'soil_theta_r', 'soil_water__saturated_volume_fraction': 'soil_theta_s', 
-            'soil_water__vertical_saturated_hydraulic_conductivity_scale_parameter': 'soil_f'
-        }
-        model.setup_soilmaps(
-            soil_fn='soilgrids', ptf_ksatver='brakensiek', # 'brakensiek', 'cosby'
-            wflow_thicknesslayers=soil_layers, # Thickness of soil layers [mm] for wflow_sbm soil model
-            output_names=soil_names
-        )
-        model.setup_laimaps_from_lulc_mapping(lulc_fn=lulc_function, lai_mapping_fn=lai_fn)
-        # Setup land use maps: https://deltares.github.io/hydromt_wflow/stable/api/_generated/hydromt_wflow.WflowSbmModel.setup_lulcmaps.html
-        lulc_variables = [
-            'landuse', 'vegetation_kext', 'land_manning_n', 'soil_compacted_fraction', 
-            'vegetation_root_depth', 'vegetation_leaf_storage', 'vegetation_wood_storage', 
-            'land_water_fraction', 'vegetation_crop_factor', 'vegetation_feddes_alpha_h1', 
-            'vegetation_feddes_h1', 'vegetation_feddes_h2', 'vegetation_feddes_h3_high', 
-            'vegetation_feddes_h3_low', 'vegetation_feddes_h4'
-        ]
-        model.setup_lulcmaps(
-            lulc_fn=lulc_function, lulc_mapping_fn=lulc_mapping_fn, lulc_vars=lulc_variables
-        )
+        # Setup base map
+        logger.info(f"Setup basemaps configuration.")
+        model = wflow_config.model_basemap(model, region, resolution)
+        # Setup rivers
+        logger.info(f"Setup river configuration.")
+        model = wflow_config.model_river(model, uparea)
+        # Setup soil maps
+        logger.info(f"Setup soil configuration.")
+        model = wflow_config.model_soil(model, soil_layers)
+        # Setup land use
+        logger.info(f"Setup land use configuration.")
+        model = wflow_config.model_landuse(model, lulc_function, lulc_mapping_fn, lai_fn)
         # Setup forcing
-        model.setup_precip_forcing(precip_fn='weather_forcing')
-        model.setup_temp_pet_forcing(
-            temp_pet_fn='weather_forcing', pet_method='debruin', # 'debruin', 'makkink', 'penman-monteith_rh_simple', 'penman-monteith_tdew'
-            press_correction=False, temp_correction=True, wind_correction=True,
-            wind_altitude=10, reproj_method='nearest', fillna_method='nearest', dem_forcing_fn='dtm', skip_pet=False
-        )
+        logger.info(f"Setup weather forcing.")
+        model = wflow_config.model_forcing(model)
         # === Constant parameters ===
-        model.setup_constant_pars(
-            subsurface_water__horizontal_to_vertical_saturated_hydraulic_conductivity_ratio = params_input['k_sat_ratio'],
-            snowpack__degree_day_coefficient = params_input['dd_snow'],
-            soil_surface_water__infiltration_reduction_parameter = params_input['inf_red'],
-            vegetation_canopy_water__mean_evaporation_to_mean_precipitation_ratio = params_input['canopy_evap_ratio'],
-            compacted_soil_surface_water__infiltration_capacity = params_input['inf_cap'],
-            soil_water_saturated_zone_bottom__max_leakage_volume_flux = params_input['leak_max'],
-            soil_wet_root__sigmoid_function_shape_parameter = params_input['soil_sigmoid'],
-            atmosphere_air__snowfall_temperature_threshold = params_input['snowfall_t0'],
-            atmosphere_air__snowfall_temperature_interval = params_input['snowfall_dt'],
-            snowpack__melting_temperature_threshold = params_input['melt_t0_snow'],
-            snowpack__liquid_water_holding_capacity = params_input['snow_liq_cap'],
-            glacier_ice__degree_day_coefficient = params_input['dd_glacier'],
-            glacier_firn_accumulation__snowpack_dry_snow_leq_depth_fraction = params_input['firn_dry_frac'],
-            glacier_ice__melting_temperature_threshold = params_input['melt_t0_glacier']
-        )
+        logger.info(f"Setup constant parameters.")
+        model = wflow_config.model_constant_pars(model, params_input)
         # === Cold states ===
+        logger.info(f"Setup cold states.")
         model.setup_cold_states()
         # === Remove invalid values ===
-        for comp in ("staticmaps", "forcing", "states"):
-            ds = getattr(getattr(model, comp, None), "data", None)
-            if isinstance(ds, xr.Dataset): data_functions.sanitize_nc_attrs(ds, logger)
+        wflow_config.sanitize_model(model, logger)
         # === Write model ===
-        model.write(
-            grid_filename='static_grid.nc', geoms_folder='staticgeoms', 
-            forcing_filename='weather_forcing.nc', states_filename='model_state.nc'
-        )
+        logger.info(f"Model writer configurations.")
+        dropped = wflow_config.model_writer(model, configs, params_output, logger)
+        if dropped: logger.warning(f"{len(dropped)} selected output(s) were skipped: {sorted(dropped)}")
+        logger.info(f"Validating model 'wflow_sbm.toml'.")
         toml_path = os.path.join(mod_path, 'wflow_sbm.toml')
-        with open(toml_path, 'rb') as f:
-            model_cfg = tomllib.load(f).get('model', {})
-        missing = [k for k in ('type', 'land_routing', 'river_routing') if k not in model_cfg]
-        if missing:
-            logger.info(f"[model] = {model_cfg}")
-            raise ValueError(f"wflow_sbm.toml: [model] doesn't have {missing}")
+        wflow_config.model_validate_config(toml_path, logger)
         logger.info(f"Prepare HydroMT completed.")
         logger.handlers[0].flush()
     except Exception as e:
@@ -1127,6 +965,7 @@ def prepare_hydromt(project_name, flow_name, model_folder, start, end, step, tim
             except Exception: pass
         sys.stdout, sys.stderr = old_stdout, old_stderr
     if error is not None: raise error
+    return dropped
 
 def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str, logger=None):
     project_dir = os.path.join(PROJECT_ROOT, project_name)
@@ -1246,31 +1085,28 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
                 # https://deltares.github.io/hydromt/v0.8.0/_generated/hydromt.workflows.basin_mask.parse_region.html
                 region = {'subbasin': [x, y], 'uparea': uparea}
                 # Prepare model
-                prepare_hydromt(project_name, flow_name, model_folder, 
+                dropped = prepare_hydromt(project_name, flow_name, model_folder, 
                     start, end, step, time_zone, data_lib, region, uparea,
                     resolution, soil_layers, params_input, params_output, log_path,
                     lulc_function, lulc_mapping_fn, lai_fn, logger
                 )
+                if dropped: processes[process_key] = {"status": "failed", "message": dropped}
                 prepare_ok = True
                 # Check parameters
                 path = os.path.normpath(os.path.join(model_dir, model_folder, "static_grid.nc"))
-                if not os.path.exists(path):
-                    raise FileNotFoundError(f"Static grid not found: {path}")
+                if not os.path.exists(path): raise FileNotFoundError(f"Static grid not found: {path}")
                 nan_vars = []
                 with xr.open_dataset(path) as ds:
                     for item in ds.data_vars:
                         vals = np.unique(ds[item].values)
                         if vals.size == 1 and np.isnan(vals[0]):
                             nan_vars.append(item)                
-                if nan_vars:
-                    raise ValueError(f"NaN values in: {nan_vars}")
+                if nan_vars: raise ValueError(f"NaN values in: {nan_vars}")
                 # Run model
                 logger.info("="*70)
                 run_hydromt(project_name, flow_name, model_folder, log_path)
                 logger.info(f"Candidate '{temp_name}' SUCCESS.")
-                candidate_results.append({
-                    "point": temp_name, "lat": temp_lat, "lon": temp_lon, "status": "success",
-                })
+                candidate_results.append({"point": temp_name, "lat": temp_lat, "lon": temp_lon, "status": "success"})
                 success_point = temp_name
                 logger.info("="*70)
                 logger.info(f"Model run SUCCEEDED with candidate: {temp_name} [{temp_lat}, {temp_lon}]")
@@ -1300,8 +1136,7 @@ def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, 
         else:
             n_failed = len(candidate_results)
             last_error = (
-                candidate_results[-1].get("error", "Unknown error")
-                if candidate_results else "No candidate was processed."
+                candidate_results[-1].get("error", "Unknown error") if candidate_results else "No candidate was processed."
             )
             processes[process_key] = {
                 "status": "failed", "message": (

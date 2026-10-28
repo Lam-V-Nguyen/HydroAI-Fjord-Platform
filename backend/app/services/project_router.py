@@ -352,8 +352,7 @@ async def get_config_files(request: Request):
             print('/get_config_files:\n==============')
             traceback.print_exc()
             return JSONResponse({"status": 'error', 
-                "message": f"Could not load project '{original_project}' "
-                    f"or fallback project 'demo'."
+                "message": f"Could not load project '{original_project}' or fallback project 'demo'."
             })
     if warning:
         result["status"], result["message"] = "warning", warning

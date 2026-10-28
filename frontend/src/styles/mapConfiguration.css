@@ -63,3 +63,5 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+
+.leaflet-container .leaflet-interactive { cursor: pointer; }

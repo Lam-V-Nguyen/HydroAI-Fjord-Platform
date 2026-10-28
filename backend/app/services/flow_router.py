@@ -1,7 +1,8 @@
 import os, json, traceback, rasterio, shutil, asyncio, tempfile
-import sknw, rioxarray, zipfile, pyflwdir, threading
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+import sknw, rioxarray, zipfile, pyflwdir, threading, math
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Query
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.concurrency import run_in_threadpool
 import geopandas as gpd, numpy as np, pandas as pd
 from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
@@ -12,11 +13,13 @@ from shapely.ops import unary_union, linemerge
 from shapely import force_2d
 from pyflwdir import dem
 from skimage.morphology import skeletonize
-from services import functions, flow_functions, data_functions
+from services import functions, flow_functions, data_functions, flow_connection
 from contextlib import suppress
 
-
 router, process_lock = APIRouter(), threading.Lock()
+_META, _LOCKS = {}, {}
+NO_STORE = {"Cache-Control": "no-cache"}
+
 
 
 @router.post("/flow_project")
@@ -529,3 +532,119 @@ async def save_forcing_weather(request: Request, user=Depends(functions.basic_au
         print('/save_forcing_weather:\n==============')
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/flow_init")
+async def flow_init(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get('projectName'), user)
+        flow_name, res = body.get('flowName'), body.get("res")
+        wflow_dir = flow_connection.wflow_dir(project_name, flow_name)
+        try:
+            reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, res)
+        except FileNotFoundError as e:
+            return JSONResponse({"status": "error", "message": str(e)})
+        if reason:
+            with process_lock:
+                lock = _LOCKS.setdefault(wflow_dir, threading.Lock())
+            if not await run_in_threadpool(lock.acquire, True, 1800):
+                return JSONResponse({"status": "error", "message": "Viewer data is still being prepared, try again later."})
+            if not flow_connection.needs_rebuild(wflow_dir, res):
+                lock.release(); reason = None
+            try:
+                _META.pop(wflow_dir, None)
+                await run_in_threadpool(flow_connection.build_cache, wflow_dir, res)
+            finally: lock.release()
+        meta = _META[wflow_dir] = flow_connection.load_meta(wflow_dir)
+        return JSONResponse({"content": {"meta": meta, "rebuilt": bool(reason), "reason": reason}})
+    except Exception as e:
+        print('/flow_init:\n==============')
+        traceback.print_exc()
+        return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
+
+@router.post("/flow_init_status")
+async def flow_init_status(request: Request, user=Depends(functions.basic_auth)):
+    try:
+        body = await request.json()
+        project_name, _ = functions.project_definer(body.get("projectName"), user)
+        wflow_dir = flow_connection.wflow_dir(project_name, body.get("flowName"), body.get("modelFolder"))
+        try:
+            reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, body.get("res"))
+        except FileNotFoundError as e:
+            return JSONResponse({"status": "error", "message": str(e)})
+        building = _LOCKS.get(wflow_dir)
+        return JSONResponse({"content": {
+            "needsBuild": bool(reason), "reason": reason, "inProgress": bool(building and building.locked())
+        }})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": f"Error: {e}"})
+
+
+@router.get("/wflow_mask")
+def wflow_mask(request: Request, project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
+    model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: flow_connection.not_ready(err)
+    m = np.load(os.path.join(flow_connection.model_paths(wflow_dir)["cache"], "mask.npy"))
+    return flow_connection.get_bin(request, np.ascontiguousarray(m).tobytes())
+
+@router.get("/wflow_rivers")
+def wflow_rivers(project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
+    model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: flow_connection.not_ready(err)
+    return FileResponse(os.path.join(flow_connection.model_paths(wflow_dir)["cache"], "rivers.geojson"),
+        media_type="application/geo+json", headers=NO_STORE)
+
+@router.get("/wflow_basins")
+def wflow_basins(project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
+    model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
+    project_name, _ = functions.project_definer(project_name, user)
+    wflow_dir = flow_connection.wflow_dir(project_name, flow_name, model_folder)
+    path = flow_connection.model_paths(wflow_dir)["basins"]
+    if not os.path.exists(path):
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Basin not found."})
+    try:
+        gdf = gpd.read_file(path)
+        if gdf.crs is not None and gdf.crs.to_epsg() != 4326: gdf = gdf.to_crs(4326)
+        return JSONResponse(json.loads(gdf.to_json()), headers=NO_STORE)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@router.get("/wflow_frame/{var}/{i}")
+def wflow_frame(var: str, i: int, request: Request, project_name: str = Query(alias="projectName"),
+    flow_name: str = Query(alias="flowName"), model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: flow_connection.not_ready(err)
+    if var not in meta["variables"]:
+        return JSONResponse(status_code=404, content={"status": "error", "message": f"Unknown variable {var}"})
+    if not 0 <= i < len(meta["times"]):
+        return JSONResponse(status_code=404, content={"status": "error", "message": f"Frame {i} out of range"})
+    return flow_connection.get_bin(request, flow_connection.frame_bytes(wflow_dir, meta, var, i))
+
+@router.get("/wflow_stat/{var}/{stat}")
+def wflow_stat(var: str, stat: str, request: Request, project_name: str = Query(alias="projectName"),
+    flow_name: str = Query(alias="flowName"), model_folder: str = Query(None, alias="modelFolder"),
+    threshold: float = Query(None), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: flow_connection.not_ready(err)
+    try: arr = flow_connection.stat_array(wflow_dir, meta, var, stat, threshold)
+    except (ValueError, KeyError) as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+    fin = arr[np.isfinite(arr)]
+    hdr = {"X-Stat-Min": f"{float(fin.min()) if fin.size else 0:g}",
+        "X-Stat-Max": f"{float(np.percentile(fin, 99)) if fin.size else 1:g}"}
+    return flow_connection.get_bin(request, np.ascontiguousarray(arr, dtype="<f4").tobytes(), hdr)
+
+@router.get("/wflow_point")
+def wflow_point(lat: float, lon: float, project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
+    model_folder: str = Query(None, alias="modelFolder"), vars: str = Query(None), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: flow_connection.not_ready(err)
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return JSONResponse({"status": "error", "message": "Invalid coordinates."})
+    wanted = [v for v in vars.split(",") if v] if vars else None
+    out = flow_connection.point_series(wflow_dir, meta, lat, lon, wanted)
+    if out is None: return JSONResponse({"status": "error", "message": "Point is outside the model area."})
+    return JSONResponse({"content": out})
