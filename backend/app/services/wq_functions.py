@@ -89,7 +89,17 @@ def poiInspector(ptr_path: str, n_vertical: int) -> dict:
         'n_boundaries': -min_ptr if min_ptr < 0 else 0,
     }
 
-
+def poiInspector(ptr_path: str, n_vertical: int) -> dict:
+    raw = np.fromfile(ptr_path, dtype=np.int32)
+    if raw.size % 4 != 0:
+        raise ValueError(f"Unexpected .poi size: {raw.size} ints (not divisible by 4)")
+    poi = raw.reshape(-1, 4)
+    noq = poi.shape[0]
+    min_ptr = int(poi[:, :2].min())
+    return {
+        'noq': noq, 'exchange_x': noq - int(n_vertical),
+        'n_boundaries': -min_ptr if min_ptr < 0 else 0,
+    }
 
 def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:str) -> str:
     try:

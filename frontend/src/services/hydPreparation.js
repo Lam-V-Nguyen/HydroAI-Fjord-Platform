@@ -199,7 +199,6 @@ async function sourceManagement() {
     obj.sourceFlowBtn.addEventListener('click', async () => { 
         const threshold = obj.sourceThreshold.value, key = 'dem';
         if (threshold === '') { alert('Please define threshold to detect streams.'); return; }
-        if (demLayer === null) { alert('Please download terrain data first.'); return; }
         try {
             signalSender('showOverlay', 'Detecting streams. Please wait ...');
             const contents = { 

@@ -16,8 +16,9 @@ const obj = {
     mode: $("wv-mode"), thresholdRow: $("wv-threshold-row"), threshold: $("wv-threshold"), 
     scale: $("wv-scale"), opacityOut: $("wv-opacity-out"), opacity: $("wv-opacity"), back: $("wv-back"),
     fwd: $("wv-fwd"), collapse: $("wv-collapse"), close: $("wv-close"), rate: $("wv-rate"),
-    chart: $("wv-chart"), legendGrid: $("wv-legend-grid"), legendRiver: $("wv-legend-river"), 
-    probeHint: $("wv-probe-hint"), panel: $("wv-panel"), status: $("wv-status"), download: $("download-data-btn"), 
+    chart: $("wv-chart"), legendGrid: $("wv-legend-grid"), legendRiver: $("wv-legend-river"),
+    legend: $("wv-legend"), probeHint: $("wv-probe-hint"), panel: $("wv-panel"), 
+    status: $("wv-status"), download: $("download-data-btn"), 
     // Flow particles
     pOn: $("wv-particles"), pCount: $("wv-pcount"), pCountOut: $("wv-pcount-out"), 
     pSpeed: $("wv-pspeed"), pSpeedOut: $("wv-pspeed-out"), pTrail: $("wv-ptrail"), 
@@ -59,11 +60,11 @@ const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
 const M_PER_DEG = 111320, LOG_K = 100, MAX_STEP_PX = 40, PBUCKETS = 6;
 const PARTICLE_RAMP = ["#e8f6ff", "#bfe9ff", "#d9f59a", "#ffe066", "#ffab40", "#ff6b3d"];
 const PT = {
-    on: true, count: 4000, speed: 1, trail: 0.92, curve: "sqrt", color: "black",
+    on: true, count: 4000, speed: 1, trail: 0.92, curve: "sqrt", color: "blue",
     px: null, py: null, age: null, life: null, buckets: Array.from({ length: PBUCKETS }, () => []),
     frames: new Map(), pending: new Map(), wet: new Map(),
 };
-const PARTICLE_SOLID = { white: [255, 255, 255], black: [0, 0, 0], blue: [12, 42, 107] };
+const PARTICLE_SOLID = { white: [255, 255, 255], black: [0, 0, 0], dark_blue: [12, 42, 107], blue: [0, 0, 255] };
 function curveF(x) {
     x = Math.max(0, Math.min(x, 1.5));
     if (PT.curve === "linear") return x;
@@ -136,6 +137,7 @@ function flowManager(map, opts = {}) {
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         lastFlowName = name; lastRes = "auto"; await openScenario(map, name, opts);
+        obj.showPanel.style.display = "none";
     });
     obj.showPanel.addEventListener('click', async(e) => {
         const name = lastFlowName || obj.projectName.value.trim();
@@ -254,7 +256,6 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         P.mPerPx = (M_PER_DEG * Math.cos(((s + n) / 2) * Math.PI / 180)) / Math.max(P.ax, 1e-9);
     }
     const X = (lon) => P.ax * lon + P.bx, Y = (lat) => P.ay * merc(lat) + P.by;
-
     // ===================== PARTICLES =====================
     const decode = (buf, dtype) => {
         if (dtype === "<f2") { 
@@ -609,8 +610,16 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         obj.trace.setAttribute("viewBox", `0 0 ${W} ${H}`); obj.trace.innerHTML = paths;
     }
     const on = (node, ev, fn) => node && node.addEventListener(ev, fn, { signal: ac.signal });
-    on(obj.gridVar, "change", (e) => { S.gridVar = e.target.value || null; syncChartVars(); refresh(); });
-    on(obj.riverVar, "change", (e) => { S.riverVar = e.target.value || null; syncChartVars(); refresh(); });
+    on(obj.gridVar, "change", (e) => { 
+        if (e.target.value == '' && obj.riverVar.value == '') { obj.legend.style.display = 'none'; }
+        else { obj.legend.style.display = 'block'; }
+        S.gridVar = e.target.value || null; syncChartVars(); refresh(); 
+    });
+    on(obj.riverVar, "change", (e) => { 
+        if (e.target.value == '' && obj.gridVar.value == '') { obj.legend.style.display = 'none'; }
+        else { obj.legend.style.display = 'block'; }
+        S.riverVar = e.target.value || null; syncChartVars(); refresh(); 
+    });
     on(obj.mode, "change", (e) => {
         S.mode = e.target.value; if (S.mode !== "animate") clearParticles();
         if (obj.thresholdRow) obj.thresholdRow.hidden = S.mode !== "above";

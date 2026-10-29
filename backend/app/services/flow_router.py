@@ -542,7 +542,6 @@ async def flow_init(request: Request, user=Depends(functions.basic_auth)):
         wflow_dir = flow_connection.wflow_dir(project_name, flow_name)
         try:
             reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, res)
-            print(reason)
         except FileNotFoundError as e:
             return JSONResponse({"status": "error", "message": str(e)})
         if reason:
