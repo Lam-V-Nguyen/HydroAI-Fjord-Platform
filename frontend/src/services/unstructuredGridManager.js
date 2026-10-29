@@ -297,8 +297,7 @@ async function lakeOptions() {
         resetMap(mapObj); signalSender('showOverlay', `Loading data for lake: ${lakeName}`);
         const response = await jsonLoader('load_lakes', { 
             projectName: currentProject, lakeName: lakeName 
-        });
-        signalSender('hideOverlay');
+        }); signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); return; } 
         dataLake = response.content.lake; dataDepth = response.content.depth;
         const data = dataLake.features[0].properties;
@@ -338,8 +337,7 @@ async function dataBaseOptions() {
             obj.colorBarContainer.style.display = "none";
             const response = await jsonLoader('load_lakes', { 
                 projectName: currentProject, lakeName: 'all'
-            });
-            signalSender('hideOverlay'); resetMap(mapObj);
+            }); signalSender('hideOverlay'); resetMap(mapObj);
             if (response.status === "error") { alert(response.message); return; } 
             dataLake = response.content.lake; dataDepth = response.content.depth;
             lakeLayer = polygonPlotter(dataLake, mapObj, entireNorway, true);
@@ -476,8 +474,7 @@ function unGridManager() {
                 signalSender('showOverlay', 'Plotting depth grid.\nPlease wait...');
                 depthLayer = gridPlotter(
                     'Depth (m)', dataLake, dataDepth, mapObj, obj.colorBarContainer
-                );
-                signalSender('hideOverlay');
+                ); signalSender('hideOverlay');
             }
         } else { 
             depthLayer = clearMap(depthLayer, mapObj);
@@ -563,8 +560,7 @@ function unGridManager() {
             obj.deleteCheckbox.checked = false; obj.refinementCheckbox.checked = false;
             signalSender('showOverlay', 'Regenerating vertexes.\nPlease wait...');
             const contents = { projectName: currentProject, pointCollection: pointCollection };
-            const response = await jsonLoader('vertex_mover', contents); 
-            signalSender('hideOverlay');
+            const response = await jsonLoader('vertex_mover', contents); signalSender('hideOverlay');
             if (response.status === "error") { alert(response.message); return; }
             if (!obj.polygonCheckbox.checked) { obj.polygonCheckbox.checked = true; }
             lakeLayer = clearMap(lakeLayer, mapObj); 
@@ -635,8 +631,7 @@ function unGridManager() {
             }
             signalSender('showOverlay', 'Generating Orthogonality Grid.\nPlease wait...');
             const contents = { projectName: currentProject };
-            const response = await jsonLoader('grid_ortho', contents);
-            signalSender('hideOverlay');
+            const response = await jsonLoader('grid_ortho', contents); signalSender('hideOverlay');
             if (response.status === "error") { alert(response.message); return; }
             depthLayer = clearMap(depthLayer, mapObj); orthoLayer = clearMap(orthoLayer, mapObj); 
             obj.depthCheckbox.checked = false;
@@ -755,8 +750,7 @@ function unGridManager() {
             projectName: currentProject, grid: gridLayer.toGeoJSON(), 
             pointCollection: interpolatedPoints
         }
-        const response = await jsonLoader('grid_interpolation', contents); 
-        signalSender('hideOverlay');
+        const response = await jsonLoader('grid_interpolation', contents); signalSender('hideOverlay');
         if (response.status === "error") { alert(response.message); return; }
         interpolatedPointLayer = clearMap(interpolatedPointLayer, mapObj); 
         interpolatedPointLayer = await plotUnstructuredGrid(response.content, mapObj);
@@ -871,8 +865,7 @@ async function addItems(currentProject, value) {
         }); 
         obj.sugesstionLake.appendChild(div); 
     }); 
-    obj.sugesstionLake.style.display = 'block'; 
-    signalSender('hideOverlay');
+    obj.sugesstionLake.style.display = 'block'; signalSender('hideOverlay');
 }
 
 async function loadLakes(currentProject){
@@ -886,8 +879,7 @@ async function loadLakes(currentProject){
 async function drawPolygon(pointList, map) {
     signalSender('showOverlay', 'Drawing Polygon on the map.\nPlease wait...');
     const content = { projectName: currentProject, points: pointList };
-    const response = await jsonLoader('polygon_generator', content);
-    signalSender('hideOverlay');
+    const response = await jsonLoader('polygon_generator', content); signalSender('hideOverlay');
     if (response.status === "error") { alert(response.message); return; }
     const polygon = response.content.polygon, point = response.content.point;
     const data = polygon.features[0].properties;
@@ -1014,8 +1006,7 @@ function addPointLayer(points, map, checkMove=false) {
                 });
                 signalSender('showOverlay', 'Regenerating vertexes.\nPlease wait...');
                 const contents = { projectName: currentProject, pointCollection: pointCollection };
-                const response = await jsonLoader('vertex_mover', contents); 
-                signalSender('hideOverlay');
+                const response = await jsonLoader('vertex_mover', contents); signalSender('hideOverlay');
                 if (response.status === "error") { alert(response.message); return; }
                 if (!obj.polygonCheckbox.checked) obj.polygonCheckbox.checked = true; resetMap(map);
                 lakeLayer = polygonPlotter(response.content.polygon, map);
@@ -1049,8 +1040,7 @@ async function polygonRefinement(pointIds, map) {
         projectName: currentProject, distance: refineValue, polygon: pointCollection,
         startPoint: pointIds[0], endPoint: pointIds[pointIds.length - 1]
     }
-    const response = await jsonLoader('vertex_refiner', contents);
-    signalSender('hideOverlay');
+    const response = await jsonLoader('vertex_refiner', contents); signalSender('hideOverlay');
     if (response.status === "error") { alert(response.message);  return; }
     const polygon = response.content.polygon, point = response.content.point; dataLake = polygon;
     if (!obj.polygonCheckbox.checked) { obj.polygonCheckbox.checked = true; }
@@ -1076,8 +1066,7 @@ async function pointRemoval(pointIds, map) {
         projectName: currentProject, polygon: pointCollection,
         startPoint: pointIds[0], endPoint: pointIds[pointIds.length - 1]
     }
-    const response = await jsonLoader('vertex_remover', contents); 
-    signalSender('hideOverlay');
+    const response = await jsonLoader('vertex_remover', contents); signalSender('hideOverlay');
     if (response.status === "error") { alert(response.message); return; }
     const polygon = response.content.polygon, point = response.content.point;
     resetMap(map);

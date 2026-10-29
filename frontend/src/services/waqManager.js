@@ -233,7 +233,7 @@ async function projectOptions(){
         const data = await jsonLoader('clone_waq', {
             projectName: obj.projectName.value, oldName: name, newName: newName
         });
-        if (data.status === "error") { return; }
+        if (data.status === "error") { signalSender('hideOverlay'); return; }
         waqContent.push(newName); obj.waqSelector.innerHTML = '';
         const waqTemp = waqContent.map(name => `<option value="${name}">${name}</option>`).join('');
         obj.waqSelector.innerHTML = defaultWAQ + waqTemp; obj.waqSelector.value = newName;

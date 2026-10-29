@@ -128,7 +128,7 @@ function settingManager() {
         const formData = new FormData(); formData.append('projectName', currentProject);
         formData.append('file', file); formData.append('flowName', name);
         try {
-            signalSender('Uploading and processing water data.\nPlease wait...');
+            signalSender('showOverlay', 'Uploading and processing water data.\nPlease wait...');
             const response = await fetch('/water_upload', { method: 'POST', body: formData });
             const data = await response.json(); signalSender('hideOverlay');
             if (data.status === 'error') { alert(data.content.message); return; }
@@ -143,7 +143,7 @@ function settingManager() {
             e.target.checked = false; return;
         }
         if (e.target.checked && water !== '' && name !== '') {
-            signalSender('Uploading water data.\nPlease wait...');
+            signalSender('showOverlay', 'Uploading water data.\nPlease wait...');
             const content = { projectName: currentProject, flowName: name, water: water, key: 'water' };
             const data = await jsonLoader('data_upload', content); signalSender('hideOverlay');
             if (data.status === 'error') { alert(data.message); return; }
@@ -218,7 +218,7 @@ function topographyManager() {
         const value = obj.projectName.value.trim(), name = 'dem.tif';
         if (!value || value === '') { alert('Please define scenario name first.'); return; }
         try {
-            signalSender('Uploading and processing terrain data.\nPlease wait...');
+            signalSender('showOverlay', 'Uploading and processing terrain data.\nPlease wait...');
             const formData = new FormData(); formData.append('projectName', currentProject);
             formData.append('file', file); formData.append('flowName', value);
             const response = await fetch('/upload_terrain_flow', { method: 'POST', body: formData });
@@ -262,7 +262,7 @@ function topographyManager() {
             if (currentPolygon && currentPolygon !== null) {
                 currentPolygon.remove(); currentPolygon = null;
             }
-            signalSender('Uploading terrain data.\nPlease wait...');
+            signalSender('showOverlay', 'Uploading terrain data.\nPlease wait...');
             const formData = new FormData(); formData.append('projectName', currentProject);
             formData.append('folder', folder); formData.append('fileName', key);
             const response = await fetch('/upload_terrain', { method: 'POST', body: formData });

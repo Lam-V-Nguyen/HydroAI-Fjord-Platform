@@ -114,14 +114,14 @@ function updateManager() {
             const id = e.target.id.replace('delete-', '');
             signalSender('showOverlay', 'Deleting GIS Layer.\nPlease wait...');
             const data = await jsonLoader('delete_gis', { projectName: currentProject, name: id });
-            if (data.status === "error") { signalSender('hideOverlay'); alert(data.message); return; }
+            signalSender('hideOverlay'); 
+            if (data.status === "error") { alert(data.message); return; }
             await GISLayerChange(currentProject, id, false);
             // Reload project
             const message = `Reloading WAQ Model '${waqName}'.\nPlease wait...`;
             await projectChecker(currentProject, currentParams, waqName, waqModel, message, true);
             initializeMenu(currentProject, currentParams, waqName, waqModel);
             const rowDiv = e.target.parentNode; if (rowDiv) {rowDiv.remove();}
-            signalSender('hideOverlay');
         }
     });
 }
@@ -146,7 +146,7 @@ async function GISLayerChange(currentProject, id, checked){
     // Load gis layer
     signalSender('showOverlay', 'Loading GIS Layer.\nPlease wait...');
     const response = await jsonLoader('get_gis_layer', { projectName: currentProject, layer: id });
-    if (response.status === "error") { signalSender('hideOverlay');; alert(response.message); return; }
+    if (response.status === "error") { signalSender('hideOverlay'); alert(response.message); return; }
     const hue1 = Math.floor(Math.random() * 360), hue2 = Math.floor(Math.random() * 360);
     const fillColor = `hsl(${hue1}, 70%, 50%)`, color = `hsl(${hue2}, 70%, 50%)`;
     const layer = L.geoJSON(response.content, { renderer: L.canvas(),

@@ -542,19 +542,21 @@ async def flow_init(request: Request, user=Depends(functions.basic_auth)):
         wflow_dir = flow_connection.wflow_dir(project_name, flow_name)
         try:
             reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, res)
+            print(reason)
         except FileNotFoundError as e:
             return JSONResponse({"status": "error", "message": str(e)})
         if reason:
             with process_lock:
                 lock = _LOCKS.setdefault(wflow_dir, threading.Lock())
-            if not await run_in_threadpool(lock.acquire, True, 1800):
-                return JSONResponse({"status": "error", "message": "Viewer data is still being prepared, try again later."})
-            if not flow_connection.needs_rebuild(wflow_dir, res):
-                lock.release(); reason = None
-            try:
-                _META.pop(wflow_dir, None)
-                await run_in_threadpool(flow_connection.build_cache, wflow_dir, res)
-            finally: lock.release()
+                if not await run_in_threadpool(lock.acquire, True, 1800):
+                    return JSONResponse({"status": "error", "message": "Viewer data is still being prepared, try again later."})
+                try:
+                    reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, res)
+                    if reason:
+                        _META.pop(wflow_dir, None)
+                        await run_in_threadpool(flow_connection.build_cache, wflow_dir, res)
+                except FileNotFoundError as e: return JSONResponse({"status": "error", "message": str(e)})
+                finally: lock.release()
         meta = _META[wflow_dir] = flow_connection.load_meta(wflow_dir)
         return JSONResponse({"content": {"meta": meta, "rebuilt": bool(reason), "reason": reason}})
     except Exception as e:
@@ -562,30 +564,11 @@ async def flow_init(request: Request, user=Depends(functions.basic_auth)):
         traceback.print_exc()
         return JSONResponse({'status': 'error', 'message': f"Error: {e}"})
 
-@router.post("/flow_init_status")
-async def flow_init_status(request: Request, user=Depends(functions.basic_auth)):
-    try:
-        body = await request.json()
-        project_name, _ = functions.project_definer(body.get("projectName"), user)
-        wflow_dir = flow_connection.wflow_dir(project_name, body.get("flowName"), body.get("modelFolder"))
-        try:
-            reason = "rebuild requested" if body.get("rebuild") else flow_connection.needs_rebuild(wflow_dir, body.get("res"))
-        except FileNotFoundError as e:
-            return JSONResponse({"status": "error", "message": str(e)})
-        building = _LOCKS.get(wflow_dir)
-        return JSONResponse({"content": {
-            "needsBuild": bool(reason), "reason": reason, "inProgress": bool(building and building.locked())
-        }})
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": f"Error: {e}"})
-
-
 @router.get("/wflow_mask")
 def wflow_mask(request: Request, project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
     model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
     wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
-    if meta is None: flow_connection.not_ready(err)
+    if meta is None: return flow_connection.not_ready(err)
     m = np.load(os.path.join(flow_connection.model_paths(wflow_dir)["cache"], "mask.npy"))
     return flow_connection.get_bin(request, np.ascontiguousarray(m).tobytes())
 
@@ -593,7 +576,7 @@ def wflow_mask(request: Request, project_name: str = Query(alias="projectName"),
 def wflow_rivers(project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
     model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
     wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
-    if meta is None: flow_connection.not_ready(err)
+    if meta is None: return flow_connection.not_ready(err)
     return FileResponse(os.path.join(flow_connection.model_paths(wflow_dir)["cache"], "rivers.geojson"),
         media_type="application/geo+json", headers=NO_STORE)
 
@@ -616,7 +599,7 @@ def wflow_basins(project_name: str = Query(alias="projectName"), flow_name: str 
 def wflow_frame(var: str, i: int, request: Request, project_name: str = Query(alias="projectName"),
     flow_name: str = Query(alias="flowName"), model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
     wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
-    if meta is None: flow_connection.not_ready(err)
+    if meta is None: return flow_connection.not_ready(err)
     if var not in meta["variables"]:
         return JSONResponse(status_code=404, content={"status": "error", "message": f"Unknown variable {var}"})
     if not 0 <= i < len(meta["times"]):
@@ -628,7 +611,7 @@ def wflow_stat(var: str, stat: str, request: Request, project_name: str = Query(
     flow_name: str = Query(alias="flowName"), model_folder: str = Query(None, alias="modelFolder"),
     threshold: float = Query(None), user=Depends(functions.basic_auth)):
     wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
-    if meta is None: flow_connection.not_ready(err)
+    if meta is None: return flow_connection.not_ready(err)
     try: arr = flow_connection.stat_array(wflow_dir, meta, var, stat, threshold)
     except (ValueError, KeyError) as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
@@ -641,10 +624,27 @@ def wflow_stat(var: str, stat: str, request: Request, project_name: str = Query(
 def wflow_point(lat: float, lon: float, project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
     model_folder: str = Query(None, alias="modelFolder"), vars: str = Query(None), user=Depends(functions.basic_auth)):
     wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
-    if meta is None: flow_connection.not_ready(err)
+    if meta is None: return flow_connection.not_ready(err)
     if not (math.isfinite(lat) and math.isfinite(lon)):
         return JSONResponse({"status": "error", "message": "Invalid coordinates."})
     wanted = [v for v in vars.split(",") if v] if vars else None
     out = flow_connection.point_series(wflow_dir, meta, lat, lon, wanted)
     if out is None: return JSONResponse({"status": "error", "message": "Point is outside the model area."})
     return JSONResponse({"content": out})
+
+@router.get("/wflow_velocity/{i}")
+def wflow_velocity(i: int, request: Request, project_name: str = Query(alias="projectName"),
+    flow_name: str = Query(alias="flowName"), model_folder: str = Query("wflow_model", alias="modelFolder"),
+    user=Depends(functions.basic_auth)):
+    project_name, _ = functions.project_definer(project_name, user)
+    wflow_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, model_folder or "wflow_model"))
+    meta = _META.get(wflow_dir)
+    if meta is None:
+        try: meta = _META[wflow_dir] = flow_connection.load_meta(wflow_dir)
+        except FileNotFoundError:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Viewer data not initialized."})
+    if not meta.get("velocity"):
+        return JSONResponse(status_code=404, content={"status": "error", "message": "No velocity field in this output."})
+    if not 0 <= i < len(meta["times"]):
+        return JSONResponse(status_code=404, content={"status": "error", "message": f"Frame {i} out of range"})
+    return flow_connection.get_bin(request, flow_connection.velocity_bytes(wflow_dir, meta, i))

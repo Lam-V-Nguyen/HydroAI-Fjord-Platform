@@ -6,7 +6,6 @@ import { projectRender } from "./projectManager.js";
 import { CENTER, ZOOM, getLastTimeZone } from "./constant.js";
 
 
-
 const $ = (id) => document.getElementById(id);
 const obj = {
     projectList: $('project-list'), projectName: $('project-name'), projectOpener: $('open-btn'), 
@@ -18,7 +17,12 @@ const obj = {
     scale: $("wv-scale"), opacityOut: $("wv-opacity-out"), opacity: $("wv-opacity"), back: $("wv-back"),
     fwd: $("wv-fwd"), collapse: $("wv-collapse"), close: $("wv-close"), rate: $("wv-rate"),
     chart: $("wv-chart"), legendGrid: $("wv-legend-grid"), legendRiver: $("wv-legend-river"), 
-    probeHint: $("wv-probe-hint"), panel: $("wv-panel"), status: $("wv-status"), 
+    probeHint: $("wv-probe-hint"), panel: $("wv-panel"), status: $("wv-status"), download: $("download-data-btn"), 
+    // Flow particles
+    pOn: $("wv-particles"), pCount: $("wv-pcount"), pCountOut: $("wv-pcount-out"), 
+    pSpeed: $("wv-pspeed"), pSpeedOut: $("wv-pspeed-out"), pTrail: $("wv-ptrail"), 
+    pTrailOut: $("wv-ptrail-out"), pCurve: $("wv-pcurve"), pColor: $("wv-pcolor"), 
+    pInfo: $("wv-pinfo"), pSection: $("wv-particle-section"), res: $("wv-res"), resHint: $("wv-res-hint"),
 }
 const Lf = window.L;
 const RAMPS = {
@@ -51,7 +55,27 @@ const F16 = (() => {
     return t;
 })();
 const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-const pad = (n) => String(n).padStart(2, "0");
+// Particles
+const M_PER_DEG = 111320, LOG_K = 100, MAX_STEP_PX = 40, PBUCKETS = 6;
+const PARTICLE_RAMP = ["#e8f6ff", "#bfe9ff", "#d9f59a", "#ffe066", "#ffab40", "#ff6b3d"];
+const PT = {
+    on: true, count: 4000, speed: 1, trail: 0.92, curve: "sqrt", color: "black",
+    px: null, py: null, age: null, life: null, buckets: Array.from({ length: PBUCKETS }, () => []),
+    frames: new Map(), pending: new Map(), wet: new Map(),
+};
+const PARTICLE_SOLID = { white: [255, 255, 255], black: [0, 0, 0], blue: [12, 42, 107] };
+function curveF(x) {
+    x = Math.max(0, Math.min(x, 1.5));
+    if (PT.curve === "linear") return x;
+    if (PT.curve === "log") return Math.log1p(LOG_K * x) / Math.log1p(LOG_K);
+    return Math.sqrt(x);
+}
+function allocParticles() {
+    const n = PT.count;
+    PT.px = new Float32Array(n); PT.py = new Float32Array(n);
+    PT.age = new Uint16Array(n); PT.life = new Uint16Array(n);
+}
+
 const S = {
     meta: null, mask: null, valid: null, rivers: null, t: 0, playing: false, rate: 3,
     gridVar: null, riverVar: null, mode: "animate", threshold: 0.01, scale: "auto", opacity: 0.8,
@@ -62,6 +86,7 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 function resetState() {
     S.traceVars = new Set(); if (obj.trace) obj.trace.innerHTML = "";
     S.frames.clear(); S.pending.clear(); S.stats.clear();
+    PT.frames.clear(); PT.pending.clear(); PT.wet.clear();
     Object.assign(S, { meta: null, mask: null, valid: null, rivers: null, t: 0, playing: false,
         probe: null, probeLayer: null, phase: 0, riverValues: null, gridValues: null });
     if (typeof tf !== "undefined") tf = 0; if (obj.clockNote) obj.clockNote.textContent = "";
@@ -75,8 +100,7 @@ const resolveTimeZone = () => {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
 };
 
-
-let currentProject, viewer = null, lastFlowName;
+let currentProject, viewer = null, lastFlowName, lastRes = "auto";
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-flow-estimation'); 
@@ -90,39 +114,30 @@ async function getProject() {
 }
 
 async function openScenario(map, name, opts = {}) {
+    signalSender('showOverlay', "Preparing Wflow outputs (first time can take a few minutes).\nPlease wait...");
     const content = {
         projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
-        res: opts.res ?? "auto", rebuild: !!opts.rebuild,
+        res: opts.res ?? lastRes, rebuild: !!opts.rebuild,
     };
-    const check = await jsonLoader("flow_init_status", content);
-    if (!check || check.status === "error") { alert(check?.message || "Cannot open wflow results."); return false; }
-    const { needsBuild, inProgress } = check.content;
-    let res;
     try {
-        if (needsBuild || inProgress)
-            signalSender("Preparing wflow output (first time can take a few minutes).\nPlease wait...");
-        res = await jsonLoader("flow_init", content);
-    } finally { if (needsBuild || inProgress) signalSender("hideOverlay"); }
-    if (!res || res.status === "error") { alert(res?.message || "Cannot open wflow results."); return false; }
-    viewer?.destroy(); viewer = null; cancelAnimationFrame(S.raf); S.playing = false;
-    const panel = $("wflow-viewer"); if (panel) panel.style.display = "";
-    try {
+        const res = await jsonLoader("flow_init", content);
+        if (!res || res.status === "error") { alert(res?.message || "Cannot open wflow results."); return; }
+        viewer?.destroy(); viewer = null; cancelAnimationFrame(S.raf); S.playing = false;
+        const panel = $("wflow-viewer"); if (panel) panel.style.display = "";
         viewer = await wflowmanager(map, res.content.meta, name, opts);
         obj.flowPanel.style.display = "block"; return true;
-    } catch (err) {
-        alert(`Cannot display wflow results: ${err.message || err}`); return false;
-    }
+    } catch (err) { alert(`Cannot display wflow results: ${err.message || err}`); return false;
+    } finally { signalSender("hideOverlay"); }
 }
-
 
 function flowManager(map, opts = {}) {
     obj.projectOpener.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(); let res;
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
-        lastFlowName = name; await openScenario(map, name, opts);
+        lastFlowName = name; lastRes = "auto"; await openScenario(map, name, opts);
     });
-    obj.showPanel.addEventListener('click', async() => {
+    obj.showPanel.addEventListener('click', async(e) => {
         const name = lastFlowName || obj.projectName.value.trim();
         if (!name) { alert("Please select a scenario first."); return; }
         obj.projectName.value = name;
@@ -142,8 +157,10 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     const qs = new URLSearchParams({ 
         projectName: currentProject, flowName: flowName, modelFolder: opts.modelFolder ?? "wflow_model"
     }).toString();
-    const maskRes = await fetch(`/wflow_mask?${qs}`);
+    const maskRes = await fetch(`/wflow_mask?${qs}&v=${meta.version}`);
+    if (!maskRes.ok) throw new Error((await maskRes.json()).message || `mask: HTTP ${maskRes.status}`);
     S.mask = new Uint8Array(await maskRes.arrayBuffer());
+    if (S.mask.length !== g.nx * g.ny) throw new Error("Mask does not match the viewer grid – rebuild the viewer data.");
     const v = []; S.mask.forEach((m, k) => { if (m) v.push(k); }); S.valid = Uint32Array.from(v);
     if (meta.river_cells) S.rivers = await (await fetch(`/wflow_rivers?${qs}`)).json();
     const tms = meta.times.map((s) => { 
@@ -167,7 +184,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         if (e.target.type !== "checkbox") return;
         e.target.checked ? S.chartVars.add(e.target.value) : S.chartVars.delete(e.target.value);
         S.chartAuto = false; drawChart(obj, meta, S, tms);
-    });
+    }, { signal: ac.signal });
     S.gridVar = opts.gridVar ?? (meta.variables.overland_depth ? "overland_depth" : vars.find(([, i]) => i.kind === "grid")?.[0] ?? null);
     S.riverVar = opts.riverVar ?? (meta.variables.river_discharge ? "river_discharge" : null);
     S.chartAuto = true;
@@ -185,7 +202,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     if (obj.info) obj.info.textContent = `Res: ${g.res_m} m · ${g.n_valid.toLocaleString("en-US")} cells · ${meta.times.length} steps`;
     if (obj.months) {
         const t0 = tms[0], t1 = tms[tms.length - 1]; obj.months.innerHTML = "";
-        const tz = resolveTimeZone(), spans = [];;
+        const tz = resolveTimeZone(), spans = [];
         const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, month: "numeric", year: "numeric" });
         let cur = Date.UTC(new Date(t0).getUTCFullYear(), new Date(t0).getUTCMonth(), 1);
         while (cur <= t1) {
@@ -214,6 +231,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         return c;
     };
     const gridCv = mkCanvas("wvGrid", 370), riverCv = mkCanvas("wvRiver", 395);
+    const partCv = mkCanvas("wvParticles", 390), pctx = partCv.getContext("2d");
     const gctx = gridCv.getContext("2d"), rctx = riverCv.getContext("2d");
     const off = document.createElement("canvas"); off.width = g.nx; off.height = g.ny;
     const offCtx = off.getContext("2d"), offImg = offCtx.createImageData(g.nx, g.ny);
@@ -225,7 +243,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     if (opts.fitBounds !== false) map.fitBounds(g.bounds, { padding: [20, 20] });
     function project() {
         const sz = map.getSize(), dpr = window.devicePixelRatio || 1, tl = map.containerPointToLayerPoint([0, 0]);
-        for (const c of [gridCv, riverCv]) {
+        for (const c of [gridCv, riverCv, partCv]) {
             Lf.DomUtil.setPosition(c, tl); c.width = sz.x * dpr; c.height = sz.y * dpr;
             c.style.width = sz.x + "px"; c.style.height = sz.y + "px";
         }
@@ -233,8 +251,11 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         const a = map.latLngToContainerPoint([s, w]), b = map.latLngToContainerPoint([n, e]);
         P.dpr = dpr; P.ax = ((b.x - a.x) / (e - w)) * dpr; P.bx = a.x * dpr - P.ax * w;
         P.ay = ((b.y - a.y) / (merc(n) - merc(s))) * dpr; P.by = a.y * dpr - P.ay * merc(s);
+        P.mPerPx = (M_PER_DEG * Math.cos(((s + n) / 2) * Math.PI / 180)) / Math.max(P.ax, 1e-9);
     }
     const X = (lon) => P.ax * lon + P.bx, Y = (lat) => P.ay * merc(lat) + P.by;
+
+    // ===================== PARTICLES =====================
     const decode = (buf, dtype) => {
         if (dtype === "<f2") { 
             const h = new Uint16Array(buf), o = new Float32Array(h.length); 
@@ -242,8 +263,125 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         }
         return new Float32Array(buf);
     };
+    const vinfo = meta.velocity, Nv = S.valid.length;
+    const cellOf = new Int32Array(g.nx * g.ny).fill(-1);
+    S.valid.forEach((k, j) => { cellOf[k] = j; });
+    const gx2x = (gx) => X(g.lon0 + gx * g.dlon), gy2y = (gy) => Y(g.lat0 + gy * g.dlat);
+    const vout = [0, 0];
+    PT.on = !!vinfo && (obj.pOn ? obj.pOn.checked : true);
+    if (obj.pSection) obj.pSection.toggleAttribute("data-unavailable", !vinfo);
+    if (obj.pOn) obj.pOn.disabled = !vinfo;
+    if (obj.pInfo) obj.pInfo.textContent = vinfo
+        ? `Direction from ${vinfo.direction}, speed = Q / (depth × width). Median ${vinfo.speed_p50.toFixed(3)} m/s, max ≈ ${vinfo.speed_max.toFixed(2)} m/s.`
+        : "No velocity field: the output needs overland_flow (and overland_depth) on the grid.";
+    function loadVel(i) {
+        i = Math.max(0, Math.min(tms.length - 1, i | 0));
+        if (PT.frames.has(i)) return Promise.resolve(PT.frames.get(i));
+        if (PT.pending.has(i)) return PT.pending.get(i);
+        const p = fetch(`/wflow_velocity/${i}?${qs}&v=${meta.version}`)
+            .then((r) => { if (!r.ok) throw new Error(`velocity ${i}: HTTP ${r.status}`); return r.arrayBuffer(); })
+            .then((buf) => {
+                const a = decode(buf, vinfo.dtype);
+                const wet = [];
+                for (let j = 0; j < Nv; j++) if (Number.isFinite(a[j]) && (a[j] !== 0 || a[Nv + j] !== 0)) wet.push(j);
+                PT.frames.set(i, a); PT.wet.set(i, Uint32Array.from(wet));
+                if (PT.frames.size > 48) {
+                    const keep = Math.floor(S.t);
+                    for (const k of PT.frames.keys()) if (Math.abs(k - keep) > 24) { PT.frames.delete(k); PT.wet.delete(k); }
+                }
+                return a;
+            }).finally(() => PT.pending.delete(i));
+        PT.pending.set(i, p); return p;
+    }
+    function sampleVel(fa, fb, w, gx, gy) {
+        const i0 = Math.floor(gx), j0 = Math.floor(gy), fx = gx - i0, fy = gy - j0;
+        let su = 0, sv = 0, sw = 0;
+        for (let c = 0; c < 4; c++) {
+            const i = i0 + (c & 1), j = j0 + (c >> 1);
+            if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) continue;
+            const q = cellOf[j * g.nx + i];
+            if (q < 0) continue;
+            const ua = fa[q], ub = fb[q];
+            const wa = Number.isFinite(ua) ? 1 - w : 0, wb = Number.isFinite(ub) ? w : 0;
+            if (wa + wb < 0.5) continue;
+            const ws = ((c & 1) ? fx : 1 - fx) * ((c >> 1) ? fy : 1 - fy);
+            const u = ((wa ? wa * ua : 0) + (wb ? wb * ub : 0)) / (wa + wb);
+            const v = ((wa ? wa * fa[Nv + q] : 0) + (wb ? wb * fb[Nv + q] : 0)) / (wa + wb);
+            su += ws * u; sv += ws * v; sw += ws;
+        }
+        if (sw < 0.15) return null;
+        vout[0] = su / sw; vout[1] = sv / sw; return vout;
+    }
+    function respawn(k, fa, fb, w, wet) {
+        if (!wet || !wet.length) { PT.age[k] = 0; return; }
+        for (let tries = 0; tries < 8; tries++) {
+            const q = S.valid[wet[(Math.random() * wet.length) | 0]];
+            const gx = (q % g.nx) + Math.random() - 0.5, gy = ((q / g.nx) | 0) + Math.random() - 0.5;
+            if (sampleVel(fa, fb, w, gx, gy)) {
+                PT.px[k] = gx; PT.py[k] = gy; PT.age[k] = 1; PT.life[k] = 40 + ((Math.random() * 90) | 0); return;
+            }
+        }
+        PT.age[k] = 0;
+    }
+    function stepParticles(fa, fb, w, wet) {
+        const vmax = vinfo.speed_max, res = g.res_m, n = PT.count;
+        const pxLen = 1.5 * PT.speed * P.mPerPx, maxStep = MAX_STEP_PX * P.mPerPx;
+        for (const b of PT.buckets) b.length = 0;
+        for (let k = 0; k < n; k++) {
+            if (PT.age[k] === 0 || PT.age[k] > PT.life[k]) { respawn(k, fa, fb, w, wet); continue; }
+            const first = sampleVel(fa, fb, w, PT.px[k], PT.py[k]);
+            if (!first) { PT.age[k] = 0; continue; }
+            let u = first[0], v = first[1], sp = Math.hypot(u, v);
+            const s0 = sp, Ltot = Math.min(pxLen * curveF(sp / vmax), maxStep);
+            const nsub = Math.max(1, Math.min(60, Math.ceil(Ltot / (0.5 * res))));
+            const x0 = gx2x(PT.px[k]), y0 = gy2y(PT.py[k]);
+            let gx = PT.px[k], gy = PT.py[k], dead = false;
+            for (let m = 0; m < nsub; m++) {
+                if (m > 0) {
+                    const vel = sampleVel(fa, fb, w, gx, gy);
+                    if (!vel) { dead = true; break; }
+                    u = vel[0]; v = vel[1]; sp = Math.hypot(u, v);
+                }
+                if (sp < 1e-9) break;
+                const l = Math.min(pxLen * curveF(sp / vmax), maxStep) / nsub;
+                gx += (u / sp) * l / res; gy += (v / sp) * l / res;
+            }
+            if (dead || !sampleVel(fa, fb, w, gx, gy)) { PT.age[k] = 0; continue; }
+            PT.px[k] = gx; PT.py[k] = gy; PT.age[k]++;
+            const b = Math.min(PBUCKETS - 1, (curveF(s0 / vmax) * PBUCKETS) | 0);
+            PT.buckets[b].push(x0, y0, gx2x(gx), gy2y(gy));
+        }
+    }
+    function drawParticles() {
+        const W = partCv.width, H = partCv.height;
+        pctx.globalCompositeOperation = "destination-in";
+        pctx.fillStyle = `rgba(0,0,0,${PT.trail})`; pctx.fillRect(0, 0, W, H);
+        pctx.globalCompositeOperation = "source-over";
+        pctx.lineWidth = (PT.color === "white" ? 1.3 : 1.5) * P.dpr; pctx.lineCap = "round";
+        const solid = PARTICLE_SOLID[PT.color];
+        for (let b = 0; b < PBUCKETS; b++) {
+            const seg = PT.buckets[b];
+            if (!seg.length) continue;
+            pctx.strokeStyle = solid
+                ? `rgba(${solid[0]},${solid[1]},${solid[2]},${0.55 + 0.45 * (b / (PBUCKETS - 1))})`
+                : PARTICLE_RAMP[b];
+            pctx.beginPath();
+            for (let q = 0; q < seg.length; q += 4) { pctx.moveTo(seg[q], seg[q + 1]); pctx.lineTo(seg[q + 2], seg[q + 3]); }
+            pctx.stroke();
+        }
+    }
+    const clearParticles = () => pctx.clearRect(0, 0, partCv.width, partCv.height);
+    function particleTick(tCur) {
+        if (!vinfo || !PT.on || S.mode !== "animate") return;
+        const T = tms.length, i0 = Math.max(0, Math.min(T - 1, Math.floor(tCur))), i1 = Math.min(i0 + 1, T - 1);
+        const fa = PT.frames.get(i0), fb = PT.frames.get(i1);
+        if (!fa || !fb) { loadVel(i0).catch(() => {}); loadVel(i1).catch(() => {}); return; }
+        stepParticles(fa, fb, tCur - i0, PT.wet.get(i0)); drawParticles();
+    }
+    if (vinfo) { allocParticles(); loadVel(0).catch(() => {}); loadVel(1).catch(() => {}); }
+    // ===================== PARTICLES =====================
     function loadFrame(name, i) {
-        const key = `${name}|${i}`;
+        i = Math.round(Number(i)); const key = `${name}|${i}`;
         if (S.frames.has(key)) return Promise.resolve(S.frames.get(key));
         if (S.pending.has(key)) return S.pending.get(key);
         const p = fetch(`/wflow_frame/${name}/${i}?${qs}&v=${meta.version}`)
@@ -269,11 +407,20 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     async function valuesFor(name) {
         if (!name) return null;
         const info = meta.variables[name];
-        if (S.mode === "animate") return { values: await loadFrame(name, S.t), min: 0, max: info.p99, ramp: info.ramp, units: info.units };
+        if (S.mode === "animate") {
+            const frameIndex = Math.floor(S.t);
+            return { 
+                values: await loadFrame(name, frameIndex), min: 0, max: info.p99, 
+                ramp: info.ramp, units: info.units 
+            };
+        }
         const st = await loadStat(name, S.mode);
         const ramp = S.mode === "tmax" ? "time" : S.mode === "above" ? "hours" : info.ramp;
         const units = S.mode === "tmax" || S.mode === "above" ? "h" : S.mode === "sum" && info.flux ? info.units.replace("/Δt", "") : info.units;
-        return { ...st, min: S.mode === "tmax" ? 0 : st.min, max: S.mode === "tmax" ? (tms.length - 1) * meta.step_hours : st.max, ramp, units };
+        return { 
+            ...st, min: S.mode === "tmax" ? 0 : st.min, 
+            max: S.mode === "tmax" ? (tms.length - 1) * meta.step_hours : st.max, ramp, units 
+        };
     }
     const useLog = (name) => S.scale === "log" || (S.scale === "auto" && S.mode !== "tmax" && S.mode !== "above" && meta.variables[name]?.log);
     const norm = (v, lo, hi, log) => {
@@ -385,7 +532,8 @@ async function wflowmanager(map, meta, flowName, opts = {}){
             const T = tms.length;
             const next = tf + S.rate * dt / meta.step_hours;
             const i = Math.floor(next >= T - 1 ? 0 : next);
-            const ready = [S.gridVar, S.riverVar].filter(Boolean).every((n) => S.frames.has(`${n}|${i}`));
+            const ready = [S.gridVar, S.riverVar].filter(Boolean).every((n) => S.frames.has(`${n}|${i}`))
+                && (!vinfo || !PT.on || (PT.frames.has(i) && PT.frames.has(Math.min(i + 1, T - 1))));
             if (ready) {
                 tf = next >= T - 1 ? 0 : next;
                 if (Math.floor(tf) !== Math.floor(S.t) || tf < S.t) {
@@ -395,7 +543,9 @@ async function wflowmanager(map, meta, flowName, opts = {}){
             if (obj.loading) obj.loading.hidden = ready;
             for (let k = 1; k <= 4; k++)
                 for (const n of [S.gridVar, S.riverVar]) if (n) loadFrame(n, (i + k) % T).catch(() => {});
+            if (vinfo && PT.on) for (let k = 0; k <= 6; k++) loadVel((i + k) % T).catch(() => {});
         }
+        particleTick(S.playing ? tf : S.t);
         if (S.riverVar && S.mode === "animate") { S.phase += dt * 25; drawRivers(); }
         S.raf = requestAnimationFrame(loop);
     }
@@ -458,11 +608,12 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         }).join("");
         obj.trace.setAttribute("viewBox", `0 0 ${W} ${H}`); obj.trace.innerHTML = paths;
     }
-    const on = (node, ev, fn) => node && node.addEventListener(ev, fn);
+    const on = (node, ev, fn) => node && node.addEventListener(ev, fn, { signal: ac.signal });
     on(obj.gridVar, "change", (e) => { S.gridVar = e.target.value || null; syncChartVars(); refresh(); });
     on(obj.riverVar, "change", (e) => { S.riverVar = e.target.value || null; syncChartVars(); refresh(); });
     on(obj.mode, "change", (e) => {
-        S.mode = e.target.value; if (obj.thresholdRow) obj.thresholdRow.hidden = S.mode !== "above";
+        S.mode = e.target.value; if (S.mode !== "animate") clearParticles();
+        if (obj.thresholdRow) obj.thresholdRow.hidden = S.mode !== "above";
         if (S.mode !== "animate") setPlaying(false);
         if (S.mode === "above") { obj.thresholdRow.style.display = 'flex'; }
         else { obj.thresholdRow.style.display = 'none'; }
@@ -498,7 +649,6 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         if (obj.clockNote) obj.clockNote.textContent = "";
         obj.showPanel.style.display = 'block';
         destroyMovement(setPlaying);
-        // await jsonLoader('close_movement', {projectName: name});
     });
     on(obj.chart, "click", (e) => {
         const fig = e.target.closest("figure.series"); if (!fig) return;
@@ -507,6 +657,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         obj.chart.querySelectorAll("figure.series.selected").forEach((f) => f.classList.remove("selected"));
         S.traceVars = new Set([name]); fig.classList.add("selected"); drawFooterTrace();
     });
+    on(obj.download, "click", () => { downloadTimeSeries(obj.trace, S, meta, tms); });
     if (obj.play) {
         const fresh = obj.play.cloneNode(true);
         obj.play.replaceWith(fresh); obj.play = fresh;
@@ -517,6 +668,62 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         tf = S.t; showTime(); refresh(); drawFooterTrace();
     });
     on(obj.rate, "change", (e) => { S.rate = +e.target.value; });
+    // Start Particles options
+    const srcCell = g.source_cell_m || 1;
+    const showRes = () => {
+        if (obj.res) obj.res.value = g.res_auto ? "auto" : String(g.res_m);
+        if (obj.resHint) {
+            obj.resHint.classList.remove("error");
+            obj.resHint.textContent = `Current: ${g.res_m} m${g.res_auto ? " (auto)" : ""} · model cell ${srcCell} m. `
+                + "Smaller values are sharper but slower to prepare.";
+        }
+    };
+    showRes();
+    on(obj.res, "keydown", async (e) => {
+        if (e.key === "Escape") { showRes(); obj.res.blur(); return; }
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const raw = obj.res.value.trim().toLowerCase().replace(",", ".");
+        let res = "auto";
+        if (raw && raw !== "auto") {
+            const n = Number(raw);
+            if (!Number.isFinite(n) || n <= 0) {
+                obj.resHint.textContent = "Enter a positive number in metres, or 'auto'.";
+                obj.resHint.classList.add("error"); return;
+            }
+            if (n < srcCell) {
+                obj.resHint.textContent = `Minimum is the model cell size (${srcCell} m).`;
+                obj.resHint.classList.add("error"); obj.res.value = String(srcCell); return;
+            }
+            res = n;
+        }
+        const same = res === "auto" ? g.res_auto : (!g.res_auto && Math.abs(res - g.res_m) < 1e-9);
+        if (same) { showRes(); return; }
+        if (typeof res === "number" && res < g.res_m / 2 &&
+            !confirm(`Rebuild viewer data at ${res} m? Data will be about ${Math.round((g.res_m / res) ** 2)}× larger and take longer to prepare.`)) {
+            showRes(); return;
+        }
+        lastRes = res;
+        await openScenario(map, flowName, { ...opts, res });
+    });
+    const showP = () => {
+        if (obj.pCountOut) obj.pCountOut.textContent = PT.count.toLocaleString("en-US");
+        if (obj.pSpeedOut) obj.pSpeedOut.textContent = `×${PT.speed.toFixed(1)}`;
+        if (obj.pTrailOut) obj.pTrailOut.textContent = PT.trail.toFixed(2);
+    };
+    if (obj.pCount) PT.count = +obj.pCount.value;
+    if (obj.pSpeed) PT.speed = +obj.pSpeed.value;
+    if (obj.pTrail) PT.trail = +obj.pTrail.value;
+    if (obj.pCurve) PT.curve = obj.pCurve.value;
+    if (obj.pColor) PT.color = obj.pColor.value;
+    showP(); if (vinfo) allocParticles();
+    on(obj.pOn, "change", (e) => { PT.on = e.target.checked && !!vinfo; clearParticles(); });
+    on(obj.pCount, "input", (e) => { PT.count = +e.target.value; allocParticles(); showP(); });
+    on(obj.pSpeed, "input", (e) => { PT.speed = +e.target.value; showP(); });
+    on(obj.pTrail, "input", (e) => { PT.trail = +e.target.value; showP(); });
+    on(obj.pCurve, "change", (e) => { PT.curve = e.target.value; });
+    on(obj.pColor, "change", (e) => { PT.color = e.target.value; clearParticles();});
+    // End Particles options
     if (obj.thresholdRow) obj.thresholdRow.hidden = true;
     if (obj.mode && !obj.mode.options.length) {
         obj.mode.innerHTML = Object.entries(MODES).map(
@@ -525,11 +732,12 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     }
     S.rate = obj.rate ? +obj.rate.value : 3;
     const handlers = [
-        ["zoomstart", () => { gridCv.style.opacity = riverCv.style.opacity = 0; }],
-        ["move", () => { project(); drawGrid(); drawRivers(); }],
+        ["zoomstart", () => { 
+            gridCv.style.opacity = riverCv.style.opacity= partCv.style.opacity = 0; 
+        }], ["move", () => { project(); drawGrid(); drawRivers(); clearParticles(); }],
         ["moveend zoomend resize", () => { 
-            project(); drawGrid(); drawRivers(); 
-            gridCv.style.opacity = riverCv.style.opacity = 1; 
+            project(); drawGrid(); drawRivers(); clearParticles();
+            gridCv.style.opacity = riverCv.style.opacity = partCv.style.opacity = 1; 
         }], ["click", (e) => probe(e.latlng)],
     ];
     for (const [ev, fn] of handlers) map.on(ev, fn);
@@ -548,9 +756,10 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         setMode: (m) => { S.mode = m; if (obj.mode) obj.mode.value = m; refresh(); },
         seek, play: () => setPlaying(true), pause: () => setPlaying(false),
         destroy() {
-            cancelAnimationFrame(S.raf); S.playing = false; S.last = performance.now();
+            cancelAnimationFrame(S.raf); S.playing = false; S.last = performance.now(); ac.abort();
             for (const [ev, fn] of handlers) map.off(ev, fn);
-            for (const c of [gridCv, riverCv]) c.remove();
+            for (const c of [gridCv, riverCv, partCv]) c.remove();
+            PT.frames.clear(); PT.pending.clear(); PT.wet.clear();
             if (outline) map.removeLayer(outline);
             if (S.probeLayer) map.removeLayer(S.probeLayer);
             if (obj.time) { obj.time.value = 0; obj.time.max = 1; }
@@ -653,6 +862,53 @@ function drawChartMarker(chart, time, t) {
     if (!chart) return;
     const x = (t / Math.max(1, time - 1)) * 300;
     chart.querySelectorAll(".now").forEach((l) => { l.setAttribute("x1", x); l.setAttribute("x2", x); });
+}
+
+function downloadTimeSeries(trace, S, meta, tms) {
+    if (!trace || !S.probe?.series) {
+        alert("No time-series data available. Please select a chart on the panel first."); return;
+    }
+    const plottedNames = [
+        ...new Set(
+            [...trace.querySelectorAll("path[data-var]")].map(path => path.dataset.var).filter(Boolean)
+        )
+    ];
+    const plottedSeries = plottedNames.map(name => {
+        const values = S.probe.series[name];
+        if (!Array.isArray(values)) return null;
+        const info = meta.variables[name] || {};
+        return {
+            name, label: info.description || name, units: info.units || "", values
+        };
+    }).filter(Boolean);
+    if (plottedSeries.length === 0) {
+        alert("No time-series data is currently plotted."); return;
+    }
+    const escapeCSV = value => {
+        const text = String(value ?? ""); return `${text.replace(/"/g, '""')}`;
+    };
+    const headers = [
+        "Time(UTC)", ...plottedSeries.map(s => s.units ? `${s.label} (${s.units})` : s.label)
+    ];
+    const rows = [headers];
+    const rowCount = Math.max(tms.length, ...plottedSeries.map(s => s.values.length));
+    for (let i = 0; i < rowCount; i++) {
+        const time = meta.times?.[i] ?? (tms[i] != null ? new Date(tms[i]).toISOString() : "");
+        const row = [
+            time.replace("T", " "), ...plottedSeries.map(s => {
+                const value = s.values[i];
+                return value != null && Number.isFinite(Number(value)) ? value : "";
+            })
+        ]; rows.push(row);
+    }
+    const csv = rows.map(row => row.map(escapeCSV).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;link.download = "wflow_time_series.csv";
+    document.body.appendChild(link);
+    link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function mapOptions(map) {

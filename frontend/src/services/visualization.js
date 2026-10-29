@@ -80,19 +80,15 @@ export async function projectChecker(project, params, name, model, message, gisC
         projectName: project, params: params, waqName: waqName,
         waqModel: waqModel, gisChanged: gisChanged 
     };
-    const data = await jsonLoader('setup_database', content);
-    if (data.status === "error") { 
-        alert(data.message); signalSender('hideOverlay');
-        checked = false; return; 
-    }
+    const data = await jsonLoader('setup_database', content); signalSender('hideOverlay');
+    if (data.status === "error") { alert(data.message); checked = false; return; }
     checked = true;
     const menuLeft = document.getElementById('menu-left');
-    if (!menuLeft) { signalSender('hideOverlay'); return; }
+    if (!menuLeft) { return; }
     const gisMenu = document.getElementById('GISMenu');
     if (data.content.gis_layers.length > 0) {
         if (!gisMenu) { addGISMenu(menuLeft); }
     } else {if (gisMenu) { gisMenu.remove(); }}
-    signalSender('hideOverlay');
 }
 
 export async function initializeMenu(project, params, name, model){
@@ -117,8 +113,7 @@ export async function initializeMenu(project, params, name, model){
             }
             const [id, htmlFile] = info.split('|');
             signalSender('showOverlay', 'Getting Information.\nPlease wait...');
-            await showPopupMenu(project, model, id, htmlFile);
-            signalSender('hideOverlay');
+            await showPopupMenu(project, model, id, htmlFile); signalSender('hideOverlay');
             pm.style.top = `${rect.bottom + 10 + window.scrollY}px`;
             pm.style.left = `${rect.left + window.scrollX}px`;
             pm.classList.add('show');

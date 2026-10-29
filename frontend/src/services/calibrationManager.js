@@ -87,7 +87,7 @@ async function initParameterContainer() {
 async function openProject(projectObj, startObj, endObj, key='') {
     const project = projectObj.value.trim();
     if (project === '') { alert('Please select a HYD scenario first.'); return; }
-    signalSender('Reading information from project "' + project + '". Please wait...');
+    signalSender('showOverlay', 'Reading information from project "' + project + '".\nPlease wait...');
     const content = { projectName: project, key: key, timeZone: getLastTimeZone() };
     const data = await jsonLoader('calibration_project', content); signalSender('hideOverlay');
     if (data.status === 'error') { alert(data.message); return; }

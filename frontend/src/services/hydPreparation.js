@@ -186,7 +186,7 @@ async function sourceManagement() {
             if (currentPolygon && currentPolygon !== null) { 
                 currentPolygon.remove(); currentPolygon = null;
             }
-            signalSender('Uploading terrain data.\nPlease wait...');
+            signalSender('showOverlay', 'Uploading terrain data.\nPlease wait...');
             const formData = new FormData(); formData.append('projectName', currentProject);
             formData.append('folder', `${key}s`); formData.append('fileName', key); 
             const response = await fetch('/upload_terrain', { method: 'POST', body: formData });
@@ -205,8 +205,7 @@ async function sourceManagement() {
             const contents = { 
                 projectName: currentProject, folder: `${key}s`, fileName: key, threshold: threshold
             };
-            const data = await jsonLoader('hyd_stream_upload', contents);
-            signalSender('hideOverlay');
+            const data = await jsonLoader('hyd_stream_upload', contents); signalSender('hideOverlay');
             if (data.status === "error") { alert(data.message); return; }
             demLayer = clearMap(demLayer, mapObj); streamLayer = clearMap(streamLayer, mapObj);
             streamLayer = await displayTerrain(mapObj, data.content.tile_url, data.content.bounds);
@@ -290,8 +289,7 @@ function meteoManagement() {
                 alert('Downloading meteo data completed.');
                 const res = { projectName: currentProject, fileName: `${key}.csv` };
                 signalSender('showOverlay', 'Uploading meteological data to table. Please wait...');
-                const meteo = await jsonLoader('upload_weather_csv', res);
-                signalSender('hideOverlay');
+                const meteo = await jsonLoader('upload_weather_csv', res); signalSender('hideOverlay');
                 if (meteo.status === 'error') { alert(meteo.message); return; }
                 addDataToTable(obj.meteoTable, meteo.columns, meteo.content);
                 obj.meteoLogContainer.style.display = 'none';
@@ -338,8 +336,7 @@ function weatherManagement() {
                 alert('Downloading wind data completed.');
                 const res = { projectName: currentProject, fileName: `${key}.csv` };
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
-                const wind = await jsonLoader('upload_weather_csv', res);
-                signalSender('hideOverlay');
+                const wind = await jsonLoader('upload_weather_csv', res); signalSender('hideOverlay');
                 if (wind.status === 'error') { alert(wind.message); return; }
                 addDataToTable(obj.weatherTable, wind.columns, wind.content);
             });

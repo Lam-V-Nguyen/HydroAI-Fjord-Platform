@@ -109,18 +109,32 @@
 }
 .velocity-container .trace .speed { fill: none; stroke: var(--mv-silt); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .velocity-container .months { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; font-size: .72rem; color: var(--mv-muted); }
-.velocity-container .months span { position: absolute; top: 2px; padding-left: 3px; border-left: 1px solid var(--mv-line); white-space: nowrap; }
-.velocity-container #time {
+.velocity-container .months span { 
+  position: absolute; top: 2px; padding-left: 3px; border-left: 1px solid var(--mv-line); white-space: nowrap; 
+}
+.velocity-container #time, .velocity-container #wv-time {
   position: absolute; left: 0; right: 0; top: 0; width: 100%; height: calc(100% - 16px); margin: 0;
   -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
 }
-.velocity-container #time::-webkit-slider-runnable-track { height: 100%; background: transparent; }
-.velocity-container #time::-moz-range-track { height: 100%; background: transparent; }
-.velocity-container #time::-webkit-slider-thumb {
+.velocity-container #time::-webkit-slider-runnable-track,
+.velocity-container #wv-time::-webkit-slider-runnable-track { 
+  height: 100%; background: transparent; 
+}
+.velocity-container #time::-moz-range-track,
+.velocity-container #wv-time::-moz-range-track { 
+  height: 100%; background: transparent; 
+}
+.velocity-container #time::-webkit-slider-thumb,
+.velocity-container #wv-time::-webkit-slider-thumb {
   -webkit-appearance: none; width: 3px; height: 34px; background: var(--mv-silt); border-radius: 2px;
 }
-.velocity-container #time::-moz-range-thumb { width: 3px; height: 34px; border: 0; background: var(--mv-silt); border-radius: 2px; }
-.velocity-container .loading { position: absolute; right: 16px; top: -26px; font-size: .8rem; color: #fff; text-shadow: 0 1px 3px #000; }
+.velocity-container #time::-moz-range-thumb,
+.velocity-container #wv-time::-moz-range-thumb { 
+  width: 3px; height: 34px; border: 0; background: var(--mv-silt); border-radius: 2px; 
+}
+.velocity-container .loading { 
+  position: absolute; right: 16px; top: -26px; font-size: .8rem; color: #fff; text-shadow: 0 1px 3px #000; 
+}
  
 .velocity-container button:focus-visible,
 .velocity-container select:focus-visible,
@@ -147,6 +161,13 @@
 #wflow-viewer .legend-title { font-size: .82rem; font-weight: 600; margin-bottom: 3px; }
 #wflow-viewer .legend + .legend { margin-top: 12px; }
 #wflow-viewer .status.error { color: #b23a2b; }
+#wflow-viewer .row2 input[type=text], #wflow-viewer .row2 input[type=number] {
+  width: 100%; min-width: 0; font: inherit; font-size: .88rem;
+  color: var(--mv-ink); background: var(--mv-panel-2);
+  border: 1px solid var(--mv-line); border-radius: 6px; padding: 3px 4px;
+}
+#wflow-viewer #wv-res-hint { margin: -4px 0 8px; font-size: .78rem; }
+#wflow-viewer #wv-res-hint.error { color: #b23a2b; }
 #wv-panel.collapsed {
   bottom: auto !important; height: auto !important; max-height: none !important;
 }
@@ -159,6 +180,11 @@
 #wflow-viewer .series .line { fill: none; stroke: var(--mv-silt); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 #wflow-viewer .series .line.river { stroke: var(--mv-water); }
 #wflow-viewer .series .now { stroke: var(--mv-ink); stroke-width: 1; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+#wflow-viewer .row2.check { grid-template-columns: auto 1fr; cursor: pointer; }
+#wflow-viewer .row2.check input { accent-color: var(--mv-water); width: 16px; height: 16px; margin: 0; }
+#wflow-viewer #wv-particle-section[data-unavailable] { opacity: .55; }
+#wflow-viewer #wv-particle-section[data-unavailable] input,
+#wflow-viewer #wv-particle-section[data-unavailable] select { pointer-events: none; }
 #wv-chart .series { cursor: pointer; }
 #wv-chart .series.selected { outline: 2px solid #c07f22; outline-offset: -2px; }
 #wv-chart .series.missing { opacity: 0.6; font-style: italic; }
@@ -183,50 +209,15 @@
   white-space: nowrap; font-weight: 400;
 }
 
-
-
-
-/* #wflow-viewer .row2 input[type=number] {
-  width: 100%; min-width: 0; font: inherit; font-size: .88rem;
-  color: var(--mv-ink); background: var(--mv-panel-2);
-  border: 1px solid var(--mv-line); border-radius: 6px; padding: 3px 4px;
+.footer-download-btn {
+  position: absolute; top: 4px; right: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; color: inherit;
+  background: transparent; border: none; border-radius: 6px;
+  cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease;
 }
-#wflow-viewer .row2 input[type=range] { width: 100%; accent-color: var(--mv-water); }
-#wflow-viewer .row2[hidden], #wflow-viewer .legend[hidden] { display: none; }
-
-
-
-
-
-
-.timebar .track {
-    position: relative;
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 42px;
+.footer-download-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12); color: #ffd54f;
 }
-.timebar .trace {
-    position: absolute;
-    inset: 0 0 18px 0;
-    width: 100%; height: auto;
-    pointer-events: none;
-}
-
-
-.timebar .months {
-    position: absolute;
-    left: 0; right: 0; top: 0;
-    height: 16px;
-    pointer-events: none;
-}
-.timebar .months > span {
-    position: absolute;
-    transform: translateX(-50%);
-    font-size: 10px; white-space: nowrap; color: #555;
-}
-
-.timebar .track > input[type="range"] {
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    width: 100%; margin: 0;
-} */
+.footer-download-btn svg { display: block; } 
+.footer-download-btn:focus-visible { outline: 2px solid #ffd54f; outline-offset: 2px; }

@@ -275,6 +275,17 @@
                     <div class="months" id="months"></div>
                     <input type="range" id="time" min="0" max="1" step="0.01" value="0" aria-label="Simulation Period">
                 </div>
+                <button type="button" id="download-data-btn"
+                    class="footer-download-btn" title="Download data" aria-label="Download data">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg" width="15" height="15"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>
+                    </svg>
+                </button>
                 <span class="loading" id="loading" hidden>Loading Frame…</span>
             </footer>
         </div>

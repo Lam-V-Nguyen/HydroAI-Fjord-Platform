@@ -1,6 +1,5 @@
 import { jsonLoader, getDataFromTable, signalSender } from "./commonFunctions.js";
 
-
 function getTimeZoneOffset(utcMs, timeZone) {
     const dtf = new Intl.DateTimeFormat('en-US', {
         timeZone,

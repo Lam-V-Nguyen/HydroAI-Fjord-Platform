@@ -123,8 +123,7 @@ export async function plot2DMapStatic(
     const content = { 
         query: key, projectName: currentProject, key: 'static', timeZone: getLastTimeZone() 
     };
-    const data = await jsonLoader('process_data', content);
-    signalSender('hideOverlay');
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');
     if (data.status === 'error') { alert(data.message); return; }
     setStateVisualization({isPlaying: false});
     // Hide timeslider
@@ -360,8 +359,7 @@ export async function plot2DVectorMap(projectName, map, timeControl, colorbarCon
     colorbarVectorContainer, scaleObj, query, key, colorbarTitle, colorbarKey, vectorScaler) {
     signalSender('showOverlay', 'Preparing Dynamic Vector Map.\nPlease wait...');
     const content = {query: query, key: key, projectName: projectName, timeZone: getLastTimeZone()};
-    const data = await jsonLoader('load_vector_dynamic', content);
-    signalSender('hideOverlay'); 
+    const data = await jsonLoader('load_vector_dynamic', content); signalSender('hideOverlay'); 
     if (data.status === 'error') { alert(data.message); return; }
     layerMap = clearMap(layerMap, map); layerAbove = clearMap(layerAbove, map);
     initDynamicMap(

@@ -138,9 +138,7 @@ export async function initMovement(projectName, layer, map, object, timeZone, op
     allocParticles();
     await Promise.all([loadFrame(projectName, 0), loadFrame(projectName, 1)]);
     if (mySession !== session) return;
-    showTime(object, timeZone);
-    setPlaying(object, !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    last = performance.now();
+    showTime(object, timeZone); setPlaying(object, false); last = performance.now();
     rafId = requestAnimationFrame((now) => frame(projectName, object, now, mySession));
 }
 
@@ -216,6 +214,7 @@ function bindUI(name, obj, map, layer, timeZone) {
         if (flowPanel) flowPanel.style.display = 'none';
         destroyMovement(map); await jsonLoader('close_movement', {projectName: name});
     };
+    obj.downloadObj.onclick = () => { downloadTimeSeries(obj.traceObj, S, S.meta, tms); };
     keyHandler = (e) => {
         if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) && e.target.type !== "range") return;
         if (e.code === "Space") { e.preventDefault(); setPlaying(obj, !S.playing); }
@@ -330,7 +329,7 @@ function drawTrace(obj) {
     dPath += ` L${W} ${H} Z`;
     p.speed.forEach((v, i) => { sPath += `${i ? " L" : "M"}${X(i)} ${(H - ((v ?? 0) / smax) * H * 0.9).toFixed(1)}`; });
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.innerHTML = `<path class="depth" d="${dPath}"/><path class="speed" d="${sPath}"/>`;
+    svg.innerHTML = `<path class="depth" data-var="depth" d="${dPath}"/><path class="speed" data-var="speed" d="${sPath}"/>`;
 }
 function updateReadout(obj) {
     if (!S.probe) return;
@@ -545,4 +544,62 @@ function buildRaster(fa, fb, w) {
         }
     }
     offCtx.putImageData(offImg, 0, 0);
+}
+
+function downloadTimeSeries(trace, S, meta, tms) {
+    if (!trace || !S.probe || !meta) {
+        alert("No time-series data available. Please select a point first."); return;
+    }
+    const plottedNames = [
+        ...new Set(
+            [...trace.querySelectorAll("path[data-var]")]
+                .map(path => path.dataset.var).filter(Boolean)
+        )
+    ];
+    if (plottedNames.length === 0) {
+        alert("No time-series variables are currently plotted."); return;
+    }
+    const seriesMap = {
+        depth: S.probe.depth, speed: S.probe.speed, direction: S.probe.direction
+    };
+    const plottedSeries = plottedNames.map(name => {
+        const values = seriesMap[name];
+        if (!values || typeof values.length !== "number") {
+            console.warn(`No time-series data found for variable: ${name}`); return null;
+        }
+        const info = meta.variables?.[name] || {};
+        return {
+            name, label: info.description || name, units: info.units || "", values
+        };
+    }).filter(Boolean);
+    if (plottedSeries.length === 0) {
+        alert("No data available for the plotted variables."); return;
+    }
+    const escapeCSV = value => {
+        const text = String(value ?? "");
+        return `${text.replace(/"/g, '""')}`;
+    };
+    const headers = [
+        "Time (UTC)", ...plottedSeries.map(s => s.units ? `${s.label} (${s.units})` : s.label)
+    ];
+    const rows = [headers];
+    const rowCount = Math.max(tms?.length || 0, ...plottedSeries.map(s => s.values.length));
+    for (let i = 0; i < rowCount; i++) {
+        const time = meta.times?.[i] ?? (tms?.[i] != null ? new Date(tms[i]).toISOString() : "");
+        const row = [
+            time ? time.replace("T", " ").replace(/Z$/, "") : "",
+            ...plottedSeries.map(s => {
+                const value = s.values[i];
+                return value != null && Number.isFinite(Number(value)) ? value : "";
+            })
+        ]; rows.push(row);
+    }
+    const csv = rows.map(row => row.map(escapeCSV).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "time_series.csv";
+    document.body.appendChild(link);
+    link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

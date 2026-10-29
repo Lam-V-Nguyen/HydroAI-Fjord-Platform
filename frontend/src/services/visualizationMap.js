@@ -218,8 +218,7 @@ export async function pointPloter(key, points, map, content) {
                             clientName: params?.nameID, clientSecret: params?.secret, 
                             clientUserName: params?.userName, clientPassword: params?.password
                         };
-                        const response = await jsonLoader('plot_station', contents);
-                        signalSender('hideOverlay');
+                        const response = await jsonLoader('plot_station', contents); signalSender('hideOverlay');
                         if (response.status === "error") { alert(response.message); return; }
                         const chartTitle = `Station: ${name}`, titleX = 'Time';
                         await plotTimeSeries(

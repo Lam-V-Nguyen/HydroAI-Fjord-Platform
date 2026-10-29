@@ -5,12 +5,10 @@ from fastapi import Response
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT
 from services import functions
+from scipy.ndimage import gaussian_filter
 
 
-
-M_PER_DEG = 111_320.0
-VIEW_DIR = "viewer"
-FORMAT = 1
+M_PER_DEG, FORMAT, VIEW_DIR = 111_320.0, 1, "viewer"
 # PCRaster LDD: 1 SW 2 S 3 SE 4 W 5 pit 6 E 7 NW 8 N 9 NE
 LDD = {1: (-1, -1), 2: (0, -1), 3: (1, -1), 4: (-1, 0), 6: (1, 0), 7: (-1, 1), 8: (0, 1), 9: (1, 1)}
 
@@ -57,6 +55,12 @@ LAYER_SEP = "__layer"
 LDD_NAMES = ["local_drain_direction", "wflow_ldd", "ldd"]
 RIVER_NAMES = ["river_mask", "wflow_river"]
 BASIN_NAMES = ["subcatchment", "wflow_subcatch", "basins"]
+SLOPE_NAMES = ["land_slope", "Slope", "slope"]
+LAND_N_NAMES = ["land_manning_n", "N"]
+RIVER_W_NAMES = ["river_width", "wflow_riverwidth"]
+RIVER_N_NAMES = ["river_manning_n", "N_River"]
+RIVER_S_NAMES = ["river_slope", "RiverSlope"]
+LDD_UNIT = {k: (dx / math.hypot(dx, dy), dy / math.hypot(dx, dy)) for k, (dx, dy) in LDD.items()}
 
 class NpyRows:
     def __init__(self, path):
@@ -67,7 +71,7 @@ class NpyRows:
             self.shape, _, dtype = reader(f)
             self.offset = f.tell()
         self.dtype = np.dtype(dtype)
-        self.row_bytes = int(self.shape[1]) * self.dtype.itemsize
+        self.row_bytes = int(np.prod(self.shape[1:])) * self.dtype.itemsize
     def row_bytes_at(self, i):
         with open(self.path, "rb") as f:
             f.seek(self.offset + i * self.row_bytes)
@@ -98,23 +102,29 @@ def needs_rebuild(model_dir, res=None):
         raise FileNotFoundError(f"Wflow output not found: {p['output']}. Run the wflow model first.")
     meta_path = os.path.join(p["cache"], "meta.json")
     if not os.path.exists(meta_path):
-        return "no viewer cache yet"
+        return "No viewer cache yet"
     try:
         with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
     except Exception:
-        return "viewer meta.json is broken"
+        return "Viewer meta.json is broken"
     if meta.get("format") != FORMAT:
-        return "old viewer cache format"
+        return "Old viewer cache format"
     if os.path.getmtime(p["output"]) > float(meta.get("output_mtime", 0)) + 1:
-        return "model output is newer than the viewer cache"
-    if res not in (None, "", "auto", 0) and abs(float(res) - float(meta["grid"]["res_m"])) > 1e-6:
-        return f"resolution changed {meta['grid']['res_m']} -> {res} m"
-    if res in (None, "", "auto", 0) and not meta["grid"].get("res_auto"):
-        return "resolution changed to auto"
+        return "Model output is newer than the viewer cache"
+    if res in (None, ""): pass
+    elif str(res).strip().lower() == "auto":
+        if not meta["grid"].get("res_auto"):
+            return f"Resolution changed {meta['grid']['res_m']} m -> auto"
+    elif abs(float(res) - float(meta["grid"]["res_m"])) > 1e-6:
+        return f"Resolution changed {meta['grid']['res_m']} -> {res} m"
+    if "velocity" not in meta:
+        return "Viewer cache has no velocity field (particles)"
+    if meta.get("velocity") and not os.path.exists(os.path.join(p["cache"], meta["velocity"]["file"])):
+        return "Velocity cache file is missing"
     for v, info in meta.get("variables", {}).items():
         if not os.path.exists(os.path.join(p["cache"], f"{info['kind']}_{v}.npy")):
-            return f"cache file for {v} is missing"
+            return f"Cache file for {v} is missing"
     return None
 
 def wflow_ctx(project_name, flow_name, model_folder, user, META):
@@ -154,7 +164,7 @@ def model_paths(model_dir):
         "static": os.path.join(model_dir, static_name),
         "basins": os.path.join(model_dir, "staticgeoms", "basins.geojson"),
         "rivers_src": os.path.join(model_dir, "staticgeoms", "rivers.geojson"),
-        "cache": os.path.join(run_dir, VIEW_DIR),
+        "cache": os.path.join(model_dir, VIEW_DIR),
     }
 
 def get_crs(*datasets, default="EPSG:25833"):
@@ -178,6 +188,100 @@ def _nice(x):
     for m in (1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
         if m * e >= x * 0.999: return m * e
     return 10 * e
+
+def build_velocity(cache_dir, ds, static, flip, cell, src_crs, x, ys, src, 
+    domain, T, chunk, depth_threshold=1e-4, max_speed=5.0, smooth_cells=1.5):
+    if "overland_flow" not in ds and "river_discharge" not in ds: return None
+    def rd(name, sl):
+        a = np.asarray(ds[name].isel(time=sl).transpose("time", "y", "x").values, dtype=np.float32)
+        return a[:, ::-1] if flip else a
+    ldd = static(LDD_NAMES)
+    if ldd is not None:
+        code = np.nan_to_num(ldd.astype(float)).astype(int)
+        ux, uy = np.zeros(code.shape), np.zeros(code.shape)
+        for c, (dx, dy) in LDD_UNIT.items():
+            m = code == c; ux[m], uy[m] = dx, dy
+        how = "LDD"
+    else:
+        dem = static(["land_elevation", "wflow_dem", "elevtn"])
+        if dem is None:
+            raise ValueError("Static grid has no local_drain_direction or land_elevation")
+        z = gaussian_filter(np.nan_to_num(dem.astype(float), nan=np.nanmax(dem)), 1.0)
+        gy, gx = np.gradient(z, cell)
+        n = np.hypot(gx, gy) + 1e-12
+        ux, uy, how = -gx / n, -gy / n, "terrain slope"
+    first = slice(0, min(T, chunk))
+    wgt = np.zeros(domain.shape)
+    for name in ("overland_flow", "river_discharge"):
+        if name in ds:
+            with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+                __import__("warnings").simplefilter("ignore", RuntimeWarning)
+                wgt += np.nan_to_num(np.nanmean(np.abs(rd(name, first)), 0))
+    wgt += 1e-9
+    sx, sy = gaussian_filter(ux * wgt, smooth_cells), gaussian_filter(uy * wgt, smooth_cells)
+    nrm = np.hypot(sx, sy); okd = nrm > 1e-12
+    ux = np.where(okd, sx / np.where(okd, nrm, 1), ux); uy = np.where(okd, sy / np.where(okd, nrm, 1), uy)
+    to_ll = Transformer.from_crs(src_crs, "EPSG:4326", always_xy=True)
+    ii, jj = np.nonzero(domain)
+    xm, ym = float(x[jj].mean()), float(ys[ii].mean())
+    lo1, la1 = to_ll.transform(xm, ym); lo2, la2 = to_ll.transform(xm, ym + 100.0)
+    g = math.atan2((lo2 - lo1) * math.cos(math.radians(la1)), la2 - la1)
+    ue, vn = ux * math.cos(g) + uy * math.sin(g), -ux * math.sin(g) + uy * math.cos(g)
+    ue, vn = ue.ravel()[src].astype(np.float32), vn.ravel()[src].astype(np.float32)
+    def arr(names, default):
+        a = static(names)
+        return np.full(domain.shape, default) if a is None else np.nan_to_num(a.astype(float), nan=default)
+    has_h, has_hr = "overland_depth" in ds, "river_depth" in ds
+    S_land = np.maximum(arr(SLOPE_NAMES, 1e-3), 1e-4) if not has_h else None
+    n_land = arr(LAND_N_NAMES, 0.1) if not has_h else None
+    rmask = static(RIVER_NAMES)
+    rmask = (np.nan_to_num(rmask.astype(float)) > 0) if rmask is not None else np.zeros(domain.shape, bool)
+    use_river = "river_discharge" in ds and rmask.any()
+    W_r = np.maximum(arr(RIVER_W_NAMES, cell), 0.5) if use_river else None
+    S_r = np.maximum(arr(RIVER_S_NAMES, 1e-3), 1e-4) if use_river and not has_hr else None
+    n_r = arr(RIVER_N_NAMES, 0.036) if use_river and not has_hr else None
+    r_sel = rmask.ravel()[src] if use_river else None
+    Nv = src.size
+    path = os.path.join(cache_dir, "velocity.npy")
+    out = np.lib.format.open_memmap(path, mode="w+", dtype="<f2", shape=(T, 2, Nv))
+    rng, samples = np.random.default_rng(0), []
+    for k in range(0, T, chunk):
+        sl = slice(k, min(k + chunk, T)); n = sl.stop - sl.start
+        spd = np.full((n, Nv), np.nan, np.float32)
+        with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+            if "overland_flow" in ds:
+                Q = np.abs(rd("overland_flow", sl).reshape(n, -1)[:, src])
+                if has_h: H = rd("overland_depth", sl).reshape(n, -1)[:, src]
+                else: H = (Q * n_land.ravel()[src] / (cell * np.sqrt(S_land.ravel()[src]))) ** 0.6
+                wet = np.isfinite(Q) & np.isfinite(H) & (H > depth_threshold)
+                spd = np.where(wet, Q / (np.where(wet, H, 1) * cell), spd)
+            if use_river:
+                Qr = np.abs(rd("river_discharge", sl).reshape(n, -1)[:, src])
+                W = W_r.ravel()[src]
+                if has_hr: Hr = rd("river_depth", sl).reshape(n, -1)[:, src]
+                else: Hr = (Qr * n_r.ravel()[src] / (W * np.sqrt(S_r.ravel()[src]))) ** 0.6
+                wet_r = r_sel[None] & np.isfinite(Qr) & np.isfinite(Hr) & (Hr > depth_threshold)
+                spd = np.where(wet_r, Qr / (np.where(wet_r, Hr, 1) * W), spd)
+        spd = np.clip(spd, 0, max_speed)
+        out[sl, 0] = (spd * ue).astype("<f2")
+        out[sl, 1] = (spd * vn).astype("<f2")
+        v = spd[np.isfinite(spd) & (spd > 0)]
+        if v.size: samples.append(rng.choice(v, min(v.size, 20000), replace=False))
+    out.flush(); del out
+    allv = np.concatenate(samples) if samples else np.array([0.01])
+    return {
+        "file": "velocity.npy", "dtype": "<f2", "n": int(Nv),
+        "speed_max": max(float(np.percentile(allv, 99.5)), 1e-3),
+        "speed_p50": float(np.percentile(allv, 50)), "direction": how,
+        "meridian_convergence_deg": math.degrees(g),
+        "note": "u = east, v = north (m/s); NaN = dry cell"
+    }
+
+def velocity_bytes(model_dir, meta, i):
+    vel = meta.get("velocity")
+    if not vel:
+        raise FileNotFoundError("No velocity field in the viewer cache")
+    return NpyRows(os.path.join(model_paths(model_dir)["cache"], vel["file"])).row_bytes_at(i)
 
 def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48, 
     crs=None, progress=None, only=None):
@@ -257,6 +361,8 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
         src = cj[ok] * nx0 + ci[ok]
         Nv = vflat.size
         np.save(os.path.join(p["cache"], "mask.npy"), ok.reshape(ny, nx).astype(np.uint8))
+        src_idx = src.astype(np.int64)
+        np.save(os.path.join(p["cache"], "src_index.npy"), src_idx)
         # River
         r_i, r_j = np.nonzero(river)
         r_flat = r_i * nx0 + r_j
@@ -289,7 +395,6 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
         }
         samples = {v: [] for v in variables}
         rng = np.random.default_rng(0)
-        t0 = time.time()
         for k in range(0, T, chunk):
             sl = slice(k, min(k + chunk, T))
             for v in variables:
@@ -303,8 +408,7 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
                 s["max"][upd] = cm[upd]; s["tmax"][upd] = ca[upd]
                 s["sum"] += np.where(fin, a, 0).sum(0); s["n"] += fin.sum(0)
                 vals = a[fin]
-                if vals.size:
-                    samples[v].append(rng.choice(vals, min(vals.size, 20000), replace=False))
+                if vals.size: samples[v].append(rng.choice(vals, min(vals.size, 20000), replace=False))
             if progress: progress(sl.stop, T)
         meta_vars = {}
         for v in variables:
@@ -342,6 +446,12 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
             }, "times": [t.isoformat() for t in times], "step_hours": step_h,
             "variables": meta_vars, "river_cells": int(Nr),
         }
+        # Particle
+        try:
+            meta["velocity"] = build_velocity(p["cache"], ds, static, flip, cell, src_crs, x, ys, src_idx, domain, T, chunk)
+        except Exception as e:
+            meta["velocity"] = None
+            raise ValueError(f"build_cache: velocity field skipped – {e}")
         with open(os.path.join(p["cache"], "meta.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False)
         return meta
@@ -377,9 +487,7 @@ def point_series(model_dir, meta, lat, lon, variables=None, river_radius_cells=3
     if not mask[flat]: return None
     j_grid = int(mask[:flat].sum())
     out = {
-        "lat": g["lat0"] + iy * g["dlat"], 
-        "lon": g["lon0"] + ix * g["dlon"], 
-        "series": {}, "river": None
+        "lat": g["lat0"] + iy * g["dlat"], "lon": g["lon0"] + ix * g["dlon"], "series": {}, "river": None
     }
     river_j = None
     if meta.get("river_cells"):

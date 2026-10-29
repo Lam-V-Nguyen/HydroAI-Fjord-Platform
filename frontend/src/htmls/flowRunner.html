@@ -74,7 +74,12 @@
                                 <div class="row2"><label for="wv-river-var">River lines</label><select id="wv-river-var"></select></div>
                             </section>
                             <section><h2>Display</h2>
-
+                                <div class="row2">
+                                    <label for="wv-res">Resolution</label>
+                                    <input type="text" id="wv-res" inputmode="decimal" autocomplete="off" spellcheck="false"
+                                        placeholder="auto" title="Display resolution in metres. Empty or 'auto' = automatic. Press Enter to apply.">
+                                </div>
+                                <p class="hint" id="wv-res-hint"></p>
                                 <div class="row2"><label for="wv-mode">Show</label>
                                     <select id="wv-mode">
                                         <option value="animate" selected>Animation</option>
@@ -87,7 +92,7 @@
                                 </div>
                                 <div class="row2" id="wv-threshold-row" style="display: none;">
                                     <label for="wv-threshold">Threshold</label>
-                                    <input style="width: 100%;" id="wv-threshold" type="number" min="0" step="any" value="0.01" title="In the units of the map layer">
+                                    <input id="wv-threshold" type="number" min="0" step="any" value="0.01" title="In the units of the map layer">
                                 </div>
                                 <div class="row2"><label for="wv-scale">Colour scale</label>
                                     <select id="wv-scale">
@@ -97,15 +102,43 @@
                                     </select>
                                 </div>
                                 <label class="row">Layer opacity<output id="wv-opacity-out"></output>
-                                    <input type="range" id="wv-opacity" min="0.2" max="1" step="0.05" value="0.8"></label>
+                                    <input type="range" id="wv-opacity" min="0.2" max="1" step="0.05" value="0.8">
+                                </label>
                             </section>
-                            <section>
-                                <h2>Legend</h2>
+                            <section id="wv-particle-section"><h2>Flow Particles</h2>
+                                <label class="row2 check"><input type="checkbox" id="wv-particles" checked>Show moving particles
+                                </label>
+                                <label class="row">Particles density<output id="wv-pcount-out"></output>
+                                    <input type="range" id="wv-pcount" min="500" max="15000" step="500" value="4000">
+                                </label>
+                                <label class="row">Particles speed<output id="wv-pspeed-out"></output>
+                                    <input type="range" id="wv-pspeed" min="0.2" max="4" step="0.1" value="1">
+                                </label>
+                                <label class="row">Trail length<output id="wv-ptrail-out"></output>
+                                    <input type="range" id="wv-ptrail" min="0.80" max="0.98" step="0.01" value="0.92">
+                                </label>
+                                <div class="row2"><label for="wv-pcurve">Speed curve</label>
+                                    <select id="wv-pcurve">
+                                        <option value="linear">Linear – true proportion</option>
+                                        <option value="sqrt" selected>Square root – balanced</option>
+                                        <option value="log">Logarithmic – strong</option>
+                                    </select>
+                                </div>
+                                <div class="row2"><label for="wv-pcolor">Colour</label>
+                                    <select id="wv-pcolor">
+                                        <option value="black" selected>Black</option>
+                                        <option value="white">White</option>
+                                        <option value="blue">Dark blue</option>
+                                        <option value="speed">By speed</option>
+                                    </select>
+                                </div>
+                                <p class="hint" id="wv-pinfo"></p>
+                            </section>
+                            <section><h2>Legend</h2>
                                 <div class="legend" id="wv-legend-grid"></div>
                                 <div class="legend" id="wv-legend-river"></div>
                             </section>
-                            <section class="probe">
-                                <h2>Observation Point</h2>
+                            <section class="probe"><h2>Observation Point</h2>
                                 <p class="hint" id="wv-probe-hint">Click on a point inside the basin to view the time series.</p>
                                 <div id="wv-chart"></div>
                                 <details class="pick">
@@ -141,6 +174,17 @@
                             <div class="months" id="wv-months"></div>
                             <input type="range" id="wv-time" min="0" max="1" step="0.01" value="0" aria-label="Simulation Period">
                         </div>
+                        <button type="button" id="download-data-btn"
+                            class="footer-download-btn" title="Download data" aria-label="Download data">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg" width="15" height="15"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" aria-hidden="true">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>
+                            </svg>
+                        </button>
                         <span class="loading" id="wv-loading" hidden>Loading Frame…</span>
                     </footer>
                 </div>
@@ -158,5 +202,3 @@
     <script type="module" src="/src_frontend/services/flowRunner.js"></script>
 </body>
 </html>
-
-

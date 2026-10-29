@@ -98,7 +98,7 @@ function modelManager() {
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         const content = { projectName: currentProject, flowName: name };
-        signalSender('Reading forcing data to get start and end dates.\nPlease wait...');
+        signalSender('showOverlay', 'Reading forcing data to get start and end dates.\nPlease wait...');
         const data = await jsonLoader('flow_project', content); signalSender('hideOverlay');
         if (data.status === 'error') { alert(data.message); return; }
         const forcing = data.content['forcing'];

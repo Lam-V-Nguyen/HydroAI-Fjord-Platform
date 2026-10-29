@@ -161,7 +161,8 @@ export async function spatialMapManager(projectName) {
             probeHintObj: $$("probeHint"), readoutObj: $$("readout"), traceObj: $$("trace"),
             rSpeedObj: $$("rSpeed"), rDirObj: $$("rDir"), rDepthObj: $$("rDepth"),
             clockObj: $$("clock"), dateObj: $$("date"), loadingObj: $$("loading"),
-            resObj: $$("resInput"), motionObj: $$("motion"), curveObj: $$("curve"),
+            resObj: $$("resInput"), motionObj: $$("motion"), curveObj: $$("curve"), 
+            downloadObj: $$("download-data-btn")
         }
         const layerObj = document.getElementById('layerInput'); if (!layerObj) return;
         await initOptions(layerObj, 'layer_hyd', projectName);

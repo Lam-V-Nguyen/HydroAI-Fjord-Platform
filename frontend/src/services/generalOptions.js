@@ -68,10 +68,7 @@ function generalEvents(){
                 <th style="text-align: center;">Value</th>
                 </tr></thead><tbody>`;
             data.content.forEach(item => {
-                html += `<tr>
-                    <td>${item.parameter}</td>
-                    <td>${item.value}</td>
-                </tr>`;
+                html += `<tr><td>${item.parameter}</td> <td>${item.value}</td></tr>`;
             });
             html += `</tbody></table>`;
             obj.summaryContent.innerHTML = html;
@@ -114,8 +111,7 @@ function generalEvents(){
             const key = 'thermocline_hyd', query = 'temp_multi_dynamic';
             await thermoclineGridCreator(
                 currentProject, mapObj, key, query, titleX, titleY, chartTitle
-            );
-            signalSender('hideOverlay');
+            ); signalSender('hideOverlay');
         }
         // Plot thermocline for water quality
         if (e.target.id === 'waq-thermocline') {
@@ -215,8 +211,7 @@ async function thermoclineGridCreator(currentProject, mapObject, key, query, tit
 async function loadHYDStations() {
     signalSender('showOverlay', 'Reading Hydrodynamic Observation Points from Database.\nPlease wait...');
     const content = { projectName: currentProject, key: 'hyd_station', timeZone: getLastTimeZone() };
-    const data = await jsonLoader('process_data', content); // Load data
-    signalSender('hideOverlay');    
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
     if (getStateVisualization().hydLayer) { mapObj.removeLayer(getStateVisualization().hydLayer); }
     // Add station layer to the map
@@ -259,8 +254,7 @@ async function loadHYDStations() {
 async function loadSourceStations() {
     signalSender('showOverlay', 'Reading Sources/Sinks from Database.\nPlease wait...');
     const content = { projectName: currentProject, key: 'sources', timeZone: getLastTimeZone() };
-    const data = await jsonLoader('process_data', content);
-    signalSender('hideOverlay');    
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
     if (getStateVisualization().sourceLayer) { mapObj.removeLayer(getStateVisualization().sourceLayer); }
     const layer = L.geoJSON(data.content, {
@@ -286,8 +280,7 @@ async function loadSourceStations() {
 async function loadCrossSection() {
     signalSender('showOverlay', 'Reading Cross-Sections from Database.\nPlease wait...');
     const content = { projectName: currentProject, key: 'crosssections', timeZone: getLastTimeZone() };
-    const data = await jsonLoader('process_data', content);
-    signalSender('hideOverlay');
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');
     if (data.status === "error") { alert(data.message); return; }
     if (getStateVisualization().crosssectionLayer) { mapObj.removeLayer(getStateVisualization().crosssectionLayer); }
     const indx = data.message;
@@ -320,8 +313,7 @@ async function loadCrossSection() {
 async function loadWAQStations() {
     signalSender('showOverlay', 'Loading Water Quality Observation Points from Database.\nPlease wait...');
     const content = { projectName: currentProject, key: 'wq_obs', timeZone: getLastTimeZone() };
-    const data = await jsonLoader('process_data', content);
-    signalSender('hideOverlay');    
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
     if (getStateVisualization().wqObsLayer) { mapObj.removeLayer(getStateVisualization().wqObsLayer); }
     const layer = L.geoJSON(data.content, {
@@ -350,8 +342,7 @@ async function loadWAQStations() {
 async function loadWAQLoads() {
     signalSender('showOverlay', 'Loading Loads of Water Quality Observation Points from Database.\nPlease wait...');
     const content = { projectName: currentProject, key: 'wq_loads', timeZone: getLastTimeZone() };
-    const data = await jsonLoader('process_data', content);
-    signalSender('hideOverlay');    
+    const data = await jsonLoader('process_data', content); signalSender('hideOverlay');    
     if (data.status === "error") { alert(data.message); return; }
     if (getStateVisualization().wqLoadsLayer) { mapObj.removeLayer(getStateVisualization().wqLoadsLayer); }
     const layer = L.geoJSON(data.content, {
