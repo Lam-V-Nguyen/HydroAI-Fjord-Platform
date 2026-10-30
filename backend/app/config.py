@@ -9,7 +9,7 @@ load_dotenv()
 env_mode = os.getenv("ENV", "development")
 if env_mode == "development":
     PROJECT_DES = os.getenv("PROJECT_DES")
-    ALLOWED_USERS = os.path.normpath(os.path.join(PROJECT_DES, "backend/src/allowed_users.json"))
+    ALLOWED_USERS = os.path.normpath(os.path.join(PROJECT_DES, "backend/allowed_users.json"))
     PROJECT_ROOT = os.path.normpath(os.path.join(PROJECT_DES, "backend/projects"))
     SOURCE_BACKEND = os.path.normpath(os.path.join(PROJECT_DES, "backend/src"))
     SOURCE_FRONTEND = os.path.normpath(os.path.join(PROJECT_DES, "frontend/src"))

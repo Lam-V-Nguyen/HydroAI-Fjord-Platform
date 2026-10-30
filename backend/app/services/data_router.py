@@ -1,4 +1,4 @@
-import os, pickle, json, traceback, threading, requests, ast, rasterio
+import os, pickle, json, traceback, threading, requests, ast, rasterio, time
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
@@ -13,6 +13,7 @@ from rio_tiler.colormap import cmap
 from rio_tiler.utils import render
 from rio_tiler.errors import TileOutsideBounds
 
+STALE_AFTER_S = 15 * 60
 
 router, processes = APIRouter(), {}
 
@@ -345,9 +346,7 @@ async def save_weather_csv(request: Request):
         df = df.dropna(subset=['Time'], how='any')
         df = df.replace([np.inf, -np.inf], np.nan)
         if 'stationId' not in df.columns:
-            return JSONResponse({
-                'status': 'error', 'message': 'Column "stationId" not found.'
-            })
+            return JSONResponse({'status': 'error', 'message': 'Column "stationId" not found.'})
         df = df.dropna(subset=['stationId'], how='any')
         stations = {x[0]: (x[1], x[2]) for x in ids}
         # Create ZIP in memory
@@ -634,6 +633,24 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
             args=(project_name, flow_name, processes, key_process, api_key, start, end, time_zone), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started."})
+
+def _is_active(info):
+    return bool(info) and info.get("status") == "running" and \
+        time.time() - info.get("heartbeat", 0) < STALE_AFTER_S
+
+@router.post("/cancel_download_weather")
+async def cancel_download_weather(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get("projectName"), user)
+    info = processes.get(f"{project_name}:{body.get('key')}")
+    if not _is_active(info):
+        return JSONResponse({"status": "idle", "message": "No download running."})
+    info["cancel"] = True
+    return JSONResponse({"status": "ok", "message": "Cancelling... (takes effect within a few seconds)"})
+
+
+
+
 
 @router.post("/wflow_model")
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):

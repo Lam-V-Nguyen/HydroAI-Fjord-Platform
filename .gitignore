@@ -13,11 +13,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# Files
+/backend/allowed_users.json
+
 # Folder
 /backend/softs
 /backend/projects
-backend/src/lakes_database
-backend/src/allowed_users.json
+/backend/src/lakes_database
 /test
 /test1
 /Calibration

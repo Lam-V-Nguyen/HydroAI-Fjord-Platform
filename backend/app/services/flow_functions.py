@@ -1,9 +1,9 @@
 import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
 import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.geometry import shape
+from shapely.geometry import Polygon, MultiPolygon, box, shape
 from scipy.spatial import cKDTree
+from scipy.ndimage import distance_transform_edt
 from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
@@ -499,13 +499,17 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     soil_dir = os.path.normpath(os.path.join(flow_dir, "soil"))
+    os.makedirs(soil_dir, exist_ok=True)
     # Work with log
     log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
     if os.path.exists(log_path): os.remove(log_path)
+    logger, ref = None, None
     try:
+        if os.path.exists(log_path): os.remove(log_path)
         logger = setup_logger("soil", log_path)
         # Download soil data 2017 from ISRIC: https://files.isric.org/soilgrids/former/2017-03-10/
         logger.info("Preparing data download...")
+        logger.info("Reading dtm data...")
         with rasterio.open(dtm_path) as src:
             dtm = src.read(1, masked=True)
             nodata, profile = src.nodata, src.profile
@@ -522,7 +526,6 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                 out_shape=(height, width), transform=transform, fill=0, default_value=1
             )
         else:
-            mask_catchment = None
             valid_mask = ~np.ma.getmaskarray(dtm)
             if nodata is None: valid_mask = np.isfinite(dtm.data)
             polygons = [
@@ -531,6 +534,9 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                     valid_mask.astype(np.uint8), mask=valid_mask, transform=transform
                 ) if value == 1
             ]
+            if not polygons:
+                logger.error(f"DTM has no valid cells: {dtm_path}")
+                raise ValueError(f"DTM has no valid cells: {dtm_path}")
             catchment_buffer = gpd.GeoDataFrame(geometry=[gpd.GeoSeries(polygons).union_all()], crs=crs)
             catch_array = rasterize(
                 shapes=catchment_buffer.geometry, out_shape=(height, width),
@@ -538,39 +544,47 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
             )
         mask_catchment = catch_array == 1
         catchment_buffer_wgs84 = catchment_buffer.to_crs("EPSG:4326")
+        pad = 0.01
         min_lon, min_lat, max_lon, max_lat = catchment_buffer_wgs84.total_bounds
+        water_path, mask_lake = os.path.normpath(os.path.join(flow_dir, 'water_area', water)), None
+        if water and os.path.exists(water_path) and os.path.getsize(water_path) > 0:
+            lake = gpd.read_file(water_path)
+            lake_reproj = lake.to_crs(crs)
+            lake_array = rasterize(
+                shapes=[geom for geom in lake_reproj.geometry], dtype=np.uint8,
+                out_shape=(height, width), transform=transform, fill=0, default_value=1
+            )
+            mask_lake = lake_array == 1
+        def read_isric(url):
+            with rioxarray.open_rasterio(url) as src:
+                data_xr = src.rio.clip_box(minx=min_lon-pad, miny=min_lat-pad,
+                                           maxx=max_lon+pad, maxy=max_lat+pad)
+                data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
+                isric_nodata = data_xr.rio.nodata
+                data_xr = data_xr.load()
+            arr = data_xr[0].values.astype(np.float64)
+            valid = np.isfinite(arr)
+            if isric_nodata is not None: valid &= arr != isric_nodata
+            if not valid.any():
+                logger.error(f"No valid ISRIC data in area: {url}")
+                raise ValueError(f"No valid ISRIC data in area: {url}")
+            return arr, valid
         if soil_source == "isric":
             soil_depths = flow_functions.soil_depths
             soil_types, depths = flow_functions.soil_types, list(soil_depths.values())
-            logger.info("Reading dtm data...")
+            # Get raster information
+            ref = rioxarray.open_rasterio(dtm_path).squeeze()
             # Soil thickness
             logger.info("Creating soil thickness data...")
             soil_thickness_url = f"{ISRIC_URL}BDRICM_M_250m_ll.tif"
-            # Get raster information
-            ref = rioxarray.open_rasterio(dtm_path).squeeze()
-            with rioxarray.open_rasterio(soil_thickness_url) as src:
-                data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
-                data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
-                nodata = data_xr.rio.nodata
-            soil_thickness_array = data_xr[0].values
+            soil_thickness_array, mask_valid = read_isric(soil_thickness_url)
             # Interpolate data
             logger.info("Interpolating soil thickness data...")
-            mask_valid = soil_thickness_array != nodata
             soil_thickness_values = flow_functions.interpolate_extrapolate(soil_thickness_array, ~mask_valid, True)
+            soil_thickness_values = np.where(np.isfinite(soil_thickness_values), soil_thickness_values, NODATA_SOIL_THICKNESS)
             soil_thickness_values = soil_thickness_values.astype(np.int32)
-            # Clip to catchment
-            if mask_catchment is not None: soil_thickness_values[~mask_catchment] = NODATA_SOIL_THICKNESS
-            # Clip to lake
-            water_path, mask_lake = os.path.normpath(os.path.join(flow_dir, 'water_area', water)), None
-            if os.path.exists(water_path) and os.path.getsize(water_path) > 0:
-                lake = gpd.read_file(water_path)
-                lake_reproj = lake.to_crs(crs)
-                lake_array = rasterize(
-                    shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
-                    out_shape=(height, width), transform=transform, fill=nodata
-                )
-                mask_lake = (lake_array != nodata)
-            else: mask_lake = None
+            # Clip to catchment & lake
+            soil_thickness_values[~mask_catchment] = NODATA_SOIL_THICKNESS
             if mask_lake is not None: soil_thickness_values[mask_lake] = NODATA_SOIL_THICKNESS
             soil_thickness_path = os.path.normpath(os.path.join(soil_dir, 'soilthickness.tif'))
             profile_writer = profile.copy()
@@ -583,22 +597,21 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                 for depth in depths:
                     file_url = f'{ISRIC_URL}{file}_{depth}_250m_ll.tif'
                     logger.info(f"Downloading: {file}_{depth}_250m_ll.tif...")
-                    with rioxarray.open_rasterio(file_url) as src:
-                        data_xr = src.rio.clip_box(minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat)
-                        data_xr = data_xr.rio.reproject_match(ref, resampling=Resampling.nearest)
-                        nodata = data_xr.rio.nodata
-                    soil_array = data_xr[0].values
+                    soil_array, mask_valid = read_isric(file_url)
                     # Interpolate data
-                    mask_valid = soil_array != nodata
                     logger.info(f"Interpolating {file}_{depth}_250m_ll.tif...")
                     soil_values = flow_functions.interpolate_extrapolate(soil_array, ~mask_valid, True)
                     soil_values = soil_values / scale
+                    soil_values = np.where(np.isfinite(soil_values), soil_values, nodata_soil)
                     if mask_lake is not None: soil_values[mask_lake] = nodata_soil
-                    if mask_catchment is not None: soil_values[~mask_catchment] = nodata_soil
+                    soil_values[~mask_catchment] = nodata_soil
                     path = os.path.normpath(os.path.join(soil_dir, f'{name}_{depth}.tif'))
                     profile_writer.update(dtype=dtype)
                     flow_functions.write_geotif(soil_values, profile_writer, path, nodata_soil, unit)
                     logger.info(f"Saved downloaded data to: {path}")
+        else:
+            logger.error(f"Unsupported soil_source: {soil_source}")
+            raise ValueError(f"Unsupported soil_source: {soil_source}")
         logger.handlers[0].flush()
         processes[process_key] = {"status": "finished", "message": "\nSoil data downloaded successfully.\n\n"}
     except Exception as e:
@@ -607,6 +620,9 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
         if logger: logger.exception("Data download failed.")
         processes[process_key] = {"status": "failed", "message": str(e)}
     finally:
+        if ref is not None:
+            try: ref.close()
+            except Exception: pass
         if logger:
             for h in logger.handlers[:]:
                 try:
@@ -614,81 +630,107 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                     h.close()
                 finally: logger.removeHandler(h)
 
-def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, river_path:str, water_path:str):
+def water_masks(water_path, crs, transform, shape, mode="sea", logger=None):
+    """mode: 'none', 'sea', 'all'"""
+    if not water_path or not os.path.isfile(water_path): return None, None
+    water = gpd.read_file(water_path)
+    water = water[water.geometry.notna() & ~water.geometry.is_empty]
+    if water.empty: return None, None
+    water = water.to_crs(crs)
+    water["geometry"] = water.geometry.make_valid()
+    height, width = shape
+    def _burn(gdf):
+        if gdf.empty: return None
+        return rasterize(((g, 1) for g in gdf.geometry), out_shape=shape, 
+            transform=transform, fill=0, dtype="uint8").astype(bool)
+    if mode == "none": return None, _burn(water)
+    if mode == "all": return _burn(water), None
+    left, top = transform.c, transform.f
+    right, bottom = left + width * transform.a, top + height * transform.e
+    edge = box(left, min(top, bottom), right, max(top, bottom)).exterior.buffer(abs(transform.a))
+    touches = water.intersects(edge)
+    if logger: logger.info(f"Water polygons: {int(touches.sum())} open water (excluded), "
+        f"{int((~touches).sum())} inland lakes (kept).")
+    return _burn(water[touches]), _burn(water[~touches])
+
+def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, 
+    river_path:str, water_path:str, water_mode:str="sea"):
     with rasterio.open(dem_path) as src:
         dem_array = src.read(1)
         crs, nodata = src.crs, src.nodata
         transform, profile = src.transform, src.profile
         height, width = src.height, src.width
-        # Fill depressions
-        logger.info("Filling depressions...")
-        filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
-        logger.info("Creating flow directions...")
-        flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
-        mask_lake = None
-        if water_path is not None:
-            logger.info("Masking lake area...")
-            lake = gpd.read_file(water_path)
-            lake_reproj = lake.to_crs(crs)
-            lake_array = rasterize(
-                shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
-                out_shape=(height, width), transform=transform, fill=nodata
-            )
-            mask_lake = (lake_array != nodata)
-        if mask_lake is not None:  filled_array[mask_lake] = dem_array[mask_lake] # Replace lake elevation
-        NODATA_FLWDR, NODATA_BASIN = 255, 0
-        # Create basins
-        logger.info("Creating basins...")
-        basins_array = flw.basins()
-        unique, counts = np.unique(basins_array, return_counts=True)
-        largest_basin_id = unique[np.argmax(counts)]
-        basins_mask = (basins_array == largest_basin_id)
-        basins_array[basins_mask], basins_array[~basins_mask] = 1, NODATA_BASIN
-        logger.info("Creating elevation profile...")
-        elevtn_array = filled_array.copy()
-        # Create slope
-        logger.info("Creating slope...")
-        dx, dy = transform.a, abs(transform.e)
-        # Gradient elevation
-        gradient_array = filled_array.copy()
-        gy, gx = np.gradient(gradient_array, dy, dx)
-        slope_array = np.sqrt(gx**2 + gy**2)
-        # Create stream order
-        logger.info("Creating stream order...")
-        uparea_array = flw.upstream_area(unit='km2')
-        # Create stream mask and stream order
-        stream_mask = (uparea_array >= area_km2)
-        strord_array = flw.stream_order(type='strahler', mask=stream_mask)
-        # Create upstream grid
-        logger.info("Creating upstream grid...")
-        upstream_array = flw.upstream_area(unit='cell')
-        # Create river width
-        logger.info("Creating river width...")
-        river = gpd.read_file(river_path).to_crs(crs)
-        shape = ((geom, value) for geom, value in zip(river.geometry, river["rivwth"]))
-        rivwth_array = rasterize(
-            shapes=shape, out_shape=(profile["height"], profile["width"]),
-            transform=transform, fill=nodata, dtype=np.float32
-        )
-        files_float = {
-            'elevtn.tif': [elevtn_array, nodata, np.float32],
-            'flwdir.tif': [flwdir_array, NODATA_FLWDR, np.uint8],
-            'lndslp.tif': [slope_array, nodata, np.float32],
-            'basins.tif': [basins_array, NODATA_BASIN, np.int32], 
-            'uparea.tif': [uparea_array, nodata, np.float32],
-            'strord.tif': [strord_array, NODATA_BASIN, np.int16],
-            'upgrid.tif': [upstream_array, NODATA_BASIN, np.int32],
-            'rivwth.tif': [rivwth_array, nodata, np.float32]
-        }
-        profile_writer = profile.copy()
-        for file, array in files_float.items():
-            profile_writer.update({'dtype': array[2]})
-            file_path = os.path.normpath(os.path.join(directory, file))
-            logger.info(f"Creating data: {file_path}")
-            logger.info(f"Writing data to: {file_path}")
-            flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
 
-def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str, area:float=10):
+    if nodata is None: nodata = -9999.0
+    dem_array[np.isnan(dem_array)] = nodata
+    mask_exclude, mask_lake = water_masks(water_path, crs, transform, (height, width), water_mode, logger)
+    if mask_exclude is not None:
+        logger.info(f"Excluding {int(mask_exclude.sum())} water cells from the model domain...")
+        dem_array[mask_exclude] = nodata
+        if not np.any(dem_array != nodata):
+            raise ValueError("No land cells left after masking water area.")
+    logger.info("Filling depressions...")
+    filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
+    logger.info("Creating flow directions...")
+    flw = pyflwdir.from_dem(filled_array, transform=transform, latlon=crs.is_geographic, nodata=nodata)
+    NODATA_FLWDR, NODATA_BASIN = 255, 0
+    # Create basins
+    logger.info("Creating basins...")
+    basins_array = flw.basins()
+    unique, counts = np.unique(basins_array, return_counts=True)
+    largest_basin_id = unique[np.argmax(counts)]
+    basins_mask = (basins_array == largest_basin_id)
+    basins_array[basins_mask], basins_array[~basins_mask] = 1, NODATA_BASIN
+    logger.info("Creating elevation profile...")
+    elevtn_array = filled_array.copy()
+    # Create slope
+    logger.info("Creating slope...")
+    dx, dy = transform.a, abs(transform.e)
+    valid = filled_array != nodata
+    if (~valid).any():
+        idx = distance_transform_edt(~valid, return_distances=False, return_indices=True)
+        grad_src = filled_array[tuple(idx)]
+    else: grad_src = filled_array
+    # Gradient elevation
+    gy, gx = np.gradient(grad_src, dy, dx)
+    slope_array = np.sqrt(gx**2 + gy**2).astype(np.float32)
+    slope_array[~valid] = nodata
+    # Create stream order
+    logger.info("Creating stream order...")
+    uparea_array = flw.upstream_area(unit='km2')
+    # Create stream mask and stream order
+    stream_mask = (uparea_array >= area_km2)
+    strord_array = flw.stream_order(type='strahler', mask=stream_mask)
+    # Create upstream grid
+    logger.info("Creating upstream grid...")
+    upstream_array = flw.upstream_area(unit='cell')
+    # Create river width
+    logger.info("Creating river width...")
+    river = gpd.read_file(river_path).to_crs(crs)
+    shape = ((geom, value) for geom, value in zip(river.geometry, river["rivwth"]))
+    rivwth_array = rasterize(
+        shapes=shape, out_shape=(profile["height"], profile["width"]),
+        transform=transform, fill=nodata, dtype=np.float32
+    )
+    files_float = {
+        'elevtn.tif': [elevtn_array, nodata, np.float32],
+        'flwdir.tif': [flwdir_array, NODATA_FLWDR, np.uint8],
+        'lndslp.tif': [slope_array, nodata, np.float32],
+        'basins.tif': [basins_array, NODATA_BASIN, np.int32], 
+        'uparea.tif': [uparea_array, nodata, np.float32],
+        'strord.tif': [strord_array, NODATA_BASIN, np.int16],
+        'upgrid.tif': [upstream_array, NODATA_BASIN, np.int32],
+        'rivwth.tif': [rivwth_array, nodata, np.float32]
+    }
+    profile_writer = profile.copy()
+    for file, array in files_float.items():
+        profile_writer.update({'dtype': array[2]})
+        file_path = os.path.normpath(os.path.join(directory, file))
+        logger.info(f"Creating data: {file_path}")
+        logger.info(f"Writing data to: {file_path}")
+        flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
+
+def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str, area:float=10, water_mode:str="sea"):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     # Work with log
@@ -716,7 +758,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
         logger.info("="*60)
         logger.info("Checking water area data...")
         water_dir = os.path.join(model_dir, 'water_area')
-        water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")]
+        water_files = [f for f in os.listdir(water_dir) if f.endswith(".geojson")] if os.path.isdir(water_dir) else []
         if len(water_files) == 0:
             logger.warning("Water area data not found. Water area will not be masked.")
             water_path = None
@@ -742,7 +784,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
             shutil.rmtree(hydro_dir)
         os.makedirs(hydro_dir, exist_ok=True)
         logger.info(f"Creating template hydro data at: {hydro_dir}")
-        hydro_creator(hydro_dir, terrain_path, area, logger, river_path, water_path)
+        hydro_creator(hydro_dir, terrain_path, area, logger, river_path, water_path, water_mode)
         logger.info("Write hydro data completed.")
         logger.info("=" * 60)
         logger.info("Checking landcover data...")

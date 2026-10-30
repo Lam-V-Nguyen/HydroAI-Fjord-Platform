@@ -39,7 +39,8 @@ const obj = {
     weatherStationContainer: $('weather-station-container'), weatherStart: $('weather-start-date'), weatherEnd: $('weather-end-date'),
     weatherInputFile: $('weather-input-file'), weatherInputText: $('weather-input-text'), weatherBtn: $('weather-btn'), 
     weatherTable: $('weather-table'), weatherSelector: $('weather-source'), weatherInterval: $('weather-interval'), 
-    downloadWeatherBtn: $('weather-download-btn'), weatherLog: $('weather-download-text'), era5APIBtn: $('era5-api-btn'),
+    downloadWeatherBtn: $('weather-download-btn'), weatherLog: $('weather-download-text'), 
+    era5APIBtn: $('era5-api-btn'), cancelWeatherBtn: $('weather-cancel-btn'),
     weatherTableContainer: $('weather-table-container'), weatherDownloadContainer: $('weather-download-container'), 
     era5APIContainer: $('era5-api-container'), saveWeatherBtn: $('weather-save-btn'), era5APIKey: $('era5-api-key')
 }
@@ -799,10 +800,12 @@ function weatherManager() {
         if (!value || value === '') { alert('Please select weather source data first.'); return; }
         const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value, keyChecker = 'weather';
         if (startTime === '' || endTime === '') { alert('Please select a time range.'); return; }
+        if (new Date(startTime) >= new Date(endTime)) { alert('Start time must be before end time.'); return; }
+        if (value !== 'era5') return;
+        const apiKey = obj.era5APIKey.value.trim();
+        if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
         try {
             if (value == 'era5') {
-                const apiKey = obj.era5APIKey.value;
-                if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
                 const contentChecker = { projectName: currentProject, key: keyChecker };
                 const statusRes = await jsonLoader('check_download_status', contentChecker);
                 if (statusRes.status === "running") { alert("Weather download is running."); return; }
@@ -818,6 +821,10 @@ function weatherManager() {
                 });
             }
         } catch (error) { alert(error.message); return; }
+    });
+    obj.cancelWeatherBtn.addEventListener('click', async () => {
+        const res = await jsonLoader('cancel_download_weather', { projectName: currentProject, key: keyChecker });
+        alert(res.message);
     });
 }
 

@@ -148,9 +148,11 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
                     else:
                         processes[process_key]["status"] = "finished"
                         processes[process_key]["message"] = "Simulation completed."
+                    functions.append_log(log_path, processes[process_key]["message"])
                 except Exception as e:
                     processes[process_key]["status"] = "failed"
                     processes[process_key]["message"] = f"Simulation failed: {e}."
+                    functions.append_log(log_path, processes[process_key]["message"])
         threading.Thread(target=stream_logs, daemon=True).start()
     return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started."})
 
