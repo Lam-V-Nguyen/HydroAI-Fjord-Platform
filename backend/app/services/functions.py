@@ -1,5 +1,5 @@
 import os, json, chardet, asyncio, stat, time, re, shapely
-import shutil, base64, signal, subprocess
+import shutil, base64, signal, subprocess, gc
 from config import ALLOWED_USERS
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import Depends, HTTPException, status
@@ -160,6 +160,24 @@ def _on_rm_error(func, path, exc_info):
         func(path)
     except Exception: pass
 
+def replace_dir(src, dst, retries=10, delay=1.0):
+    last_err = None
+    for _ in range(retries):
+        try:
+            safe_remove(dst, retries=1, delay=0)
+            os.rename(src, dst)
+            return
+        except Exception as e:
+            last_err = e
+            gc.collect()
+            time.sleep(delay)
+    try:
+        safe_remove(dst)
+        shutil.copytree(src, dst)
+        safe_remove(src)
+    except Exception as e:
+        raise RuntimeError(f"Cannot replace '{dst}': {e}") from last_err
+    
 def safe_remove(path, retries=10, delay=1):
     if not os.path.exists(path): return
     last_err = None

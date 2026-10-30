@@ -3,7 +3,7 @@ from config import SOURCE_BACKEND
 from services import functions
 import geopandas as gpd, xarray as xr, numpy as np
 from shapely.geometry import Point
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 def hydReader(hyd_path: str, time_zone: str) -> dict:
     # Read the hyd file
@@ -77,17 +77,81 @@ def segmentFinder(lat:float, lon:float, grid:gpd.GeoDataFrame) -> int:
     idx = int(polygon.index[0])
     return idx + 1
 
-def poiInspector(ptr_path: str, n_vertical: int) -> dict:
-    raw = np.fromfile(ptr_path, dtype=np.int32)
-    if raw.size % 4 != 0:
-        raise ValueError(f"Unexpected .poi size: {raw.size} ints (not divisible by 4)")
-    poi = raw.reshape(-1, 4)
-    noq = poi.shape[0]
-    min_ptr = int(poi[:, :2].min())
-    return {
-        'noq': noq, 'exchange_x': noq - int(n_vertical),
-        'n_boundaries': -min_ptr if min_ptr < 0 else 0,
-    }
+def ddhhmmss_to_seconds(value) -> int:
+    s = str(value).strip().strip("'").zfill(8)
+    dd, hh, mm, ss = int(s[:-6]), int(s[-6:-4]), int(s[-4:-2]), int(s[-2:])
+    return ((dd * 24 + hh) * 60 + mm) * 60 + ss
+
+def seconds_to_ddhhmmss(seconds: int) -> str:
+    dd, r = divmod(int(seconds), 86400)
+    hh, r = divmod(r, 3600)
+    mm, ss = divmod(r, 60)
+    return f"{dd:03d}{hh:02d}{mm:02d}{ss:02d}"
+
+def _recordTimes(path: str, n_values: int) -> tuple:
+    rec = np.dtype([('t', '<i4'), ('v', '<f4', (n_values,))])
+    size = os.path.getsize(path)
+    if size % rec.itemsize != 0:
+        raise ValueError(f"{os.path.basename(path)}: size {size} is not a multiple of record size {rec.itemsize}")
+    data = np.memmap(path, dtype=rec, mode='r')
+    t_first, t_last, n_rec = int(data['t'][0]), int(data['t'][-1]), len(data)
+    del data
+    return t_first, t_last, n_rec
+
+def hydDataWindow(vol_path: str, flow_path: str, n_segments: int, noq: int, ref_time: datetime) -> tuple:
+    v_first, v_last, _ = _recordTimes(vol_path, n_segments)
+    f_first, f_last, _ = _recordTimes(flow_path, noq)
+    first = ref_time + timedelta(seconds=max(v_first, f_first))
+    last = ref_time + timedelta(seconds=min(v_last, f_last))
+    return first, last
+
+def hydTimeInfo(hyd_path: str) -> dict:
+    keys, info = {'conversion-ref-time': 'ref_time', 'conversion-start-time': 'start_time',
+        'conversion-stop-time': 'stop_time', 'conversion-timestep': 'conv_step'}, {}
+    with open(hyd_path, 'r', encoding=functions.encoding_detect(hyd_path)) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 2 or parts[0] not in keys: continue
+            value = parts[1].strip("'")
+            if parts[0] == 'conversion-timestep':
+                info['conv_step'] = ddhhmmss_to_seconds(value)
+            else:
+                info[keys[parts[0]]] = datetime.strptime(value, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+    missing = [k for k in keys.values() if k not in info]
+    if missing: raise ValueError(f"Missing in .hyd file: {missing}")
+    return info
+
+
+def simWindowChecker(parameters: dict, noq: int) -> tuple:
+    info = hydTimeInfo(parameters['hyd_path'])
+    conv = info['conv_step']
+    first, last = hydDataWindow(
+        parameters['vol_path'], parameters['flow_path'],
+        int(parameters['n_segments']), noq, info['ref_time']
+    )
+    dt_calc = ddhhmmss_to_seconds(parameters['t_calc']) if parameters.get('t_calc') else conv
+    dt_out = ddhhmmss_to_seconds(parameters['t_output'])
+    if dt_calc <= 0 or dt_out <= 0:
+        raise ValueError("Timesteps must be positive.")
+    if dt_calc > conv or conv % dt_calc != 0:
+        raise ValueError(f"Integration timestep ({dt_calc}s) must be <= and divide the "
+                         f"hydrodynamic coupling interval ({conv}s).")
+    if dt_out % dt_calc != 0:
+        raise ValueError(f"Output timestep ({dt_out}s) must be a multiple of the integration timestep ({dt_calc}s).")
+    t_start, t_stop, msgs = parameters['t_start'], parameters['t_stop'], []
+    if t_start < first or t_start >= last:
+        raise ValueError(f"WAQ start {t_start:%Y-%m-%d %H:%M} UTC is outside the hydrodynamic data "
+                         f"({first:%Y-%m-%d %H:%M} – {last:%Y-%m-%d %H:%M} UTC).")
+    safe_stop = last - timedelta(seconds=conv)
+    target = min(t_stop, safe_stop)
+    n_steps = int((target - t_start).total_seconds() // dt_calc)
+    if n_steps < 1:
+        raise ValueError("WAQ simulation window is too short after aligning to the hydrodynamic data.")
+    new_stop = t_start + timedelta(seconds=n_steps * dt_calc)
+    if new_stop != t_stop:
+        msgs.append(f"Stop time adjusted from {t_stop:%Y-%m-%d %H:%M} to {new_stop:%Y-%m-%d %H:%M} UTC "
+            f"(last hydrodynamic record: {last:%Y-%m-%d %H:%M} UTC).")
+    return t_start, new_stop, dt_calc, dt_out, ' '.join(msgs)
 
 def poiInspector(ptr_path: str, n_vertical: int) -> dict:
     raw = np.fromfile(ptr_path, dtype=np.int32)
@@ -109,14 +173,15 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         data = xr.open_dataset(grid_path, chunks={'time': 1}, decode_times=False)
         grid = functions.unstructuredGridCreator(data)
         data.close()
+        poi_info = poiInspector(parameters['ptr_path'], parameters['exchange_z'])
         params_INC['t0'], params_INC['t0_scu'] = '1970.01.01 00:00:00', 1
         params_INC['B2_numsettings'] = f'{parameters["scheme"]}.70 ; integration option\n; detailed balance options'
         # Prepare for the config file B2_simtimers
-        start_utc = parameters['t_start'].strftime('%Y/%m/%d-%H:%M:%S')
-        stop_utc = parameters['t_stop'].strftime('%Y/%m/%d-%H:%M:%S')
-        params_INC['B2_simtimers'] = [f"{start_utc} ; start time", f"{stop_utc} ; stop time", 
-            f"{parameters['t_step1']} ; timestep constant", f"{parameters['t_step2']} ; timestep"
-        ]
+        t_start, t_stop, dt_calc, dt_out, time_msg = simWindowChecker(parameters, poi_info['noq'])
+        start_utc = t_start.strftime('%Y/%m/%d-%H:%M:%S')
+        stop_utc = t_stop.strftime('%Y/%m/%d-%H:%M:%S')
+        calc_str, out_str = seconds_to_ddhhmmss(dt_calc), seconds_to_ddhhmmss(dt_out)
+        params_INC['B2_simtimers'] = [f"{start_utc} ; start time", f"{stop_utc} ; stop time", "0 ; timestep constant", f"{calc_str} ; timestep"]
         # Prepare for the config file B2_outlocs
         obs_point = list(parameters['obs_data'])
         if len(obs_point) > 0:
@@ -131,9 +196,9 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         else: params_INC['B2_outlocs'] = '0 ; nr of monitor locations'
         # Prepare for the config file B2_outputtimers
         params_INC['B2_outputtimers'] = [';  output control (see DELWAQ-manual)', ';  yyyy/mm/dd-hh:mm:ss  yyyy/mm/dd-hh:mm:ss  dddhhmmss',
-            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for balance output',
-            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for map output',
-            f'{start_utc} {stop_utc} {parameters["t_step2"]} ;  start, stop and step for his output'
+            f'{start_utc} {stop_utc} {out_str} ;  start, stop and step for balance output',
+            f'{start_utc} {stop_utc} {out_str} ;  start, stop and step for map output',
+            f'{start_utc} {stop_utc} {out_str} ;  start, stop and step for his output'
         ]
         # Prepare for the config file B3_ugrid
         ugrid_path = os.path.normpath(os.path.join(os.path.dirname(parameters['hyd_path']), 'FlowFM_waqgeom.nc'))
@@ -148,9 +213,7 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         temp_vol = parameters['vol_path'].replace(os.sep, "/")
         params_INC['B3_volumes'] = f"-2 ; volumes will be interpolated from a binary file\n'{temp_vol}' ; volumes file from hyd file"
         # Prepare for the config file B4_nrofexch
-        poi_info = poiInspector(parameters['ptr_path'], parameters['exchange_z'])
         params_INC['B4_nrofexch'] = f"{poi_info['exchange_x']} 0 {parameters['exchange_z']} ; number of exchanges in three directions"
-        # params_INC['B4_nrofexch'] = f"{parameters['exchange_x']} {parameters['exchange_y']} {parameters['exchange_z']} ; number of exchanges in three directions"
         # Prepare for the config file B4_pointers
         temp_ptr = parameters['ptr_path'].replace(os.sep, "/")
         params_INC['B4_pointers'] = f"0 ; pointers from binary file.\n'{temp_ptr}' ; pointers file"
@@ -166,23 +229,12 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         temp_length = parameters['length_path'].replace(os.sep, "/")
         params_INC['B4_length'] = f"0 ; Lengths from binary file\n'{temp_length}' ; lengths file"
         # Prepare for the config file B5
-        # params_INC['B5_boundlist'] = [";'NodeID' 'Comment field' 'Boundary name used for data grouping'"]
-        # n_layers, points = int(parameters['n_layers']), parameters['sources']
-        # if (n_layers > 0) and (len(points) > 0):
-        #     count = 0
-        #     for i in range(n_layers):
-        #         params_INC['B5_boundlist'].append(f"; Boundaries for layer {i+1}")
-        #         for point in points:
-        #             count += 1
-        #             params_INC['B5_boundlist'].append(f"'{count}' '' '{point[0]}'")
-        
         params_INC['B5_boundlist'] = [";'NodeID' 'Comment field' 'Boundary name used for data grouping'"]
         n_bnd = poi_info['n_boundaries']
         names = [p[0] for p in parameters['sources']] if parameters['sources'] else []
         for i in range(n_bnd):
             group = names[i % len(names)] if names else f"Bnd_{i+1}"
             params_INC['B5_boundlist'].append(f"'{i+1}' '' '{group}'")
-        
         params_INC['B5_boundaliases'], params_INC['B5_bounddata'] = '', ''
         # Prepare for the config file B6_loads
         n_loads = parameters["loads_data"]
@@ -208,8 +260,7 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         params_INC['B7_parameters'] = f"PARAMETERS\n'Surf'\nALL\nBINARY_FILE '{temp_srf}' ; from horizontal-surfaces-file key in hyd file"
         # Prepare for the config file B7_vdiffusion
         temp_vdf = parameters['vdf_path'].replace(os.sep, "/")
-        params_INC['B7_vdiffusion'] = ["CONSTANTS 'ACTIVE_VertDisp' DATA 1.0","SEG_FUNCTIONS","'VertDisper'",
-                                        "ALL", f"BINARY_FILE '{temp_vdf}'"]
+        params_INC['B7_vdiffusion'] = ["CONSTANTS 'ACTIVE_VertDisp' DATA 1.0","SEG_FUNCTIONS","'VertDisper'", "ALL", f"BINARY_FILE '{temp_vdf}'"]
         # Prepare for the config file B7_numerical_options
         params_INC['B7_numerical_options'] = ["CONSTANTS 'CLOSE_ERR' DATA 1 ; If defined, allow delwaq to correct water volumes to keep concentrations continuous",
             "CONSTANTS 'NOTHREADS' DATA 2 ; Number of threads used by delwaq",
@@ -431,15 +482,15 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
                 params_INC['B1_sublist'] = f.read()
             # Prepare for the config file B7_processes
             params_INC['B7_processes'], processes = [], [
-                # 'Emersion', 'ResTim', 'HDisperVel', 'HDisperAdd', 'Evap_Conti',
-                # 'Age1', 'Decay1', 'Temperatur', 'MakOOC', 'Compos', 'Res_Buffer', 'S12TraIM1', 'Sed_IM1', 'AtmDep_IM1',
-                # 'Dfwast_IM1', 'Secchi', 'Dredge', 'IM_Floceq', 'TraSe2_IM1', 'MakOOCS1', 'S1_Comp', 'S2_Comp', 'Sed_Cd',
-                # 'S12TraCd', 'AtmDep_Cd', 'Dfwast_Cd', 'Sed_Cr', 'S12TraCr', 'AtmDep_Cr', 'Dfwast_Cr', 'Sed_Cu', 'S12TraCu',
-                # 'AtmDep_Cu', 'Dfwast_Cu', 'Sed_Ni', 'S12TraNi', 'AtmDep_Ni', 'Dfwast_Ni', 'Sed_Pb', 'S12TraPb', 'AtmDep_Pb',
-                # 'Dfwast_Pb', 'Sed_Zn', 'S12TraZn', 'AtmDep_Zn', 'Dfwast_Zn', 'DynDepth', 'TotDepth', 'Meteo', 'CalTau',
-                # 'S12TraIM2', 'S12TraIM3', 'Res_DM', 'Extinc_VLG', 'PartWK_Cd', 'PartS1_Cd', 'PartWK_Cr', 'PartS1_Cr',
-                # 'PartWK_Cu', 'PartS1_Cu', 'PartWK_Ni', 'PartS1_Ni', 'PartWK_Pb', 'PartS1_Pb', 'PartWK_Zn', 'PartS1_Zn',
-                # 'Veloc', 'Chezy', 'PROPSING', 'PROPTAGG', 'HTRAGG', 'SEDTYRE', 'SEDTAGG', 'SUMTRWP'
+                'Emersion', 'ResTim', 'HDisperVel', 'HDisperAdd', 'Evap_Conti',
+                'Age1', 'Decay1', 'Temperatur', 'MakOOC', 'Compos', 'Res_Buffer', 'S12TraIM1', 'Sed_IM1', 'AtmDep_IM1',
+                'Dfwast_IM1', 'Secchi', 'Dredge', 'IM_Floceq', 'TraSe2_IM1', 'MakOOCS1', 'S1_Comp', 'S2_Comp', 'Sed_Cd',
+                'S12TraCd', 'AtmDep_Cd', 'Dfwast_Cd', 'Sed_Cr', 'S12TraCr', 'AtmDep_Cr', 'Dfwast_Cr', 'Sed_Cu', 'S12TraCu',
+                'AtmDep_Cu', 'Dfwast_Cu', 'Sed_Ni', 'S12TraNi', 'AtmDep_Ni', 'Dfwast_Ni', 'Sed_Pb', 'S12TraPb', 'AtmDep_Pb',
+                'Dfwast_Pb', 'Sed_Zn', 'S12TraZn', 'AtmDep_Zn', 'Dfwast_Zn', 'DynDepth', 'TotDepth', 'Meteo', 'CalTau',
+                'S12TraIM2', 'S12TraIM3', 'Res_DM', 'Extinc_VLG', 'PartWK_Cd', 'PartS1_Cd', 'PartWK_Cr', 'PartS1_Cr',
+                'PartWK_Cu', 'PartS1_Cu', 'PartWK_Ni', 'PartS1_Ni', 'PartWK_Pb', 'PartS1_Pb', 'PartWK_Zn', 'PartS1_Zn',
+                'Veloc', 'Chezy', 'PROPSING', 'PROPTAGG', 'HTRAGG', 'SEDTYRE', 'SEDTAGG', 'SUMTRWP'
                 ]
             for item in processes:
                 params_INC['B7_processes'].append(f"CONSTANTS 'ACTIVE_{item}' DATA 0")
@@ -482,7 +533,7 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
                 'Dens_Susp2', 'Diam_Susp3', 'Dens_Susp3', 'ShapeFacSu', 'BioFilmThk', 'BioFilmDen', 'Efficiency', 'SafeFactor', 'VSedIM2', 'VSedIM3']
             values = ['0.01', '10', '0.8', '1.2', '10', '0', '1000', '10', '-999', '1', '0', '0.01', '0.01', '15', '4183', '1', '1', '0',
                 '0', '0', '0', '-999', '0', '0', '2.5', '0', '0', '0', '0', '0', '0', '0.2', '0.0003', '9.8', '0.000001', '2600000',
-                '-999', '0', '0.5', '0.1', '100000000000000000000', '0.2', '0.000001', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+                '-999', '0', '0.5', '0.1', '1.0E+20', '0.2', '0.000001', '0', '0', '0', '0', '0', '0', '0', '0', '0',
                 '0.1', '0.1', '0','-999', '1', '0', '-999', '1', '0', '1.7', '0', '-999', '1', '1', '1', '1', '1', '1', '1', '1', '1',
                 '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', '1', '1', '1', '1', '1',
                 '1', '1', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
@@ -572,7 +623,6 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
             for item in pr:
                 params_INC['B9_Hisvar'].append(f"'{item}' 'volume'")
                 params_INC['B9_Mapvar'].append(f"'{item}'")
-
         # Write .inc files
         # ######################## Block 1 ########################
         # Write file B1_t0.inc
@@ -741,5 +791,5 @@ def wqPreparation(parameters:dict, key:str, output_folder:str, includes_folder:s
         inp_path = os.path.normpath(os.path.join(output_folder, f'{parameters["folder_name"]}.inp'))
         with open(inp_path, 'w', encoding=functions.encoding_detect(inp_path)) as f:
             f.write(content_inp)
-        return inp_path, ''
+        return inp_path, time_msg
     except Exception as e: return None, str(e)

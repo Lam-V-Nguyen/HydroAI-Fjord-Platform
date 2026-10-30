@@ -83,13 +83,16 @@ function updateLogHYD(hydProject, progress_bar, progress_text, info, seconds){
             const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: hydProject});
             progress_text.innerText = statusRes.message; progress_bar.value = statusRes.progress;
             if (statusRes.status !== "running" && statusRes.status !== "reorganizing") {
-                info.value += statusRes.message;
+                info.value += statusRes.message; info.scrollTop = info.scrollHeight;
                 if (logIntervalHYD) { clearInterval(logIntervalHYD); logIntervalHYD = null; }
             }
             const res = await fetch(`/sim_log_tail_hyd/${hydProject}?offset=${lastOffsetHYD}&log_file=log_hyd.txt`);
             if (!res.ok) return;
             const data = await res.json();
-            for (const line of data.lines) { info.value += line + "\n"; }
+            for (const line of data.lines) { 
+                info.value += line + "\n"; 
+                info.scrollTop = info.scrollHeight;
+            }
             lastOffsetHYD = data.offset;
         } catch (error) { clearInterval(logIntervalHYD); logIntervalHYD = null; }
     }, seconds * 1000);

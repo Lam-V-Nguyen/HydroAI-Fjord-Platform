@@ -40,15 +40,14 @@ async function waqComponents() {
         if (data.status === "error") { alert(data.message); obj.scenarioSelector.value = ''; return; }
         obj.waqSelector.innerHTML = data.content.map(name => `<option value="${name}">${name}</option>`).join('');
         const statusRes = await jsonLoader('check_sim_status_waq', {projectName: projectName, waqName: obj.waqSelector.value});
-        if (statusRes.status === "running" || statusRes.status === "reorganizing") {
+        if (!["preparing", "running", "reorganizing"].includes(statusRes.status)) {
             const res = await fetch(`/sim_log_full/${projectName}?log_file=log_waq.txt`);
             if (res.ok) {
                 const data = await res.json();
                 obj.infoArea.value = data.content || ''; lastOffsetWAQ = data.offset;
             }
             obj.showCheckbox.checked = true; WAQRunning = true;
-            // Run water quality simulation and Update logs every 1 second
-            updateLogWAQ(projectName, obj.waqSelector.value, obj.progressbar, obj.progressText, obj.infoArea, 1);
+            updateLogWAQ(projectName, obj.waqSelector.value, obj.progressbar, obj.progressText, obj.infoArea, 3);
         } else { obj.showCheckbox.checked = false; WAQRunning = false; }
         obj.progressText.innerText = statusRes.message; 
         obj.progressbar.value = statusRes.progress;
@@ -69,26 +68,36 @@ async function waqComponents() {
         obj.infoArea.value = ''; obj.progressbar.value = 0;
         const start = await jsonLoader('start_sim_waq', {projectName: currentProject, waqName: obj.waqSelector.value});
         if (start.status === "error") {alert(start.message); return;}
-        updateLogWAQ(currentProject, obj.waqSelector.value, obj.progressbar, obj.progressText, obj.infoArea, 1);
+        updateLogWAQ(currentProject, obj.waqSelector.value, obj.progressbar, obj.progressText, obj.infoArea, 3);
     });
 }
 
 function updateLogWAQ(hydProject, waqProject, progress_bar, progress_text, info, seconds) {
+    if (logIntervalWAQ) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
     activeWAQProject = `${hydProject}_${waqProject}`;
+    const stop = () => {
+        if (logIntervalWAQ) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
+        WAQRunning = false;
+    };
     logIntervalWAQ = setInterval(async () => {
-        if (activeWAQProject !== `${hydProject}_${waqProject}`) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
+        if (activeWAQProject !== `${hydProject}_${waqProject}`) { stop(); return; }
         try {
-            const statusRes = await jsonLoader('check_sim_status_waq', {projectName: hydProject, waqName: obj.waqSelector.value});
-            progress_text.innerText = statusRes.message; progress_bar.value = statusRes.progress;
-            if (statusRes.status !== "running" && statusRes.status !== "reorganizing") {
-                info.value += statusRes.message;
-                if (logIntervalWAQ) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
-            }
             const res = await fetch(`/sim_log_tail_waq/${hydProject}?offset=${lastOffsetWAQ}&log_file=log_waq.txt`);
-            if (!res.ok) return;
-            const data = await res.json(); if (info.value !== '') { info.value = ''; }
-            for (const line of data.lines) { info.value += line + "\n"; }
-            lastOffsetWAQ = data.offset;
-        } catch (error) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
+            if (res.ok) {
+                const data = await res.json();
+                if (data.lines.length > 0) {
+                    info.value += data.lines.join("\n") + "\n";
+                    info.scrollTop = info.scrollHeight;
+                }
+                lastOffsetWAQ = data.offset;
+            }
+            const statusRes = await jsonLoader('check_sim_status_waq', {projectName: hydProject, waqName: waqProject});
+            progress_text.innerText = statusRes.message;
+            progress_bar.value = statusRes.progress;
+            if (!["preparing", "running", "reorganizing"].includes(statusRes.status)) {
+                info.value += "\n" + statusRes.message + "\n";
+                info.scrollTop = info.scrollHeight; stop();
+            }
+        } catch (error) { stop(); }
     }, seconds * 1000);
 }

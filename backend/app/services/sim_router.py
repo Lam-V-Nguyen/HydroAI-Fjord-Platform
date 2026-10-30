@@ -185,6 +185,8 @@ async def check_sim_status_waq(request: Request, user=Depends(functions.basic_au
             "message": info.get("message", 'Simulation failed.')})
     if info["status"] == "reorganizing":
         return JSONResponse({"status": "reorganizing", "progress": 100, "message": 'Reorganizing outputs. Please wait...'})
+    if info["status"] == "preparing":
+        return JSONResponse({"status": "preparing", "progress": 0, "message": info["message"]})
     return JSONResponse({"status": info["status"], "progress": info["progress"],
         "message": f"WAQ simulation completed: {info['progress']}%"})
 
@@ -197,10 +199,10 @@ async def start_sim_waq(request: Request, user=Depends(functions.basic_auth)):
     redis, process_key = request.app.state.redis, f"{project_name}:{waq_name}"
     lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
     async with lock:
-        if process_key in processes and processes[process_key]["status"] == "running":
-            old = processes[process_key]["status"]
-            if old in ("finished", "error"): processes.pop(process_key)
-            return JSONResponse({"status": old, "message": processes[process_key]["message"]})
+        info = processes.get(process_key)
+        if info and info["status"] in ("preparing", "running", "reorganizing"):
+            return JSONResponse({"status": "running", "message": "WAQ simulation is already running."})
+        processes[process_key] = {"status": "preparing", "progress": 0, "message": "Preparing data for the WAQ simulation...", "process": None}
         asyncio.create_task(run_waq_simulation(project_name, waq_name))
     return JSONResponse({"status": "ok", "message": "Simulation started."})
 
@@ -231,18 +233,21 @@ async def run_waq_simulation(project_name, waq_name):
         t_start = datetime.fromtimestamp(int(body['startTime']/1000.0), tz=timezone.utc)
         t_stop = datetime.fromtimestamp(int(body['stopTime']/1000.0), tz=timezone.utc)
         hyd_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "DFM_DELWAQ"))
-        hyd_path = os.path.normpath(os.path.join(hyd_folder, body['hydName']))
-        sal_path = os.path.normpath(os.path.join(hyd_folder, body['salPath']))
-        attr_path = os.path.normpath(os.path.join(hyd_folder, body['attrPath']))
-        vol_path = os.path.normpath(os.path.join(hyd_folder, body['volPath']))
-        ptr_path = os.path.normpath(os.path.join(hyd_folder, body['ptrPath']))
-        area_path = os.path.normpath(os.path.join(hyd_folder, body['areaPath']))
-        flow_path = os.path.normpath(os.path.join(hyd_folder, body['flowPath']))
-        length_path = os.path.normpath(os.path.join(hyd_folder, body['lengthPath']))
-        srf_path = os.path.normpath(os.path.join(hyd_folder, body['srfPath']))
-        vdf_path = os.path.normpath(os.path.join(hyd_folder, body['vdfPath']))
-        tem_path = os.path.normpath(os.path.join(hyd_folder, body['temPath']))
         wq_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "WAQ_run"))
+        path_keys = {
+            "hyd_path": "hydName", "sal_path": "salPath", "attr_path": "attrPath",
+            "vol_path": "volPath", "ptr_path": "ptrPath", "area_path": "areaPath",
+            "flow_path": "flowPath", "length_path": "lengthPath", "srf_path": "srfPath",
+            "vdf_path": "vdfPath", "tem_path": "temPath",
+        }
+        paths = {
+            name: os.path.normpath(os.path.join(hyd_folder, body[key]))
+            for name, key in path_keys.items()
+        }
+        hyd_path, sal_path, attr_path = paths["hyd_path"], paths["sal_path"], paths["attr_path"]
+        vol_path, ptr_path, area_path = paths["vol_path"], paths["ptr_path"], paths["area_path"]
+        flow_path, length_path, srf_path = paths["flow_path"], paths["length_path"], paths["srf_path"]
+        vdf_path, tem_path = paths["vdf_path"], paths["tem_path"]
         os.makedirs(wq_folder, exist_ok=True)
         # Clear data if exists
         output_folder = os.path.normpath(os.path.join(wq_folder, file_name))
@@ -250,7 +255,7 @@ async def run_waq_simulation(project_name, waq_name):
         os.makedirs(output_folder, exist_ok=True)
         parameters = {'hyd_path': hyd_path, "t_start": t_start, "t_stop": t_stop, 'sal_path': sal_path,
             "maxiter": body['maxiter'], "tolerance": body['tolerance'], "scheme": body['scheme'], 'srf_path': srf_path, 
-            "t_step1": body['timeStep1'], "t_step2": body['timeStep2'], "obs_data": body['obsPoints'],
+            "t_calc": body.get('calcTimeStep'), "t_output": body['timeStep2'], "obs_data": body['obsPoints'],
             'n_segments': body['nSegments'], 'attr_path': attr_path, 'vol_path': vol_path, 'exchange_x': body['exchangeX'],
             'exchange_y': body['exchangeY'], 'exchange_z': body['exchangeZ'], 'folder_name': file_name,
             'ptr_path': ptr_path, 'area_path': area_path, 'flow_path': flow_path, 'length_path': length_path,
@@ -277,6 +282,7 @@ async def run_waq_simulation(project_name, waq_name):
             processes[process_key]['status'], processes[process_key]['message'] = "error", message
             log_file.flush(); log_file.close()
             return
+        if message: log_file.write(f"{message}\n\n")
         # Check if all paths are valid to run the simulation
         bat_path = os.path.normpath(os.path.join(DELFT_PATH, "x64/dwaq/scripts/run_delwaq.bat"))
         bloom_path = os.path.normpath(os.path.join(DELFT_PATH, 'x64/dwaq/default/bloom.spe'))
@@ -350,40 +356,41 @@ async def run_waq_simulation(project_name, waq_name):
                             # Using .zarr format
                             zarr_path = os.path.normpath(os.path.join(output_WAQ_dir, new_name.replace('.nc', '.zarr')))
                             if suffix != ".json":
-                                tmp_path = zarr_path + "_tmp"
-                                if os.path.exists(tmp_path): shutil.rmtree(tmp_path, onerror=functions.remove_readonly)
+                                functions.safe_remove(zarr_path + "_tmp")
+                                functions.safe_remove(zarr_path)
                                 with xr.open_dataset(src, chunks='auto') as ds:
-                                    ds.to_zarr(tmp_path, mode='w', consolidated=True, compute=True)
-                                if os.path.exists(zarr_path): shutil.rmtree(zarr_path, onerror=functions.remove_readonly)
-                                os.rename(tmp_path, zarr_path)                      
+                                    ds.to_zarr(zarr_path, mode='w', consolidated=True, compute=True)
                             else: shutil.copy2(src, zarr_path)
                             functions.safe_remove(src)
                     processes[process_key]["status"] = "finished"
-                    processes[process_key]["message"] = f"Simulation completed."
-                    log_file.write(f"\n=== Simulation {project_name} completed ===")
+                    processes[process_key]["message"] = f""
+                    log_file.write(f"\n=== Simulation {project_name} completed ===\n")
                     log_file.flush(); log_file.close()
-                    # if os.path.exists(output_folder): functions.safe_remove(output_folder)
+                    if os.path.exists(wq_folder): functions.safe_remove(wq_folder)
                 except Exception as e:
                     processes[process_key]["status"], processes[process_key]["message"] = "failed", f"Simulation failed: {e}."
-                    log_file.write(f"Simulation failed: {e}.")
+                    log_file.write(f"Simulation failed: {e}.\n{traceback.format_exc()}\n")
                     log_file.flush(); log_file.close()
         threading.Thread(target=stream_logs, daemon=True).start()
     except Exception as e:
         processes[process_key]["status"], processes[process_key]["message"] = "error", str(e)
         print('/run_waq_simulation:\n==============')
         traceback.print_exc()
-        log_file.write(f"Error running simulation: {str(e)}.")
+        log_file.write(f"Error running simulation: {str(e)}.\n")
         log_file.flush(); log_file.close()
         return
 
 @router.get("/sim_log_tail_waq/{project_name}")
-async def sim_log_tail_waq(project_name: str, offset: int = Query(0), 
+async def sim_log_tail_waq(project_name: str, offset: int = Query(0),
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.join(PROJECT_ROOT, project_name, log_file), []
-    if not os.path.exists(log_path): return {"lines": lines, "offset": offset}
-    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
+    log_path = os.path.join(PROJECT_ROOT, project_name, log_file)
+    if not os.path.exists(log_path): return {"lines": [], "offset": 0}
+    if offset > os.path.getsize(log_path): offset = 0
+    with open(log_path, "rb") as f:
         f.seek(offset)
-        for line in f:
-            lines.append(line.rstrip())
-    return {"lines": lines, "offset": os.path.getsize(log_path)}
+        chunk = f.read()
+    end = chunk.rfind(b"\n")
+    if end == -1: return {"lines": [], "offset": offset}
+    text = chunk[:end + 1].decode(functions.encoding_detect(log_path) or "utf-8", errors="replace")
+    return {"lines": text.splitlines(), "offset": offset + end + 1}
