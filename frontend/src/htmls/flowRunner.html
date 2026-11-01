@@ -106,7 +106,12 @@
                                 </label>
                             </section>
                             <section id="wv-particle-section"><h2>Flow Particles</h2>
-                                <label class="row2 check"><input type="checkbox" id="wv-particles" checked>Show moving particles
+                                <label class="row2 check">
+                                    <input type="checkbox" id="wv-particles" checked>Show moving particles
+                                </label>
+                                <label class="row2 check">
+                                    <input type="checkbox" id="wv-pwater" 
+                                    title="Particles stop when they reach the water area (sea, fjord or lake) and are not spawned on water." checked>Stop particles at water area
                                 </label>
                                 <label class="row">Particles density<output id="wv-pcount-out"></output>
                                     <input type="range" id="wv-pcount" min="500" max="15000" step="500" value="4000">

@@ -106,14 +106,14 @@ function modelManager() {
         obj.modelInterval.value = intervalOption[forcing.interval];
     });
     obj.modelCheckBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(), key = 'wflow_check';
+        const name = obj.projectName.value.trim(), key = 'wflow_check', logFile = 'log_wflow_check.txt';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         try {
             obj.modelLogText.value = '';
             const content = { 
                 projectName: currentProject, flowName: name, key: 'check', 
-                keyChecker: key, timeZone: getLastTimeZone(), 
+                keyChecker: key, timeZone: getLastTimeZone(), logFile: logFile
             };
             const request = await jsonLoader('wflow_model', content);
             if (request.status === 'error') { 
@@ -123,11 +123,11 @@ function modelManager() {
                 alert('Checking model parameters completed.');
                 obj.modelLat.value = request.content.lat_lon[0];
                 obj.modelLon.value = request.content.lat_lon[1];
-            });
+            }, logFile);
         } catch (error) { alert(`Checking model parameters failed: ${error.message}`); }
     });
     obj.modelRunBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(), keyChecker = 'wflow_run';
+        const name = obj.projectName.value.trim(), keyChecker = 'wflow_run', logFile = 'log_wflow_run.txt';
         if (!name || name === '') { alert('Please define scenario name.'); return; }
         if (nameChecker(name)) { alert('Scenario name contains invalid characters.'); return; }
         const start = obj.modelStart.value, end = obj.modelEnd.value;
@@ -155,7 +155,7 @@ function modelManager() {
             if (request.status === 'error') { alert(request.message); return; }
             updateLog(currentProject, obj.modelLogText, 5, keyChecker, async () => {
                 alert('Running Wflow model completed.'); 
-            }, true);
+            }, logFile, true);
         } catch (error) { alert(`Running Wflow model failed: ${error.message}`); }
     });
 }

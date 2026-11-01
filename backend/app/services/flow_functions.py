@@ -1,27 +1,32 @@
 import os, dotenv, rasterio, zipfile, rioxarray, sys, pyflwdir, re, stat, time, psutil
-import logging, cdsapi, calendar, gc, shutil, traceback, subprocess, dask
+import logging, gc, shutil, traceback, subprocess, dask, threading, uuid
 import geopandas as gpd, numpy as np, pandas as pd, xarray as xr
-from shapely.geometry import Polygon, MultiPolygon, box, shape
+from shapely.geometry import Polygon, MultiPolygon, shape
 from scipy.spatial import cKDTree
 from scipy.ndimage import distance_transform_edt
 from netCDF4 import Dataset, date2num
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
 from rasterio.features import rasterize, shapes
-from services import functions, flow_functions, wflow_config
-from pathlib import Path
+from services import functions, flow_functions, wflow_config, era5_function
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
 from pyflwdir import dem
 from config import PROJECT_ROOT, WFLOW_PATH
 from dask.distributed import get_client
+from pyproj import CRS, Transformer
+from datetime import timezone, timedelta
+
+try: HAS_DASK = True
+except ImportError: HAS_DASK = False
 
 if "bool" not in np.__dict__: np.bool = np.bool_
 
 dotenv.load_dotenv()
 MET_url, MET_client_id = os.getenv('MET_ProstAPI_URL'), os.getenv('MET_ProstAPI_CLIENT_ID')
 NVE_url, NVE_client_id = os.getenv('NVE_URL'), os.getenv('NVE_API_KEY')
-NODATA_DEM, NODATA_INT, NODATA_SOIL_THICKNESS= -9999.0, 0, -99999
+NODATA_DEM, NODATA_INT, NODATA_SOIL_THICKNESS, G = -9999.0, 0, -99999, 9.80665
+CHUNK_T, CHUNK_XY = 24, 128
+LAPSE_T = 0.0065                       # K/m
 ISRIC_URL = "https://files.isric.org/soilgrids/former/2017-03-10/data/"
 
 soils = [
@@ -45,13 +50,24 @@ soil_type_reverse = {
     'bd': 'Bulk density', 'oc': 'Soil organic carbon', 'ph': 'Soil pH'
 }
 soil_depth_reverse = {v: k for k, v in soil_depths.items()}
-variables = {
-    'total_precipitation': 'tp', # Precipitation
-    '2m_temperature': 't2m', # Temperature
-    '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
-    'surface_pressure': 'sp',  # Pressure
-    'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-    'toa_incident_solar_radiation': 'tisr', # Longwave radiation
+
+
+FORCING_SOURCES = {
+    "total_precipitation": "tp", # Precipitation
+    "2m_temperature": "t2m", # Temperature
+    "surface_solar_radiation_downwards": "ssrd", # Shortwave radiation
+    "toa_incident_solar_radiation": "tisr", # Top-of-atmosphere incident solar radiation
+    "10m_u_component_of_wind": "u10", # U-component of wind
+    "10m_v_component_of_wind": "v10", # V-component of wind
+    "mean_sea_level_pressure": "msl", # Mean sea level pressure
+}
+FORCING = {
+    "precip": ("mm",    lambda s: np.clip(s["tp"] * 1000.0, 0.0, None)),
+    "temp": ("degC",  lambda s: s["t2m"] - 273.15),
+    "kin": ("W/m^2", lambda s: np.clip(s["ssrd"] / 3600.0, 0.0, None)),
+    "kout": ("W/m^2", lambda s: np.clip(s["tisr"] / 3600.0, 0.0, None)),
+    "wind": ("m/s",   lambda s: np.hypot(s["u10"], s["v10"])),
+    "press_msl": ("hPa",   lambda s: s["msl"] / 100.0),
 }
 
 class StreamToLogger:
@@ -99,6 +115,108 @@ class StreamToLogger:
         except OSError: pass
     def flush(self):
         pass
+
+class Regridder:
+    def __init__(self, lat_src, lon_src, x_coords, y_coords, dem_crs, method="bilinear",
+        k_idw=4, z_src=None, cache_dir=None, cache_limit_mb=1024):
+        self.lat = np.asarray(lat_src, dtype="float64").ravel()
+        self.lon = np.asarray(lon_src, dtype="float64").ravel()
+        self.nlat, self.nlon = self.lat.size, self.lon.size
+        self.npts = self.nlat * self.nlon
+        self.single = self.npts == 1
+        if method not in ("bilinear", "idw", "nearest"):
+            raise era5_function.ERA5Error(f"Unknown interpolation method: {method}")
+        self.method = "single" if self.single else method
+        self.k = {"single": 1, "bilinear": 4, "nearest": 1, "idw": min(k_idw, self.npts)}[self.method]
+        self.x = np.asarray(x_coords, dtype="float64")
+        self.y = np.asarray(y_coords, dtype="float64")
+        self.crs = CRS.from_user_input(dem_crs)
+        self.to_ll = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
+        self.z_src = None if z_src is None else np.asarray(z_src, dtype="float64").ravel() / G
+        nbytes = self.y.size * self.x.size * self.k * 8
+        self.in_memory = cache_dir is None or nbytes <= cache_limit_mb * 1e6
+        self.cache_dir = cache_dir
+        self._cache, self._lock = {}, threading.Lock()
+        if self.method == "idw":
+            lat0, lon0 = float(self.lat.mean()), float(self.lon.mean())
+            self.metric = CRS.from_proj4(f"+proj=aeqd +lat_0={lat0} +lon_0={lon0} +units=m +ellps=WGS84")
+            to_m = Transformer.from_crs("EPSG:4326", self.metric, always_xy=True)
+            lon2d, lat2d = np.meshgrid(self.lon, self.lat)
+            sx, sy = to_m.transform(lon2d.ravel(), lat2d.ravel())
+            self.tree = cKDTree(np.column_stack([sx, sy]))
+            self.dem_to_m = Transformer.from_crs(self.crs, self.metric, always_xy=True)
+    def describe(self):
+        if self.single:
+            return "1 ERA5 point -> uniform value over the whole grid"
+        return f"{self.nlat}×{self.nlon} ERA5 points -> {self.method} interpolation (k={self.k})"
+    @staticmethod
+    def _axis(values, coords):
+        order = np.argsort(coords)
+        asc = coords[order]
+        n = asc.size
+        if n == 1:
+            z = np.zeros(values.size, dtype=np.int64)
+            return z, z, np.zeros(values.size)
+        f = np.interp(values, asc, np.arange(n, dtype="float64"))
+        i0 = np.clip(np.floor(f).astype(np.int64), 0, n - 2)
+        return order[i0], order[i0 + 1], f - i0
+    def _compute(self, r0, r1):
+        xx, yy = np.meshgrid(self.x, self.y[r0:r1])
+        if self.single:
+            idx = np.zeros((xx.size, 1), dtype=np.int32)
+            w = np.ones((xx.size, 1), dtype=np.float32)
+        elif self.method == "idw":
+            mx, my = self.dem_to_m.transform(xx.ravel(), yy.ravel())
+            dist, idx = self.tree.query(np.column_stack([mx, my]), k=self.k)
+            dist, idx = dist.reshape(-1, self.k), idx.reshape(-1, self.k)
+            w = 1.0 / (dist + 1e-6) ** 2
+            w /= w.sum(axis=1, keepdims=True)
+            idx, w = idx.astype(np.int32), w.astype(np.float32)
+        else:
+            lon, lat = self.to_ll.transform(xx.ravel(), yy.ravel())
+            if self.lon.max() > 180 and lon.min() < 0:
+                lon = np.where(lon < 0, lon + 360.0, lon)
+            i0, i1, fi = self._axis(lat, self.lat)
+            j0, j1, fj = self._axis(lon, self.lon)
+            if self.method == "nearest":
+                i = np.where(fi >= 0.5, i1, i0)
+                j = np.where(fj >= 0.5, j1, j0)
+                idx = (i * self.nlon + j)[:, None].astype(np.int32)
+                w = np.ones_like(idx, dtype=np.float32)
+            else:
+                idx = np.stack([i0 * self.nlon + j0, i0 * self.nlon + j1,
+                    i1 * self.nlon + j0, i1 * self.nlon + j1], axis=1).astype(np.int32)
+                w = np.stack([(1 - fi) * (1 - fj), (1 - fi) * fj, fi * (1 - fj), fi * fj],
+                    axis=1).astype(np.float32)
+        zi = None if self.z_src is None else (self.z_src[idx] * w).sum(axis=1).astype(np.float32)
+        return idx, w, zi
+    def get(self, r0, r1):
+        key = (r0, r1)
+        with self._lock:
+            if key in self._cache: return self._cache[key]
+        if not self.in_memory:
+            base = os.path.join(self.cache_dir, f"w_{r0}_{r1}")
+            if os.path.exists(base + "_w.npy"):
+                zi = np.load(base + "_z.npy") if os.path.exists(base + "_z.npy") else None
+                return (np.load(base + "_i.npy", mmap_mode="r"), np.load(base + "_w.npy", mmap_mode="r"), zi)
+        idx, w, zi = self._compute(r0, r1)
+        if self.in_memory:
+            with self._lock:
+                self._cache[key] = (idx, w, zi)
+        else:
+            base = os.path.join(self.cache_dir, f"w_{r0}_{r1}")
+            np.save(base + "_i.npy", idx)
+            if zi is not None: np.save(base + "_z.npy", zi)
+            np.save(base + "_w.npy", w)
+        return idx, w, zi
+    def apply(self, src, idx, w, rows, nx):
+        t = src.shape[0]
+        if self.single:
+            return np.repeat(src[:, :1], rows * nx, axis=1).reshape(t, rows, nx).astype(np.float32)
+        out = np.zeros((t, idx.shape[0]), dtype=np.float32)
+        for k in range(idx.shape[1]):
+            out += src[:, idx[:, k]] * w[:, k]
+        return out.reshape(t, rows, nx)
 
 def interpolate_extrapolate(data, mask_nan, get_nearest=False, power=2, max_neighbors=8):
     h, w = data.shape
@@ -183,47 +301,79 @@ def create_LAI(arr_2D, terrain, out_path, nodata=255):
     df.index.name = os.path.basename(out_path).replace("_lai.csv", "")
     df.to_csv(out_path, index=True)
 
-def is_valid_netcdf(path, var):
+def era5_area(west, south, east, north, snap=True, buffer=0.01, grid=None):
+    grid = grid or era5_function.ERA5_GRID_DEG
+    if not snap: return [north + buffer, west - buffer, south - buffer, east + buffer]
+    n, s = np.ceil(north / grid) * grid, np.floor(south / grid) * grid
+    w, e = np.floor(west / grid) * grid, np.ceil(east / grid) * grid
+    if n == s: n += grid
+    if e == w: e += grid
+    eps = grid * 0.2
+    return [round(n + eps, 4), round(w - eps, 4), round(s - eps, 4), round(e + eps, 4)]
+
+def _fill_time_gaps(a):
+    if not np.isnan(a).any(): return a
+    df = pd.DataFrame(a).interpolate(axis=0, limit_direction="both")
+    return df.fillna(0.0).to_numpy(dtype=np.float32)
+
+def _source_window(src, t0, t1):
+    win = src.isel(time=slice(t0, t1))
+    raw = {}
+    for short in FORCING_SOURCES.values():
+        da = win[short]
+        extra = [d for d in da.dims if d not in ("time", "latitude", "longitude")]
+        if extra: da = da.isel({d: 0 for d in extra})
+        dims = [d for d in ("time", "latitude", "longitude") if d in da.dims]
+        arr = da.transpose(*dims).values.astype(np.float32)
+        raw[short] = _fill_time_gaps(arr.reshape(arr.shape[0], -1))
+    return {var: fn(raw).astype(np.float32) for var, (_, fn) in FORCING.items()}
+
+def _download_month(client, api_key, tag, request, download_dir, start_time, end_time,
+    processes, process_key, logger, max_wait_s, keep_z):
+    target = os.path.join(download_dir, f"{tag}.download")
+    msg = f"Requesting ERA5 {tag} ({len(request['variable'])} variables in 1 request)..."
+    logger.info(msg)
+    era5_function.set_status(processes, process_key, "running", msg)
+    lock = era5_function.account_lock(api_key)
+    while not lock.acquire(timeout=1):
+        era5_function.check_cancel(processes, process_key)
+        era5_function.set_status(
+            processes, process_key, "running", "Waiting for another ERA5 download with the same CDS account to finish..."
+        )
     try:
-        with xr.open_dataset(path) as ds:
-           vars = list(ds.data_vars)
-           if len(vars) == 0 or var not in vars: return False
-        return True
-    except Exception:
-        return False
+        era5_function.retrieve(
+            client, era5_function.DATASET_GRID, request, target, logger, processes, process_key, f"cds:{process_key}", max_wait_s
+        )
+    finally: lock.release()
+    era5_function.check_cancel(processes, process_key)
+    ds = era5_function.open_download(target, os.path.join(download_dir, tag))
+    missing = [s for s in FORCING_SOURCES.values() if s not in ds.data_vars]
+    if missing: raise era5_function.ERA5Error(f"Missing variables in ERA5 {tag}: {missing}")
+    z = None
+    if keep_z and "z" in ds.data_vars:
+        zda = ds["z"].isel(time=0)
+        z = zda.transpose(*[d for d in ("latitude", "longitude") if d in zda.dims]).values
+    ds = ds.drop_vars([v for v in ds.data_vars if v not in FORCING_SOURCES.values()])
+    ds = ds.sel(time=slice(start_time, end_time))
+    out = os.path.join(download_dir, f"src_{tag}.nc")
+    ds.to_netcdf(out)
+    n = ds.sizes["time"]
+    lat, lon = ds["latitude"].values, ds["longitude"].values
+    ds.close()
+    shutil.rmtree(os.path.join(download_dir, tag), ignore_errors=True)
+    os.remove(target)
+    logger.info(f"{tag}: {n} hourly steps, ERA5 grid {lat.size}×{lon.size}")
+    return out, n, lat, lon, z
 
-def prepare_interpolator(grid_net, x_coords, y_coords, n_neighbors=2, geo_type="point"):
-    gdf_known = gpd.GeoDataFrame(
-        geometry=gpd.points_from_xy(x_coords, y_coords), crs=grid_net.crs,
-    )
-    utm = grid_net.estimate_utm_crs()
-    gdf_known = gdf_known.to_crs(utm)
-    gdf_points = grid_net.to_crs(utm).copy()
-    if geo_type == "polygon": gdf_points.geometry = gdf_points.geometry.centroid
-    tree = cKDTree(
-        np.column_stack([gdf_known.geometry.x, gdf_known.geometry.y])
-    )
-    dists, idx = tree.query(
-        np.column_stack([gdf_points.geometry.x, gdf_points.geometry.y]), k=n_neighbors
-    )
-    weight = 1.0 / (dists + 1e-10) ** 2
-    weight /= weight.sum(axis=1, keepdims=True)
-    return idx, weight
-
-def create_forcing(values, ny, nx, mask_nan, single_value, idx=None, weight=None):
-    values = np.asarray(values, dtype=np.float32)
-    nt = values.shape[0]
-    values = values.reshape(nt, -1)
-    if single_value:
-        if values.shape[1] != 1: return None
-        values = values[:, 0]
-        data = np.broadcast_to(values[:, None, None], (nt, ny, nx)).astype(np.float32)
-    else:
-        interp = values[:, idx]
-        interp = np.sum(interp * weight[None, :, :], axis=2)
-        data = interp.reshape(nt, ny, nx).astype(np.float32)
-    data[..., mask_nan] = 0
-    return data
+def _open_sources(files, time_window):
+    if HAS_DASK:
+        return xr.open_mfdataset(files, combine="nested", concat_dim="time", chunks={"time": time_window},
+            data_vars="minimal", coords="minimal", compat="override", parallel=False)
+    parts = []
+    for f in files:
+        with xr.open_dataset(f) as d:
+            parts.append(d.load())
+    return xr.concat(parts, dim="time")
 
 def setup_logger(name, log_path: str):
     log_path = os.path.abspath(log_path)
@@ -249,237 +399,189 @@ def setup_logger(name, log_path: str):
     file_handler.flush()
     return logger
 
-def weather_downloader(project_name, flow_name, processes, process_key, api_key, start, end, time_zone, buffer=0.01):
+def weather_downloader(project_name, flow_name, processes, process_key, api_key, start, end, time_zone, 
+    log_file, buffer=0.01, method="bilinear", snap_area=True, temp_lapse_correction=True, 
+    max_wait_hours=6, block_mb=128, n_workers=None, k_idw=4):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
-    # Remove old log
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
-    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    log_dir = os.path.normpath(os.path.join(flow_dir, "logs"))
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
-    logger, CDS_url = setup_logger("cdsapi", log_path), os.getenv('CDS_URL')
-    config_path = Path.home() / '.cdsapirc'
-    if not config_path.exists():
-        logger.info("Creating .cdsapirc ...")
-        config_path.write_text(f"url: {CDS_url}\nkey: {api_key}\n", encoding='utf-8')
-        logger.info(f"Created at: {config_path}")
+    logger = setup_logger("cdsapi", log_path)
     forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
     os.makedirs(forcing_dir, exist_ok=True)
-    download_dir = os.path.normpath(os.path.join(forcing_dir, 'download'))
-    if not os.path.exists(download_dir): os.makedirs(download_dir)
+    download_dir = os.path.normpath(os.path.join(forcing_dir, f"download_{uuid.uuid4().hex[:8]}"))
     forcing_path = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc"))
-    forcing = {
-        'precip': ['tp', 'mm'], 'temp': ['t2m', 'degC'],
-        'kin': ['ssrd', 'W/m^2'], 'kout': ['tisr', 'W/m^2'],
-        'wind': ['', 'm/s'], 'press_msl': ['sp', 'hPa']
-    }
-    dataset, nc = 'reanalysis-era5-single-levels', None
-    old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
-    start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-    end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
-    if (start_time >= end_time):
-        logger.info("Start time must be before end time.")
-        processes[process_key] = {"status": "failed", "message": "Start time must be before end time."}
-        return
+    tmp_path, max_wait_s = forcing_path + ".part",  max_wait_hours * 3600
+    n_workers = n_workers or min(4, os.cpu_count() or 1)
+    nc, src = None, None
     try:
+        era5_function.set_status(processes, process_key, "running", "Weather downloader started.")
+        era5_function.check_cancel(processes, process_key)
         logger.info("Weather downloader started.")
-        logger.info("Preparing output NetCDF...")
-        raw_path = os.path.normpath(os.path.join(flow_dir, "raw", "dtm_raw.tif"))      
-        with rasterio.open(raw_path) as src:
-            dem_array, crs = src.read(1), src.crs
-            transform, nodata = src.transform, src.nodata
-            height, width = src.height, src.width
-        mask_nan = np.isnan(dem_array) | (dem_array == nodata)
-        mask_nan = mask_nan.astype(bool)
-        ny, nx = dem_array.shape[0], dem_array.shape[1]
-        catchment_path = os.path.normpath(os.path.join(flow_dir, 'catchment', "catchment.geojson"))
+        if not api_key or not str(api_key).strip(): raise era5_function.ERA5Error("Missing CDS API key.")
+        start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+        end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+        if start_time >= end_time:
+            raise era5_function.ERA5Error("Start time must be before end time.")
+        latest = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=era5_function.ERA5_LATENCY_DAYS)
+        if end_time > latest:
+            raise era5_function.ERA5Error(
+                f"ERA5 is only available until about {latest:%Y-%m-%d} (≈{era5_function.ERA5_LATENCY_DAYS} days delay).")
+        raw_path = os.path.join(flow_dir, "raw", "dtm_raw.tif")
+        catchment_path = os.path.join(flow_dir, "catchment", "catchment.geojson")
+        if not os.path.exists(raw_path):
+            raise era5_function.ERA5Error("No DEM found. Please process terrain first.")
         if not os.path.exists(catchment_path):
-            logger.info("No catchment found.")
-            processes[process_key] = {"status": "failed", "message": "No catchment found. Please process terrain first."}
-            return
+            raise era5_function.ERA5Error("No catchment found. Please process terrain first.")
+        # DEM
+        with rasterio.open(raw_path) as srcr:
+            dem = srcr.read(1).astype("float32")
+            dem_crs, transform, nodata = srcr.crs, srcr.transform, srcr.nodata
+        mask_nan = np.isnan(dem)
+        if nodata is not None: mask_nan |= dem == nodata
+        dem = np.where(mask_nan, 0.0, dem).astype("float32")
+        ny, nx = dem.shape
+        x_coords = transform.c + (np.arange(nx) + 0.5) * transform.a
+        y_coords = transform.f + (np.arange(ny) + 0.5) * transform.e
+        logger.info(f"DEM grid: {ny} × {nx} cells ({ny * nx / 1e6:.2f} M), CRS {dem_crs.to_string()}")
+        # Catchment
         catchment = gpd.read_file(catchment_path)
-        if catchment.crs != "EPSG:4326": catchment = catchment.to_crs("EPSG:4326")
-        logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        lon_min, lat_min, lon_max, lat_max = catchment.total_bounds
-        north, east = max(lat_min, lat_max), max(lon_min, lon_max)
-        south, west = min(lat_min, lat_max), min(lon_min, lon_max)
-        area = [north + buffer, west - buffer, south - buffer, east + buffer]
-        logger.info(f"Bounding box: {area}")
-        if os.path.exists(forcing_path):
-            functions.safe_remove(forcing_path)
-            logger.info("Removing old forcing data...")
-        time_index, time_step = 0, 'hours'
-        x_coords = transform.c + (np.arange(width) + 0.5) * transform.a
-        y_coords = transform.f + (np.arange(height) + 0.5) * transform.e
-        logger.info("Creating NetCDF file...")
-        nc = Dataset(forcing_path, "w", format="NETCDF4")
-        nc.createDimension("time", None)
-        nc.createDimension("y", ny)
-        nc.createDimension("x", nx)
+        if catchment.crs is None or catchment.crs.to_epsg() != 4326:
+            catchment = catchment.to_crs("EPSG:4326")
+        west, south, east, north = catchment.total_bounds
+        area = era5_area(west, south, east, north, snap=snap_area, buffer=buffer)
+        logger.info(f"Local: {start} -> {end} ({time_zone}) | UTC: {start_time} -> {end_time}")
+        logger.info(f"ERA5 area [N, W, S, E]: {area}")
+        # Download ERA5 data month by month
+        os.makedirs(download_dir, exist_ok=True)
+        client = era5_function.make_client(api_key)
+        req_vars = list(FORCING_SOURCES) + (["geopotential"] if temp_lapse_correction else [])
+        files, n_total, grid_ref, z_src = [], 0, None, None
+        months = list(era5_function.month_requests(start_time, end_time, req_vars, area))
+        for i, (tag, request) in enumerate(months, 1):
+            logger.info(f"[{i}/{len(months)}] {tag}")
+            f, n, lat, lon, z = _download_month(
+                client, api_key, tag, request, download_dir, start_time, end_time,
+                processes, process_key, logger, max_wait_s, keep_z=z_src is None)
+            if grid_ref is None: grid_ref = (lat, lon)
+            elif lat.shape != grid_ref[0].shape or lon.shape != grid_ref[1].shape \
+                    or not (np.allclose(lat, grid_ref[0]) and np.allclose(lon, grid_ref[1])):
+                raise era5_function.ERA5Error(f"ERA5 grid of {tag} differs from previous months.")
+            if z is not None and z_src is None: z_src = z
+            files.append(f); n_total += n
+        if n_total == 0: raise era5_function.ERA5Error("No data in the requested time range.")
+        lat_src, lon_src = grid_ref
+        # Interpolation setup
+        era5_function.check_cancel(processes, process_key)
+        era5_function.set_status(processes, process_key, "running", "Preparing interpolation...")
+        cy = min(CHUNK_XY, ny)
+        tw = int(block_mb * 1e6 // (cy * nx * 4) // CHUNK_T * CHUNK_T)
+        tw = max(CHUNK_T, min(tw, 24 * 31, -(-n_total // CHUNK_T) * CHUNK_T))
+        src = _open_sources(files, tw)
+        if src.sizes["time"] != n_total:
+            raise era5_function.ERA5Error("Inconsistent number of time steps after merging months.")
+        times = pd.to_datetime(src["time"].values)
+        use_lapse = temp_lapse_correction and z_src is not None
+        if temp_lapse_correction and z_src is None:
+            logger.warning("ERA5 orography not available -> no temperature lapse-rate correction.")
+        regridder = Regridder(lat_src, lon_src, x_coords, y_coords, dem_crs, method=method, k_idw=k_idw,
+            z_src=z_src if use_lapse else None, cache_dir=download_dir, cache_limit_mb=1024)
+        logger.info(f"Interpolation: {regridder.describe()}")
+        if use_lapse:
+            zs = regridder.z_src
+            logger.info(f"Temperature lapse-rate correction ON (ERA5 terrain {zs.min():.0f}–{zs.max():.0f} m, "
+                f"DEM {dem[~mask_nan].min():.0f}–{dem[~mask_nan].max():.0f} m)")
+        logger.info(f"Processing: {n_total} hours × {ny}×{nx} cells | window {tw} h × {cy} rows | "
+            f"{'dask, ' + str(n_workers) + ' threads' if HAS_DASK else 'sequential (dask not installed)'}")
+        if os.path.exists(tmp_path): os.remove(tmp_path)
+        nc = Dataset(tmp_path, "w", format="NETCDF4")
+        nc.createDimension("time", None); nc.createDimension("y", ny); nc.createDimension("x", nx)
         time_var = nc.createVariable("time", "f8", ("time",))
-        time_var.units = f"{time_step} since 1900-01-01 00:00:00"
+        time_var.units = "hours since 1900-01-01 00:00:00"
         time_var.calendar = "proleptic_gregorian"
-        y_var = nc.createVariable("y", "f4", ("y",))
-        x_var = nc.createVariable("x", "f4", ("x",))
-        y_var[:], x_var[:], nc_vars = y_coords, x_coords, {}
+        time_var.time_zone = "UTC"
+        nc.createVariable("y", "f8", ("y",))[:] = y_coords
+        nc.createVariable("x", "f8", ("x",))[:] = x_coords
         crs_var = nc.createVariable("crs", "i4")
-        if crs.is_geographic: crs_var.grid_mapping_name = "latitude_longitude"
-        else: crs_var.grid_mapping_name = "transverse_mercator"
-        crs_var.crs_wkt = crs.to_wkt()
-        try: crs_var.epsg_code = crs.to_epsg()
-        except Exception: pass
-        for var, (_, unit) in forcing.items():
-            logger.info(f"Creating variable {var}...")
-            nc_vars[var] = nc.createVariable(
-                var, "f4", ("time", "y", "x"), zlib=True, complevel=4, fill_value=-9999.0,
-                shuffle=True, chunksizes=(24, 128, 128), least_significant_digit=2
-            )
-            nc_vars[var].units, nc_vars[var].grid_mapping = unit, "crs"
-        # Download ERA5 data
-        logger.info("Downloading ERA5 data...")
-        client = cdsapi.Client(quiet=False, debug=False)
-        current = start_time.replace(day=1)
-        while current <= end_time:
-            files, bad_files, month_files = [], [], []
-            year, month = current.year, current.month
-            last_day = calendar.monthrange(year, month)[1]
-            month_start = datetime(year, month, 1)
-            month_end = datetime(year, month, last_day, 23)
-            # Clip by requested range
-            actual_start = max(start_time, month_start)
-            actual_end = min(end_time, month_end)
-            # Days to download
-            days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
-            for key, var in variables.items():
-                logger.info(f"Downloading {var} for {year}-{month:02d}...")
-                request = {
-                    'product_type': 'reanalysis', 'variable': [key],
-                    'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
-                    'time': [f"{h:02d}:00" for h in range(24)], 'area': area,
-                    'data_format': 'netcdf', 'download_format': 'unarchived'
-                }
-                out_file = f"{year}_{month:02d}_{var}.nc"
-                out_path = os.path.normpath(os.path.join(download_dir, out_file))
-                client.retrieve(dataset, request, out_path)
-                # Check valid files
-                if flow_functions.is_valid_netcdf(out_path, var): files.append(out_path)
-                else: bad_files.append(out_path)
-                month_files.append(out_path)
-            logger.info("ERA5 download completed successfully")
-            # Check valid files
-            logger.info(""*20)
-            logger.info("Checking valid files...")
-            # Filter valid files
-            logger.info(f"Year: {year}, Month: {month}")
-            n = len(files) + len(bad_files)
-            logger.info(f"Number of valid files: {len(files)}/{n}")
-            logger.info(f"Number of invalid files: {len(bad_files)}/{n}")
-            if len(bad_files) > 0:
-                logger.info("Bad files:")
-                for f in bad_files: logger.info(f" - {os.path.basename(f)}")
-            logger.info("="*20)
-            logger.info("Processing monthly forcing ...")
-            ref_file = next(f for f in month_files if f.endswith("_tp.nc"))
-            with xr.open_dataset(ref_file) as ref_ds:
-                timestamps = pd.to_datetime(ref_ds['valid_time'][:], utc=True).to_numpy()
-                lat, lon = ref_ds['latitude'][:], ref_ds['longitude'][:]
-            x_known, y_known, gdf = None, None, None
-            single_value = lat.size * lon.size == 1
-            if not single_value:
-                lon2d, lat2d = np.meshgrid(lon, lat)
-                gdf_known = gpd.GeoDataFrame(
-                    geometry=gpd.points_from_xy(lon2d.ravel(), lat2d.ravel()), crs='EPSG:4326'
-                ).to_crs(crs)
-                x_known, y_known = gdf_known.geometry.x.values, gdf_known.geometry.y.values
-                x, y = np.meshgrid(x_coords, y_coords)
-                gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x.ravel(), y.ravel()), crs=crs)
-                idx, weight = prepare_interpolator(gdf, x_known, y_known, geo_type="point")
-            else: idx, weight = None, None
-            n_time, chunk_size, overlap = len(timestamps), 24, 2        
-            for var, (col, unit) in forcing.items():
-                logger.info(f"Processing {var}")
-                ds = ds_u = ds_v = None
-                try:
-                    if var == 'wind':
-                        u_file = os.path.normpath(os.path.join(download_dir,f"{year}_{month:02d}_u10.nc"))
-                        v_file = os.path.normpath(os.path.join(download_dir,f"{year}_{month:02d}_v10.nc"))
-                        ds_u, ds_v = Dataset(u_file), Dataset(v_file)
-                    else: ds = Dataset(os.path.normpath(os.path.join(download_dir, f"{year}_{month:02d}_{col}.nc")))
-                    for start in range(0, n_time, chunk_size):
-                        start_eff = max(0, start - overlap)
-                        end_eff = min(n_time, start + chunk_size + overlap)
-                        if var == "wind":
-                            u = ds_u["u10"][start_eff:end_eff].astype(np.float32)
-                            v = ds_v["v10"][start_eff:end_eff].astype(np.float32)
-                            data = np.hypot(u, v)
-                        else: data = ds[col][start_eff:end_eff].astype(np.float32)
-                        if var == "precip": data *= 1000
-                        elif var == "temp": data -= 273.15
-                        elif var == "press_msl": data /= 100
-                        elif var in ("kin", "kout"): data /= 3600
-                        if np.isnan(data).any():
-                            da = xr.DataArray(data, dims=("valid_time", "latitude", "longitude"))
-                            da = da.interpolate_na(dim="valid_time", method="linear")
-                            da = da.ffill("valid_time").bfill("valid_time")
-                            da = da.fillna(0.0)
-                            data = da.values.astype(np.float32)
-                        # Interpolate
-                        data_3d = create_forcing(data, ny, nx, mask_nan, single_value, idx, weight)
-                        if data_3d is None:
-                            logger.info("FAILED: No valid data found for interpolation")
-                            processes[process_key] = {"status": "failed", "message": "No valid data found for interpolation."}
-                            return
-                        t0, t1 = start, min(start + chunk_size, n_time)
-                        chunk_start = t0 - start_eff
-                        chunk_end = chunk_start + (t1 - t0)
-                        chunk = data_3d[chunk_start:chunk_end]
-                        chunk = np.nan_to_num(chunk, nan=0.0)
-                        chunk = np.where(mask_nan[None, :, :], 0.0, chunk)
-                        nc_vars[var][t0:t1, :, :] = chunk
-                        del data, data_3d, chunk
-                        if var == "wind": del u, v
-                finally:
-                    if ds is not None:
-                        try: ds.close()
-                        except Exception: pass
-                    if ds_u is not None:
-                        try: ds_u.close()
-                        except Exception: pass
-                    if ds_v is not None:
-                        try: ds_v.close()
-                        except Exception: pass
-            for i, t in enumerate(timestamps):
-                time_var[time_index + i] = date2num(pd.Timestamp(t).to_pydatetime(), time_var.units, time_var.calendar)
-            time_index += n_time
-            # Cleanup
-            gc.collect()
-            for f in month_files: functions.safe_remove(f)
-            # Next month
-            current += relativedelta(months=1)
-        nc.close()
-        nc = None
-        gc.collect()
-        logger.info(f"Saved forcing file successfully: {forcing_path}")
-        if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        logger.info("Temporary monthly files removed.")
-        logger.handlers[0].flush()
-        processes[process_key] = {"status": "finished", "message": "Weather download completed successfully.\n\n\n"}
+        crs_var.grid_mapping_name = "latitude_longitude" if dem_crs.is_geographic else "transverse_mercator"
+        crs_var.crs_wkt = dem_crs.to_wkt()
+        epsg = dem_crs.to_epsg()
+        if epsg is not None: crs_var.epsg_code = epsg
+        chunks = (CHUNK_T, cy, min(CHUNK_XY, nx))
+        nc_vars = {}
+        for var, (unit, _) in FORCING.items():
+            v = nc.createVariable(var, "f4", ("time", "y", "x"), zlib=True, complevel=4,
+                fill_value=NODATA_DEM, shuffle=True, chunksizes=chunks, least_significant_digit=2)
+            v.units, v.grid_mapping = unit, "crs"
+            nc_vars[var] = v
+        nc.source = "ERA5 reanalysis (Copernicus Climate Change Service)"
+        nc.interpolation = regridder.describe()
+        nc.temperature_lapse_correction = f"{LAPSE_T * 1000} K/km" if use_lapse else "none"
+        # Interpolate blocks of data in parallel
+        write_lock = threading.Lock()
+        row_blocks = [(r0, min(r0 + cy, ny)) for r0 in range(0, ny, cy)]
+        def process_block(r0, r1, win, g0, g1):
+            era5_function.check_cancel(processes, process_key)
+            idx, w, zi = regridder.get(r0, r1)
+            rows = r1 - r0
+            mask_b = mask_nan[r0:r1]
+            lapse = None
+            if use_lapse: lapse = (LAPSE_T * (zi.reshape(rows, nx) - dem[r0:r1])).astype(np.float32)
+            for var in FORCING:
+                out = regridder.apply(win[var], idx, w, rows, nx)
+                if var == "temp" and lapse is not None: out += lapse[None, :, :]
+                out[:, mask_b] = NODATA_DEM
+                with write_lock:
+                    nc_vars[var][g0:g1, r0:r1, :] = out
+                del out
+            return rows
+        for w0 in range(0, n_total, tw):
+            era5_function.check_cancel(processes, process_key)
+            w1 = min(w0 + tw, n_total)
+            win = _source_window(src, w0, w1)
+            if HAS_DASK:
+                tasks = [dask.delayed(process_block)(r0, r1, win, w0, w1) for r0, r1 in row_blocks]
+                dask.compute(*tasks, scheduler="threads", num_workers=n_workers)
+            else:
+                for r0, r1 in row_blocks:
+                    process_block(r0, r1, win, w0, w1)
+            with write_lock:
+                time_var[w0:w1] = date2num(list(times[w0:w1].to_pydatetime()), time_var.units, time_var.calendar)
+            pct = 100.0 * w1 / n_total
+            msg = f"Interpolating forcing: {pct:.0f}% ({times[w1 - 1]:%Y-%m-%d %H:%M} UTC)"
+            logger.info(msg)
+            era5_function.set_status(processes, process_key, "running", msg)
+            del win; gc.collect()
+        # Finalize
+        era5_function.check_cancel(processes, process_key)
+        nc.close(); nc = None; src.close(); src = None
+        os.replace(tmp_path, forcing_path)
+        logger.info(f"Saved forcing file: {forcing_path} ({n_total} hourly steps, UTC)")
+        era5_function.set_status(processes, process_key, "finished", "Weather download completed successfully.\n\n\n")
+    except era5_function.DownloadCancelled as e:
+        logger.info("=" * 70)
+        logger.info(f"{e} Previous forcing file (if any) was kept.")
+        era5_function.set_status(processes, process_key, "failed", "Download cancelled by user.", cancelled=True)
+    except era5_function.ERA5Error as e:
+        logger.error(f"FAILED: {e}")
+        era5_function.set_status(processes, process_key, "failed", str(e))
     except Exception as e:
-        print('/weather_downloader:\n==============')
-        traceback.print_exc()
-        logger.exception("Weather download failed")
-        processes[process_key] = {"status": "failed", "message": str(e)}
+        logger.error("Weather download failed:\n" + traceback.format_exc())
+        era5_function.set_status(processes, process_key, "failed", str(e))
     finally:
-        if nc is not None:
-            try:
-                nc.close()
-                logger.info("NetCDF file closed.")
-            except Exception as e:
-                logger.warning(f"Error closing NetCDF: {e}")
-                processes[process_key] = {"status": "failed", "message": f"Error closing NetCDF: {e}"}
+        for obj in (nc, src):
+            if obj is not None:
+                try: obj.close()
+                except Exception: pass
+        if os.path.exists(tmp_path):
+            try: os.remove(tmp_path)
+            except OSError: pass
+        shutil.rmtree(download_dir, ignore_errors=True)
         gc.collect()
-        sys.stdout, sys.stderr = old_stdout, old_stderr
         for h in logger.handlers[:]:
             try:
                 h.flush()
@@ -495,13 +597,15 @@ def burn(geoms, height, width, transform):
         transform=transform, fill=0, dtype="uint8").astype(bool)
 
 def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name:str, 
-    soil_source:str, water:str, dtm_path:str, catchment_path:str):
+    soil_source:str, water:str, dtm_path:str, catchment_path:str, log_file:str):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     soil_dir = os.path.normpath(os.path.join(flow_dir, "soil"))
     os.makedirs(soil_dir, exist_ok=True)
     # Work with log
-    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    log_dir = os.path.join(project_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
     logger, ref = None, None
     try:
@@ -542,7 +646,7 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                 shapes=catchment_buffer.geometry, out_shape=(height, width),
                 transform=transform, dtype=np.uint8, fill=0, default_value=1
             )
-        mask_catchment = catch_array == 1
+        mask_catchment: np.ndarray = np.asarray(catch_array == 1, dtype=np.bool_)
         catchment_buffer_wgs84 = catchment_buffer.to_crs("EPSG:4326")
         pad = 0.01
         min_lon, min_lat, max_lon, max_lat = catchment_buffer_wgs84.total_bounds
@@ -630,45 +734,25 @@ def soil_downloader(project_name:str, processes:dict, process_key:str, flow_name
                     h.close()
                 finally: logger.removeHandler(h)
 
-def water_masks(water_path, crs, transform, shape, mode="sea", logger=None):
-    """mode: 'none', 'sea', 'all'"""
-    if not water_path or not os.path.isfile(water_path): return None, None
-    water = gpd.read_file(water_path)
-    water = water[water.geometry.notna() & ~water.geometry.is_empty]
-    if water.empty: return None, None
-    water = water.to_crs(crs)
-    water["geometry"] = water.geometry.make_valid()
-    height, width = shape
-    def _burn(gdf):
-        if gdf.empty: return None
-        return rasterize(((g, 1) for g in gdf.geometry), out_shape=shape, 
-            transform=transform, fill=0, dtype="uint8").astype(bool)
-    if mode == "none": return None, _burn(water)
-    if mode == "all": return _burn(water), None
-    left, top = transform.c, transform.f
-    right, bottom = left + width * transform.a, top + height * transform.e
-    edge = box(left, min(top, bottom), right, max(top, bottom)).exterior.buffer(abs(transform.a))
-    touches = water.intersects(edge)
-    if logger: logger.info(f"Water polygons: {int(touches.sum())} open water (excluded), "
-        f"{int((~touches).sum())} inland lakes (kept).")
-    return _burn(water[touches]), _burn(water[~touches])
-
-def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, 
-    river_path:str, water_path:str, water_mode:str="sea"):
+def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Logger, river_path:str, water_path:str):
     with rasterio.open(dem_path) as src:
         dem_array = src.read(1)
         crs, nodata = src.crs, src.nodata
         transform, profile = src.transform, src.profile
         height, width = src.height, src.width
-
     if nodata is None: nodata = -9999.0
     dem_array[np.isnan(dem_array)] = nodata
-    mask_exclude, mask_lake = water_masks(water_path, crs, transform, (height, width), water_mode, logger)
-    if mask_exclude is not None:
-        logger.info(f"Excluding {int(mask_exclude.sum())} water cells from the model domain...")
-        dem_array[mask_exclude] = nodata
-        if not np.any(dem_array != nodata):
-            raise ValueError("No land cells left after masking water area.")
+    mask_lake = None
+    if water_path is not None:
+        logger.info("Masking lake area...")
+        lake = gpd.read_file(water_path)
+        lake_reproj = lake.to_crs(crs)
+        lake_array = rasterize(
+            shapes=[geom for geom in lake_reproj.geometry], dtype=np.float32,
+            out_shape=(height, width), transform=transform, fill=nodata
+        )
+        mask_lake = (lake_array != nodata)
+    if mask_lake is not None:  filled_array[mask_lake] = dem_array[mask_lake]
     logger.info("Filling depressions...")
     filled_array, flwdir_array = dem.fill_depressions(elevtn=dem_array, max_depth=-1, nodata=nodata)
     logger.info("Creating flow directions...")
@@ -730,11 +814,13 @@ def hydro_creator(directory:str, dem_path:str, area_km2:float, logger:logging.Lo
         logger.info(f"Writing data to: {file_path}")
         flow_functions.write_geotif(array[0], profile_writer, file_path, array[1])
 
-def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str, area:float=10, water_mode:str="sea"):
+def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str, log_file:str, area:float=10):
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     # Work with log
-    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    log_dir = os.path.join(project_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
     try:
         logger = setup_logger("wflow", log_path)
@@ -784,7 +870,7 @@ def wflow_check(project_name:str, processes:dict, process_key:str, flow_name:str
             shutil.rmtree(hydro_dir)
         os.makedirs(hydro_dir, exist_ok=True)
         logger.info(f"Creating template hydro data at: {hydro_dir}")
-        hydro_creator(hydro_dir, terrain_path, area, logger, river_path, water_path, water_mode)
+        hydro_creator(hydro_dir, terrain_path, area, logger, river_path, water_path)
         logger.info("Write hydro data completed.")
         logger.info("=" * 60)
         logger.info("Checking landcover data...")
@@ -1072,13 +1158,15 @@ def run_hydromt(project_name: str, flow_name:str, model_folder:str, log_path:str
 
 def wflow_run(project_name:str, processes:dict, process_key:str, flow_name:str, model_folder:str, df:pd.DataFrame, 
     crs:str, start:str, end:str, step:int, time_zone:str, data_lib:list, resolution:int, soil_layers:list, 
-    params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str, uparea:float=10.0):
+    params_input:dict, params_output:dict, lulc_function:str, lulc_mapping_fn:str, lai_fn:str, log_file:str, uparea:float=10.0):
     # lulc_function, lulc_mapping_fn, lai_fn = 'esa_worldcover', 'esa_worldcover_mapping', 'lai_esa'
     project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
     model_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
     mod_path = os.path.normpath(os.path.join(model_dir, model_folder))
     # Set up logger
-    log_path = os.path.normpath(os.path.join(project_dir, "log.txt"))
+    log_dir = os.path.join(project_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
     logger = setup_logger("hydromt", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr

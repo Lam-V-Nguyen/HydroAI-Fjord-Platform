@@ -330,7 +330,7 @@ export async function saveFileSmart(data, suggestedName, zip = false) {
     return true;
 }
 
-export function updateLog(currentProject, info, seconds, key, onFinish, reloadLog=false, log_file='log.txt') {
+export function updateLog(currentProject, info, seconds, key, onFinish, log_file, reloadLog=false) {
     const new_key = `${currentProject}_${key}`; let lastOffset = 0; activeProject = new_key;
     async function loop() {
         if (activeProject !== new_key) return;

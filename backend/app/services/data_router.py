@@ -3,7 +3,8 @@ from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from services import functions, data_functions, hyd_functions, flow_functions, yml_update
+from fastapi.concurrency import run_in_threadpool
+from services import functions, data_functions, hyd_functions, flow_functions, yml_update, era5_function
 from config import PROJECT_ROOT, SOURCE_BACKEND
 import geopandas as gpd, pandas as pd, numpy as np
 from services.data_functions import Regnbyge as regnbyge
@@ -17,32 +18,41 @@ STALE_AFTER_S = 15 * 60
 
 router, processes = APIRouter(), {}
 
+
+def _is_active(info):
+    return bool(info) and info.get("status") == "running" and \
+        time.time() - info.get("heartbeat", 0) < STALE_AFTER_S
+
 @router.get("/log_tail_download/{project_name}")
 async def log_tail_download(project_name: str, offset: int = Query(0),
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, log_file)), []
-    log_path = os.path.normpath(log_path)
-    if not os.path.exists(log_path): return {"lines": lines, "offset": 0, "reset": False}
+    log_name = os.path.basename(log_file) or "log.txt"
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_name))
+    if not os.path.exists(log_path): return {"lines": [], "offset": 0, "reset": offset > 0}
     file_size = os.path.getsize(log_path)
     reset = offset > file_size
     if reset: offset = 0
-    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
+    with open(log_path, "rb") as f:
         f.seek(offset)
-        data = f.read()
-        new_offset = f.tell()
-    return {"lines": data.splitlines(), "offset": new_offset, "reset": reset}
+        raw = f.read()
+    cut = raw.rfind(b"\n") + 1
+    data, new_offset = raw[:cut], offset + cut
+    return {"lines": data.decode("utf-8", errors="replace").splitlines(), "offset": new_offset, "reset": reset}
 
 # Check if download is running
 @router.post("/check_download_status")
 async def check_download_status(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    process_key = f"{project_name}:{body.get('key')}"
-    info = processes.get(process_key)
+    info = processes.get(f"{project_name}:{body.get('key')}")
     if info is None: return JSONResponse({"status": "idle", "message": "No download running."})
-    status, message, results = info.get("status", "idle"), info.get("message", ""), info.get("results", [])
-    return JSONResponse({"status": status, "message": message, "results": results})
+    status, message = info.get("status", "idle"), info.get("message", "")
+    if status == "running" and not _is_active(info):
+        status, message = "failed", "Previous download stopped responding. You can start again."
+    return JSONResponse({"status": status, "message": message, "results": info.get("results", [])})
 
 @router.post("/save_client")
 async def save_client(request: Request, user=Depends(functions.basic_auth)):
@@ -209,21 +219,60 @@ async def data_upload_gis(file: UploadFile = File(...)):
 async def download_era5(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir, api_key, key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key'), body.get('key')
-    redis, key_process = request.app.state.redis, f"{project_name}:{key}"
-    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    project_dir = os.path.join(PROJECT_ROOT, project_name)
+    key = body.get("key") or "era5"
+    key_process = f"{project_name}:{key}"
+    required = ("api_key", "lat", "lon", "startTime", "endTime", "timeZone", "variables", "logFile")
+    missing = [k for k in required if body.get(k) in (None, "", [])]
+    if missing: return JSONResponse({"status": "error", "message": f"Missing fields: {', '.join(missing)}"})
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+        elevation = body.get("elevation")
+        elevation = float(elevation) if elevation not in (None, "") else None
+    except (TypeError, ValueError):
+        return JSONResponse({"status": "error", "message": "Latitude, longitude and elevation must be numbers."})
+    redis = request.app.state.redis
+    lock = redis.lock(key_process, timeout=60, blocking_timeout=10)
     async with lock:
-        # Check if process already running
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading in progress.'})
-        lat, lon, time_zone = float(body.get('lat')), float(body.get('lon')), body.get('timeZone')
-        start, end, variables = body.get('startTime'), body.get('endTime'), body.get('variables')
-        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        if _is_active(processes.get(key_process)):
+            return JSONResponse({"status": "running", "message": "Data downloading in progress."})
+        now = time.time()
+        processes[key_process] = {"status": "running", "message": "Preparing download...",
+            "started_at": now, "heartbeat": now, "cancel": False}
         threading.Thread(
             target=data_functions.era5_downloader, 
-            args=(key, api_key, dir, processes, key_process, variables, lat, lon, start, end, time_zone), daemon=True
+            args=(key, body["api_key"], project_dir, processes, key_process, body["variables"], 
+                lat, lon, body["startTime"], body["endTime"], body["timeZone"], body["logFile"]),
+            kwargs={"method": body.get("method") or "bilinear", "elevation": elevation,
+                "auto_elevation": bool(body.get("autoElevation", True))}, name=f"era5:{key_process}", daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
+
+@router.post("/cancel_download_era5")
+async def cancel_download_era5(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get("projectName"), user)
+    info = processes.get(f"{project_name}:{body.get('key')}")
+    if not _is_active(info): return JSONResponse({"status": "idle", "message": "No download running."})
+    if info.get("cancel"): return JSONResponse({"status": "ok", "message": "Already cancelling..."})
+    info["cancel"], info["message"] = True, "Cancelling download..."
+    return JSONResponse({"status": "ok", "message": "Cancelling download..."})
+
+@router.post("/cds_clear_queue")
+async def cds_clear_queue(request: Request, user=Depends(functions.basic_auth)):
+    body = await request.json()
+    project_name, _ = functions.project_definer(body.get("projectName"), user)
+    api_key = (body.get("api_key") or "").strip()
+    if not api_key:
+        return JSONResponse({"status": "error", "message": "Please enter your ERA5 API key."})
+    if _is_active(processes.get(f"{project_name}:{body.get('key') or 'era5'}")):
+        return JSONResponse({"status": "error", "message": "Cancel the running download first."})
+    try:
+        n = await run_in_threadpool(era5_function.delete_active_jobs, api_key)
+        return JSONResponse({"status": "ok", "message": f"Removed {n} queued/running ERA5 request(s) from CDS."})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": f"Could not clear CDS queue: {e}"})
 
 @router.post("/upload_era5_csv")
 async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
@@ -231,13 +280,17 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         path = os.path.join(PROJECT_ROOT, project_name, body.get('fileName'))
+        if not path.endswith(".csv"):
+            return JSONResponse({"status": "error", "message": "Invalid file name."})
         if not os.path.exists(path): 
             return JSONResponse({'status': 'error', 'message': 'No data found.\nPlease download data first.'})
         df = pd.read_csv(path)
         df['Time'] = pd.to_datetime(df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-        columns = [data_functions.var_revert[x] for x in df.columns]
+        columns = [era5_function.var_revert[x] for x in df.columns]
+        print(df)
+        content = df.astype(object).where(pd.notna(df), None).values.tolist()
         functions.safe_remove(path)
-        return JSONResponse({'status': 'ok', 'columns': columns, 'content': df.values.tolist()})
+        return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
     except Exception as e:
         print('/upload_era5_csv:\n==============')
         traceback.print_exc()
@@ -445,14 +498,15 @@ async def download_nve(request: Request, user=Depends(functions.basic_auth)):
     redis, key_process = request.app.state.redis, f"{project_name}:{key}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
-        # Check if process already running
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading is in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing NVE data download..."}
+        if _is_active(processes.get(key_process)):
+            return JSONResponse({"status": "running", "message": "Data downloading in progress."})
+        now = time.time()
+        processes[key_process] = {"status": "running", "message": "Preparing NVE data download...",
+            "started_at": now, "heartbeat": now}
         threading.Thread(
             target=data_functions.nve_downloader, 
             args=(key, api_key, url, dir, processes, key_process, ids, 
-                columns, variables, interval, start, end, time_zone
+                columns, variables, interval, start, end, time_zone, body.get('logFile')
             ), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
@@ -468,13 +522,15 @@ async def download_met(request: Request, user=Depends(functions.basic_auth)):
     redis, key_process = request.app.state.redis, f"{project_name}:{key}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
-        # Check if process already running
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Data downloading is in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing download..."}
+        if _is_active(processes.get(key_process)):
+            return JSONResponse({"status": "running", "message": "Data downloading in progress."})
+        now = time.time()
+        processes[key_process] = {"status": "running", "message": "Preparing download...",
+            "started_at": now, "heartbeat": now}
         threading.Thread(
             target=data_functions.met_downloader, 
-            args=(key, api_key, url, dir, processes, key_process, ids, columns, variables, start, end, time_zone
+            args=(key, api_key, url, dir, processes, key_process, ids, columns, 
+                variables, start, end, time_zone, body.get('logFile')
             ), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started"})
@@ -611,7 +667,7 @@ async def start_download_soil(request: Request, user=Depends(functions.basic_aut
         threading.Thread(
             target=flow_functions.soil_downloader, 
             args=(project_name, processes, key_process, flow_name, 
-                soil_source, water_area, terrain_path, catchment_path
+                soil_source, water_area, terrain_path, catchment_path, body.get('logFile')
             ), daemon=True
         ).start()
     return JSONResponse({'status': 'ok', 'message': "Soil downloading started."})
@@ -623,20 +679,18 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
     redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Weather downloading is in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing weather data download..."}
+        if _is_active(processes.get(key_process)):
+            return JSONResponse({"status": "running", "message": "Data downloading in progress."})
+        now = time.time()
+        processes[key_process] = {"status": "running", "message": "Preparing weather data download...",
+            "started_at": now, "heartbeat": now, "cancel": False}
         start, end, flow_name = body.get('start'), body.get('end'), body.get('flowName')
-        api_key, time_zone = body.get('apiKey'), body.get('timeZone')
+        api_key, time_zone, log_file = body.get('apiKey'), body.get('timeZone'), body.get('logFile')
         threading.Thread(
             target=flow_functions.weather_downloader, 
-            args=(project_name, flow_name, processes, key_process, api_key, start, end, time_zone), daemon=True
+            args=(project_name, flow_name, processes, key_process, api_key, start, end, time_zone, log_file), daemon=True
         ).start()
     return JSONResponse({"status": "ok", "message": "Weather downloading started."})
-
-def _is_active(info):
-    return bool(info) and info.get("status") == "running" and \
-        time.time() - info.get("heartbeat", 0) < STALE_AFTER_S
 
 @router.post("/cancel_download_weather")
 async def cancel_download_weather(request: Request, user=Depends(functions.basic_auth)):
@@ -647,10 +701,6 @@ async def cancel_download_weather(request: Request, user=Depends(functions.basic
         return JSONResponse({"status": "idle", "message": "No download running."})
     info["cancel"] = True
     return JSONResponse({"status": "ok", "message": "Cancelling... (takes effect within a few seconds)"})
-
-
-
-
 
 @router.post("/wflow_model")
 async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
@@ -666,12 +716,14 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
             if key == "check":
-                if key_process in processes and processes[key_process]["status"] == "running":
-                    return JSONResponse({"status": "running", "message": 'Checking inputs for Wflow is in progress.'})
-                processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow..."}
+                if _is_active(processes.get(key_process)):
+                    return JSONResponse({"status": "running", "message": "Checking inputs for Wflow is in progress."})
+                now = time.time()
+                processes[key_process] = {"status": "running", "message": "Checking inputs for Wflow...",
+                    "started_at": now, "heartbeat": now}
                 thread = threading.Thread(
                     target=flow_functions.wflow_check, 
-                    args=(project_name, processes, key_process, flow_name), daemon=True
+                    args=(project_name, processes, key_process, flow_name, body.get('logFile')), daemon=True
                 )
                 thread.start(); thread.join()
                 result = yml_update.YML_updater(lib_path, wflow_dir, des_path)
@@ -684,9 +736,11 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                     return JSONResponse({"status": "ok", 'content': {'lat_lon': [lat, lon]}})
                 else: return JSONResponse({"status": "error", "message": f"Error when updating YML file:\n\n{result}"})
             elif key == "run":
-                if key_process in processes and processes[key_process]["status"] == "running":
-                    return JSONResponse({"status": "running", "message": 'Running Wflow model.'})
-                processes[key_process] = {"status": "running", "message": "Running Wflow model..."}
+                if _is_active(processes.get(key_process)):
+                    return JSONResponse({"status": "running", "message": "Running Wflow model is in progress."})
+                now = time.time()
+                processes[key_process] = {"status": "running", "message": "Running Wflow model...",
+                    "started_at": now, "heartbeat": now}
                 step, start, end = int(body.get('step')), body.get('start'), body.get('end')
                 params_input, params_output = body.get('params_input'), body.get('params_output')
                 lat, lon, time_zone = float(body.get('lat')), float(body.get('lon')), body.get('timeZone')
@@ -702,7 +756,7 @@ async def wflow_model(request: Request, user=Depends(functions.basic_auth)):
                 threading.Thread(target=flow_functions.wflow_run,
                     args=(project_name, processes, key_process, flow_name, wflow_model, df, src_crs, 
                         start, end, step, time_zone, data_lib, resolution, soil_layers, 
-                        params_input, params_output, lulc_fn, lulc_mapping, lai_fn
+                        params_input, params_output, lulc_fn, lulc_mapping, lai_fn, body.get('logFile')
                     ), daemon=False
                 ).start()
                 return JSONResponse({"status": "ok", "message": "Model run started."})

@@ -139,7 +139,7 @@ function calibrationManager() {
         if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const samplingName = obj.resamplingName.value.trim();
         if (samplingName === '') { alert('Please specify a name for the resampling.'); return; }
-        const key = 'calibration', logFile = 'log.txt';
+        const key = 'calibration', logFile = 'log_calibration.txt';
         if (isRunning) { alert("Detected an HYD simulation is running. Please wait until it finishes."); return; }
         obj.calibrationLog.value = ''; obj.progressBar.value = 0;
         obj.progressContainer.style.display = 'flex';
@@ -157,7 +157,7 @@ function calibrationManager() {
             obj.progressText.innerText = statusRes.message; obj.progressBar.value = statusRes.progress;
             alert("HYD simulation is running."); return; 
         } else { isRunning = false; }
-        const content = { projectName: currentProject, key: key, samplingName: samplingName };
+        const content = { projectName: currentProject, key: key, samplingName: samplingName, logFile: logFile };
         const start = await jsonLoader('start_sim_calibration', content);
         if (start.status === "error") { alert(start.message); return; }
         obj.progressText.innerText = 'Preparing data for the HYD simulation...';
@@ -238,12 +238,12 @@ function calibrationManager() {
         const currentProject = obj.projectName.value.trim();
         if (currentProject === '') { alert('Please select a HYD scenario first.'); return; }
         const model = obj.surrogateSelector.value.trim();
-        const key = 'surrogate_model', logFile = 'log.txt';
+        const key = 'surrogate_model', logFile = 'log_surrogate.txt';
         if (isRunning) { alert("Optimization is currently running."); return; }
         obj.optimizationLogContainer.style.display = 'flex';
         obj.optimizationChartContainer.style.display = 'none';
         obj.optimizationLog.value = ''; 
-        const content = { projectName: currentProject, model: model, key: key };
+        const content = { projectName: currentProject, model: model, key: key, logFile: logFile };
         try {
             const start = await jsonLoader('start_optimization_calibration', content);
             if (start.status === "error") { 
@@ -273,10 +273,10 @@ function calibrationManager() {
         obj.optimizationChartContainer.style.display = 'none';
         obj.optimizationLog.value = ''; 
         obj.optimizationResults.style.display = 'none';
-        const key = 'optuna', logFile = 'log.txt';
+        const key = 'optuna', logFile = 'log_optuna.txt';
         const content = { 
             projectName: currentProject, iterations: iterationNumber, 
-            direction: direction, key: key
+            direction: direction, key: key, logFile: logFile
         };
         try {
             const start = await jsonLoader('start_optimization_optuna', content);

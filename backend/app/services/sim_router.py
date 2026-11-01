@@ -160,7 +160,9 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
 async def sim_log_tail_hyd(project_name: str, offset: int = Query(0), 
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.join(PROJECT_ROOT, project_name, log_file), []
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path, lines = os.path.join(log_dir, log_file), []
     log_path = os.path.normpath(log_path)
     if not os.path.exists(log_path): return {"lines": lines, "offset": offset}
     with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
@@ -386,7 +388,9 @@ async def run_waq_simulation(project_name, waq_name):
 async def sim_log_tail_waq(project_name: str, offset: int = Query(0),
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path = os.path.join(PROJECT_ROOT, project_name, log_file)
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, log_file)
     if not os.path.exists(log_path): return {"lines": [], "offset": 0}
     if offset > os.path.getsize(log_path): offset = 0
     with open(log_path, "rb") as f:

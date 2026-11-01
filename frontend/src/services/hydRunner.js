@@ -90,8 +90,7 @@ function updateLogHYD(hydProject, progress_bar, progress_text, info, seconds){
             if (!res.ok) return;
             const data = await res.json();
             for (const line of data.lines) { 
-                info.value += line + "\n"; 
-                info.scrollTop = info.scrollHeight;
+                info.value += line + "\n"; info.scrollTop = info.scrollHeight;
             }
             lastOffsetHYD = data.offset;
         } catch (error) { clearInterval(logIntervalHYD); logIntervalHYD = null; }

@@ -405,7 +405,7 @@ function soilManager() {
         } catch (error) { alert(`Downloading soil data failed: ${error.message}`); }
     });
     obj.downloadSoilBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(), key = 'soil';
+        const name = obj.projectName.value.trim(), key = 'soil', logFile = 'log_soil.txt';
         if (name === '') { alert('Please select a scenario first.'); return; }
         const value = obj.soilSource.value;
         if (value === '') { alert('Please select a soil source data first.'); return; }
@@ -418,13 +418,13 @@ function soilManager() {
             obj.soilTable.style.display = 'none'; obj.soilDownload.style.display = 'flex'; obj.soilLog.value = '';
             const content = {
                 projectName: currentProject, key: key, flowName: name,
-                waterArea: obj.waterInputText.value.trim(), soilSource: value
+                waterArea: obj.waterInputText.value.trim(), soilSource: value, logFile: logFile
             };
             const request = await jsonLoader('start_download_soil', content);
             if (request.status === 'error') { alert(request.message); return; }
             updateLog(currentProject, obj.soilLog, 2, key, async () => {
                 alert('Downloading soil data completed.'); obj.soilCheckerBtn.click();
-            });
+            }, logFile);
         } catch (error) { alert(`Downloading soil data failed: ${error.message}`); }
     });
     obj.soilLayer.addEventListener('change', async (e) => {
@@ -736,8 +736,8 @@ async function checkRiverValidity(layer) {
 
 function weatherManager() {
     const now = new Date(); now.setHours(0, 0, 0, 0);
-    const start = new Date(now); start.setDate(start.getDate() - 15);
-    const end = new Date(now); end.setDate(end.getDate() - 2);
+    const start = new Date(now); start.setDate(start.getDate() - 20);
+    const end = new Date(now); end.setDate(end.getDate() - 10);
     obj.weatherStart.value = formatDate(start); obj.weatherEnd.value = formatDate(end);
     document.querySelectorAll('input[name="weather"]').forEach(item => {
         item.addEventListener('change', (e) => {
@@ -795,7 +795,7 @@ function weatherManager() {
         alert(response.message); if (response.status === "error") { return; }
     });
     obj.downloadWeatherBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(), value = obj.weatherSelector.value;
+        const name = obj.projectName.value.trim(), value = obj.weatherSelector.value, logFile = 'log_weather.txt';
         if (name === '') { alert('Please select a scenario from first.'); return; }
         if (!value || value === '') { alert('Please select weather source data first.'); return; }
         const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value, keyChecker = 'weather';
@@ -812,13 +812,13 @@ function weatherManager() {
                 obj.weatherLog.value = '';
                 const content = {
                     projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
-                    start: startTime, end: endTime, key: keyChecker, apiKey: apiKey
+                    start: startTime, end: endTime, key: keyChecker, apiKey: apiKey, logFile: logFile
                 };
                 const start = await jsonLoader('start_download_weather', content);
                 if (start.status === "error") { alert(start.message); return; }
                 updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
                     alert('Downloading weather completed.');
-                });
+                }, logFile);
             }
         } catch (error) { alert(error.message); return; }
     });

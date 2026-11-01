@@ -270,7 +270,9 @@ async def check_sim_status_calibration(request: Request, user=Depends(functions.
 @router.get("/calibration_log_full/{project_name}")
 async def calibration_log_full(project_name: str, log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "calibration", log_file))
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if not os.path.exists(log_path): return {"content": ""}
     with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
         content = f.read()
@@ -280,8 +282,9 @@ async def calibration_log_full(project_name: str, log_file: str = Query(""), use
 async def calibration_log_tail(project_name: str, offset: int = Query(0), 
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_path, lines = os.path.join(PROJECT_ROOT, project_name, "calibration", log_file), []
-    log_path = os.path.normpath(log_path)
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path, lines = os.path.normpath(os.path.join(log_dir, log_file)), []
     if not os.path.exists(log_path): return {"lines": lines, "offset": 0}
     with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
         f.seek(offset)
@@ -304,7 +307,9 @@ async def start_sim_calibration(request: Request, background_tasks: BackgroundTa
         if not list_sorted:
             return JSONResponse({"status": "error", "message": "No simulation scenarios found."})
         # Remove old log
-        log_path = os.path.join(calibration_dir, "log.txt")
+        log_dir = os.path.join(calibration_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, body.get("logFile"))
         if os.path.exists(log_path): os.remove(log_path)
         lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
         async with lock:
@@ -371,7 +376,9 @@ async def start_optimization_calibration(request: Request, background_tasks: Bac
             }
         summary_df = pd.read_csv(correlation_path)
         # Remove old log
-        log_path = os.path.join(calibration_dir, "log.txt")
+        log_dir = os.path.join(calibration_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, body.get("logFile"))
         if os.path.exists(log_path): os.remove(log_path)
         background_tasks.add_task(
             calibration_functions.surrogate_model, processes, process_key,
@@ -412,7 +419,9 @@ async def start_optimization_optuna(request: Request, background_tasks: Backgrou
                 "message": "Preparing data for optimization...", "best_params": '',
             }
         # Remove old log
-        log_path = os.path.join(calibration_dir, "log.txt")
+        log_dir = os.path.join(calibration_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, body.get("logFile"))
         optuna_path = os.path.join(calibration_dir, 'optuna.csv')
         importance_path = os.path.join(calibration_dir, 'optuna_importance.csv')
         if os.path.exists(log_path): os.remove(log_path)
@@ -436,7 +445,7 @@ async def plot_optuna(request: Request, user=Depends(functions.basic_auth)):
         summary_path = os.path.join(calibration_dir, 'calibration_summary.csv')
         importance_path = os.path.join(calibration_dir, 'optuna_importance.csv')
         if not os.path.exists(optuna_path):
-            return JSONResponse({"status": "error", "message": "ile not found. Please 'Run Optimization' first."})
+            return JSONResponse({"status": "error", "message": "File not found. Please 'Run Optimization' first."})
         optuna_df, summary_df = pd.read_csv(optuna_path), pd.read_csv(summary_path)
         columns = summary_df.columns.to_list()
         optuna_df = optuna_df.replace({np.nan: None})

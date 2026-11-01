@@ -10,6 +10,7 @@ const hoverTooltip = L.tooltip({
     permanent: false, direction: 'bottom',
     sticky: true, offset: [0, 10], className: 'custom-tooltip'
 });
+
 window._uploadedGISFiles = {}; window._gisFileIdCounter = 0;
 
 const $ = (id) => document.getElementById(id);
@@ -54,8 +55,10 @@ const obj = {
     era5WWindU: $("wind-u-checkbox"), era5WWindV: $("wind-v-checkbox"),
     era5Start: $("era5-start"), era5End: $("era5-end"), era5Table: $("era5-table"),
     era5LogContainer: $("era5-log-container"), era5LogText: $("era5-log-text"),
-    era5DownloadBtn: $("era5-download-btn"), era5SaveBtn: $("era5-save-btn")
+    era5DownloadBtn: $("era5-download-btn"), era5CancelBtn: $("era5-cancel-btn"), 
+    era5ClearQueueBtn: $("era5-clear-btn"), era5SaveBtn: $("era5-save-btn")
 };
+const ERA5_KEY = 'era5';
 
 let plotChecked = true, waterFlowLayer = null, waterLevelLayer = null, 
     overFlowLayer = null, tempLayer = null, preLayer = null, weirLayer = null, 
@@ -155,8 +158,8 @@ async function loadClient(key) {
 
 function updateManager() {
     const now = new Date(); now.setHours(0, 0, 0, 0);
-    const start = new Date(now); start.setDate(start.getDate() - 15);
-    const end = new Date(now); end.setDate(end.getDate() - 2);
+    const start = new Date(now); start.setDate(start.getDate() - 20);
+    const end = new Date(now); end.setDate(end.getDate() - 10);
     moveWindow(obj.plotDataHeader, obj.plotDataContainer);
     closeWindow(obj.plotDataCloseBtn, obj.plotDataContainer);
     hightlightRows(obj.stationSelectedTable, obj.stationSelectedLabel);
@@ -269,7 +272,7 @@ function updateManager() {
         });
     });
     obj.metDownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.clientIdMet.value, key = 'met';
+        const apiKey = obj.clientIdMet.value, key = 'met', logFile = 'MET_log.txt';
         if (!apiKey || apiKey === '') { alert('Please enter your MET API key.'); return; }
         const tableData = getDataFromTable(obj.metTable, true);
         if (tableData.rows.length === 0) {
@@ -293,7 +296,7 @@ function updateManager() {
             obj.metLogText.value = ''; obj.metLogContainer.style.display = 'flex';
             obj.metSaveBtn.style.display = 'none'; obj.metDownloadTable.style.display = 'none';
             const contents = {
-                projectName: currentProject, api_key: apiKey, ids: ids, key: key,
+                projectName: currentProject, api_key: apiKey, ids: ids, key: key, logFile: logFile,
                 startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(),
                 variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.des)
             };
@@ -307,10 +310,9 @@ function updateManager() {
                 signalSender('hideOverlay');
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.metDownloadTable, csv.columns, csv.content);
-                obj.metSaveBtn.style.display = 'block';
-                obj.metLogContainer.style.display = 'none';
+                obj.metSaveBtn.style.display = 'block'; obj.metLogContainer.style.display = 'none';
                 obj.metDownloadTable.style.display = 'table';
-            });
+            }, logFile);
         } catch (error) {
             alert(error.message || error); obj.metSaveBtn.style.display = 'none'; return;
         }
@@ -407,7 +409,7 @@ function updateManager() {
         });
     });
     obj.nveDownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.clientIdNVE.value, key = 'nve';
+        const apiKey = obj.clientIdNVE.value, key = 'nve', logFile = 'NVE_log.txt';
         if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
         const tableData = getDataFromTable(obj.nveTable, true);
         if (tableData.rows.length === 0) {
@@ -434,7 +436,7 @@ function updateManager() {
             obj.nveSaveBtn.style.display = 'none'; obj.nveDownloadTable.style.display = 'none';
             const contents = {
                 projectName: currentProject, api_key: apiKey, ids: ids, interval: obj.nveInterval.value,
-                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(), key: key,
+                startTime: startTime, endTime: endTime, timeZone: getLastTimeZone(), key: key, logFile: logFile,
                 variables: selectedValues.map(v => v.value), columns: selectedValues.map(v => v.des)
             };
             const data = await jsonLoader('download_nve', contents);
@@ -450,7 +452,7 @@ function updateManager() {
                 obj.nveSaveBtn.style.display = 'block';
                 obj.nveLogContainer.style.display = 'none';
                 obj.nveDownloadTable.style.display = 'table';
-            });
+            }, logFile);
         } catch (error) {
             alert(error.message || error);
             obj.nveSaveBtn.style.display = 'none'; return;
@@ -619,19 +621,25 @@ function updateManager() {
             obj.era5WWindU.checked = true; obj.era5WWindV.checked = true;
         }
     });
+    obj.era5WWindU.addEventListener('change', (e) => {
+        if (e.target.checked === false) { obj.era5WindSpeed.checked = false; }
+    });
+    obj.era5WWindV.addEventListener('change', (e) => {
+        if (e.target.checked === false) { obj.era5WindSpeed.checked = false; }
+    });
     obj.era5DownloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.apikeyEra5.value, key = 'era5';
+        const apiKey = obj.apikeyEra5.value, logFile = 'ERA5_log.txt';
         if (!apiKey || apiKey === '') { alert('Please enter your ERA5 API key.'); return; }
-        const lat = obj.era5Lat.value, lon = obj.era5Lon.value;
-        if (lat === '' || lon === '') {
-            alert('Please select a location.'); return;
+        const lat = parseFloat(obj.era5Lat.value), lon = parseFloat(obj.era5Lon.value);
+        if (Number.isNaN(lat) || Number.isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 360) {
+            alert('Please select a valid location.'); return;
         }
         const startTime = obj.era5Start.value, endTime = obj.era5End.value;
         if (startTime === '' || endTime === '') {
             alert('Please select start and end time to download.'); return;
         }
-        const selectedValues = [...document.querySelectorAll(
-            '#era5-variables-grid input[type="checkbox"]:checked'
+        if (new Date(startTime) >= new Date(endTime)) { alert('Start time must be before end time.'); return; }
+        const selectedValues = [...document.querySelectorAll('#era5-variables-grid input[type="checkbox"]:checked'
         )].map(checkbox => ({
             value: checkbox.value, label: checkbox.getAttribute('data-label'),
             des: checkbox.parentElement.textContent.trim()
@@ -640,32 +648,54 @@ function updateManager() {
             alert('Please select at least one variable to download.'); return;
         }
         try {
-            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
+            const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: ERA5_KEY });
             if (statusRes.status === "running") { alert("Weather download is running."); return; }
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
-            obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none';
+            obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none'; 
+            obj.era5CancelBtn.style.display = 'block';
             const contents = {
                 projectName: currentProject, lat: lat, lon: lon, api_key: apiKey,
-                startTime: startTime, endTime: endTime, key: key,
+                startTime: startTime, endTime: endTime, key: ERA5_KEY, logFile: logFile,
                 timeZone: getLastTimeZone(), variables: selectedValues.map(v => v.value)
             };
             const data = await jsonLoader('download_era5', contents);
             if (data.status === 'error') { alert(data.message); return; }
-            updateLog(currentProject, obj.era5LogText, 2, key, async () => {
+            updateLog(currentProject, obj.era5LogText, 2, ERA5_KEY, async () => {
                 alert('Downloading weather completed.');
-                const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
+                const content_csv = { projectName: currentProject, fileName: `${ERA5_KEY}.csv` };
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_era5_csv', content_csv); signalSender('hideOverlay');
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.era5Table, csv.columns, csv.content);
-                obj.era5SaveBtn.style.display = 'block';
-                obj.era5LogContainer.style.display = 'none';
-                obj.era5Table.style.display = 'table';
-            });
+                obj.era5SaveBtn.style.display = 'block'; obj.era5LogContainer.style.display = 'none';
+                obj.era5Table.style.display = 'table'; obj.era5CancelBtn.style.display = 'none';
+            }, logFile);
         } catch (error) {
             alert(error.message || error);
             obj.era5SaveBtn.style.display = 'none'; return;
         }
+    });
+    obj.era5CancelBtn.addEventListener('click', async () => {
+        if (!confirm('Cancel the ERA5 download?')) return;
+        obj.era5CancelBtn.disabled = true; obj.era5CancelBtn.textContent = 'Cancelling...';
+        try {
+        const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: ERA5_KEY });
+            if (res.status === 'idle') setEra5Running(false); 
+            obj.era5CancelBtn.style.display = 'none'; alert('ERA5 download cancelled.');
+        } catch (error) {
+            obj.era5CancelBtn.disabled = false; obj.era5CancelBtn.textContent = 'Cancel'; alert(error.message || error);
+        }
+    });
+    obj.era5ClearQueueBtn.addEventListener('click', async () => {
+        const apiKey = obj.apikeyEra5.value.trim();
+        if (!apiKey) { alert('Please enter your ERA5 API key.'); return; }
+        if (!confirm('Remove all queued/running ERA5 requests of this CDS account?')) return;
+        obj.era5ClearQueueBtn.disabled = true;
+        try {
+            const res = await jsonLoader('cds_clear_queue', { projectName: currentProject, key: ERA5_KEY, api_key: apiKey });
+            alert(res.message);
+        } catch (error) { alert(error.message || error); }
+        finally { obj.era5ClearQueueBtn.disabled = false; }
     });
     obj.era5SaveBtn.addEventListener('click', async () => {
         const data = getDataFromTable(obj.era5Table, true);
@@ -676,6 +706,14 @@ function updateManager() {
         }
         alert(response.message);
     });
+}
+
+function setEra5Running(running) {
+    obj.era5DownloadBtn.disabled = running;
+    if (obj.era5CancelBtn) {
+        obj.era5CancelBtn.style.display = running ? 'inline-block' : 'none';
+        obj.era5CancelBtn.disabled = false; obj.era5CancelBtn.textContent = 'Cancel';
+    }
 }
 
 async function addGISFileToList(container, filename, geojson, map) {

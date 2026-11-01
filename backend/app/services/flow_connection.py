@@ -1,11 +1,13 @@
 import json, math, os, time, tomllib, gzip
-import numpy as np, pandas as pd, xarray as xr
+import numpy as np, pandas as pd, xarray as xr, geopandas as gpd
 from pyproj import CRS, Transformer
 from fastapi import Response
 from fastapi.responses import JSONResponse
 from config import PROJECT_ROOT
 from services import functions
 from scipy.ndimage import gaussian_filter
+from rasterio import features as rio_features
+from rasterio.transform import from_origin
 
 
 M_PER_DEG, FORMAT, VIEW_DIR = 111_320.0, 1, "viewer"
@@ -96,6 +98,27 @@ class NpyRows:
 def wflow_dir(project_name, flow_name, model_folder=None):
     return os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "flows", flow_name, model_folder or "wflow_model"))
 
+def water_file(model_dir):
+    water_dir = os.path.join(os.path.dirname(os.path.normpath(model_dir)), "water_area")
+    if not os.path.isdir(water_dir): return None
+    files = sorted(f for f in os.listdir(water_dir) if f.lower().endswith(".geojson"))
+    return os.path.join(water_dir, files[0]) if files else None
+
+def water_signature(path):
+    if not path or not os.path.isfile(path): return None
+    return {"file": os.path.basename(path), "mtime": round(os.path.getmtime(path), 3)}
+
+def water_on_display(path, west, south, dlon, dlat, nx, ny):
+    if not path or not os.path.isfile(path): return None
+    gdf = gpd.read_file(path)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+    if gdf.empty: return None
+    gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
+    tr = from_origin(west, south + ny * dlat, dlon, dlat)
+    w = rio_features.rasterize(((geom, 1) for geom in gdf.geometry.make_valid()),
+        out_shape=(ny, nx), transform=tr, fill=0, dtype="uint8")
+    return w[::-1].astype(bool)                              
+
 def needs_rebuild(model_dir, res=None):
     p = model_paths(model_dir)
     if not os.path.exists(p["output"]):
@@ -125,6 +148,8 @@ def needs_rebuild(model_dir, res=None):
     for v, info in meta.get("variables", {}).items():
         if not os.path.exists(os.path.join(p["cache"], f"{info['kind']}_{v}.npy")):
             return f"Cache file for {v} is missing"
+    if meta.get("water") != water_signature(water_file(model_dir)):
+        return "Water area changed"
     return None
 
 def wflow_ctx(project_name, flow_name, model_folder, user, META):
@@ -284,7 +309,7 @@ def velocity_bytes(model_dir, meta, i):
     return NpyRows(os.path.join(model_paths(model_dir)["cache"], vel["file"])).row_bytes_at(i)
 
 def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48, 
-    crs=None, progress=None, only=None):
+    crs=None, progress=None, only=None, water_path="auto"):
     p = model_paths(model_dir)
     if not os.path.exists(p["output"]):
         raise FileNotFoundError(f"Wflow output not found: {p['output']} (run the model first).")
@@ -360,7 +385,12 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
         vflat = np.flatnonzero(ok)
         src = cj[ok] * nx0 + ci[ok]
         Nv = vflat.size
-        np.save(os.path.join(p["cache"], "mask.npy"), ok.reshape(ny, nx).astype(np.uint8))
+        mask_out = ok.reshape(ny, nx).astype(np.uint8)
+        wpath = water_file(model_dir) if water_path == "auto" else water_path
+        water = water_on_display(wpath, west, south, dlon, dlat, nx, ny)
+        if water is not None: mask_out[(mask_out == 1) & water] = 2
+        n_water = int((mask_out == 2).sum())
+        np.save(os.path.join(p["cache"], "mask.npy"), mask_out)
         src_idx = src.astype(np.int64)
         np.save(os.path.join(p["cache"], "src_index.npy"), src_idx)
         # River
@@ -442,9 +472,9 @@ def build_cache(model_dir:str, res:str, budget_mb_per_var=400, chunk=48,
             "output_mtime": os.path.getmtime(p["output"]), "crs": src_crs.to_string(),
             "grid": {"nx": nx, "ny": ny, "lon0": float(lon[0]), "lat0": float(lat[0]), "dlon": dlon, "dlat": dlat,
                 "bounds": [[south, west], [south + ny * dlat, west + nx * dlon]], "res_m": res,
-                "res_auto": res_auto, "n_valid": int(Nv), "source_cell_m": cell
+                "res_auto": res_auto, "n_valid": int(Nv), "source_cell_m": cell, "n_water": n_water
             }, "times": [t.isoformat() for t in times], "step_hours": step_h,
-            "variables": meta_vars, "river_cells": int(Nr),
+            "variables": meta_vars, "river_cells": int(Nr), "water": water_signature(wpath),
         }
         # Particle
         try:
@@ -485,7 +515,7 @@ def point_series(model_dir, meta, lat, lon, variables=None, river_radius_cells=3
     mask = np.load(os.path.join(cache, "mask.npy")).ravel()
     flat = iy * g["nx"] + ix
     if not mask[flat]: return None
-    j_grid = int(mask[:flat].sum())
+    j_grid = int((mask[:flat] > 0).sum())
     out = {
         "lat": g["lat0"] + iy * g["dlat"], "lon": g["lon0"] + ix * g["dlon"], "series": {}, "river": None
     }

@@ -541,7 +541,7 @@
                                     <div class="tile" style="grid-column: span 3;"><h3>Location & Period</h3>
                                         <div class="row">
                                             <div class="field-inline">
-                                                <button type="button" id="era5-location-btn">Pick on Map</button>
+                                                <button type="button" id="era5-location-btn">Pick Average Location on Map</button>
                                             </div>
                                             <div class="field-inline">
                                                 <input type="text" id="era5-latitude" placeholder="Avg. Latitude (°)">
@@ -562,7 +562,7 @@
                                         <div class="variables-grid" id="era5-variables-grid">
                                             <label class="checkbox-right">
                                                 <input type="checkbox" value="2m_temperature"
-                                                    data-label="Temperature (degC)">Temperature (at 2m)
+                                                    data-label="Temperature (at 2m) (°C)">Temperature (at 2m) (°C)
                                             </label>
                                             <label class="checkbox-right">
                                                 <input type="checkbox" value="total_precipitation"
@@ -580,15 +580,15 @@
                                             </label>
                                             <label class="checkbox-right">
                                                 <input type="checkbox" value="surface_solar_radiation_downwards"
-                                                    data-label="Shortwave Radiation (W/m^2)">Shortwave Radiation
+                                                    data-label="Surface Solar Radiation Downwards (W/m²)">Surface Solar Radiation Downwards
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" value="surface_thermal_radiation_downwards"
-                                                    data-label="Longwave Radiation (W/m^2)">Longwave Radiation
+                                                <input type="checkbox" value="toa_incident_solar_radiation"
+                                                    data-label="TOA Incident Solar Radiation (W/m²)">Top of Atmosphere Incident Solar Radiation
                                             </label>
                                             <label class="checkbox-right">
-                                                <input type="checkbox" value="surface_pressure"
-                                                    data-label="Surface Pressure (Pa)">Surface Pressure
+                                                <input type="checkbox" value="mean_sea_level_pressure"
+                                                    data-label="Mean Sea Level Pressure (Pa)">Mean Sea Level Pressure
                                             </label>
                                             <label class="checkbox-right">
                                                 <input type="checkbox" value="total_cloud_cover"
@@ -606,11 +606,14 @@
                                 <div class="grid">
                                     <div class="tile" style="grid-column: span 12;">
                                         <div class="row">
-                                            <div class="field-inline">
+                                            <div class="field-inline" style="margin-top: -10px;">
                                                 <button type="button" id="era5-download-btn" style="max-width: 150px;">Download</button>
+                                                <button type="button" id="era5-cancel-btn" style="max-width: 150px; display: none;">Cancel</button>
                                                 <button type="button" id="era5-save-btn" style="max-width: 150px; display: none;">Save</button>
+                                                <button type="button" id="era5-clear-btn" style="max-width: 150px; margin-left: auto; color: red; background-color: white;" 
+                                                title="Use with caution! 'Maximum number queued requests ...'">Clear Queue</button>
                                             </div>
-                                            <table class="attributes-table" id="era5-table" style="display: none;">
+                                            <table class="attributes-table" id="era5-table" style="display: none; margin-top: -10px;">
                                                 <thead></thead><tbody></tbody>
                                             </table>
                                             <div class="log-container" id="era5-log-container">

@@ -23,7 +23,8 @@ const obj = {
     pOn: $("wv-particles"), pCount: $("wv-pcount"), pCountOut: $("wv-pcount-out"), 
     pSpeed: $("wv-pspeed"), pSpeedOut: $("wv-pspeed-out"), pTrail: $("wv-ptrail"), 
     pTrailOut: $("wv-ptrail-out"), pCurve: $("wv-pcurve"), pColor: $("wv-pcolor"), 
-    pInfo: $("wv-pinfo"), pSection: $("wv-particle-section"), res: $("wv-res"), resHint: $("wv-res-hint"),
+    pInfo: $("wv-pinfo"), pSection: $("wv-particle-section"), res: $("wv-res"), 
+    resHint: $("wv-res-hint"), pWater: $("wv-pwater"),
 }
 const Lf = window.L;
 const RAMPS = {
@@ -60,7 +61,7 @@ const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
 const M_PER_DEG = 111320, LOG_K = 100, MAX_STEP_PX = 40, PBUCKETS = 6;
 const PARTICLE_RAMP = ["#e8f6ff", "#bfe9ff", "#d9f59a", "#ffe066", "#ffab40", "#ff6b3d"];
 const PT = {
-    on: true, count: 4000, speed: 1, trail: 0.92, curve: "sqrt", color: "blue",
+    on: true, count: 4000, speed: 1, trail: 0.92, curve: "sqrt", color: "blue", stopInWater: true,
     px: null, py: null, age: null, life: null, buckets: Array.from({ length: PBUCKETS }, () => []),
     frames: new Map(), pending: new Map(), wet: new Map(),
 };
@@ -229,8 +230,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         const pane = map.getPane(name) || map.createPane(name);
         pane.style.zIndex = z; pane.style.pointerEvents = "none"; pane.innerHTML = "";
         const c = Lf.DomUtil.create("canvas", "wv-canvas", pane);
-        c.style.position = "absolute";
-        return c;
+        c.style.position = "absolute"; return c;
     };
     const gridCv = mkCanvas("wvGrid", 370), riverCv = mkCanvas("wvRiver", 395);
     const partCv = mkCanvas("wvParticles", 390), pctx = partCv.getContext("2d");
@@ -238,10 +238,14 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     const off = document.createElement("canvas"); off.width = g.nx; off.height = g.ny;
     const offCtx = off.getContext("2d"), offImg = offCtx.createImageData(g.nx, g.ny);
     const P = { ax: 0, bx: 0, ay: 0, by: 0, dpr: 1 };
+    const hasWater = (g.n_water || 0) > 0;
+    let basinGeo = null, waterGeo = null, basinPath = null, waterPath = null, pathsDirty = true;
     const outline = opts.showBasin !== false ? await fetch(`/wflow_basins?${qs}`).then((r) => r.ok ? r.json() : null)
-        .then((gj) => gj && Lf.geoJSON(gj, { 
-            interactive: false, style: { color: "#fff", weight: 1.5, dashArray: "4 4", fill: false } 
-        }).addTo(map)).catch(() => null) : null;
+        .then((gj) => { basinGeo = gj; return gj && Lf.geoJSON(gj, {
+            interactive: false, style: { color: "#fff", weight: 1.5, dashArray: "4 4", fill: false }
+        }).addTo(map); }).catch(() => null) : null;
+    if (hasWater) waterGeo = await fetch(`/wflow_water?${qs}&v=${meta.version}`)
+        .then((r) => r.ok ? r.json() : null).catch(() => null);
     if (opts.fitBounds !== false) map.fitBounds(g.bounds, { padding: [20, 20] });
     function project() {
         const sz = map.getSize(), dpr = window.devicePixelRatio || 1, tl = map.containerPointToLayerPoint([0, 0]);
@@ -254,9 +258,22 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         P.dpr = dpr; P.ax = ((b.x - a.x) / (e - w)) * dpr; P.bx = a.x * dpr - P.ax * w;
         P.ay = ((b.y - a.y) / (merc(n) - merc(s))) * dpr; P.by = a.y * dpr - P.ay * merc(s);
         P.mPerPx = (M_PER_DEG * Math.cos(((s + n) / 2) * Math.PI / 180)) / Math.max(P.ax, 1e-9);
+        pathsDirty = true;
     }
     const X = (lon) => P.ax * lon + P.bx, Y = (lat) => P.ay * merc(lat) + P.by;
     // ===================== PARTICLES =====================
+    function buildGeoPath(gj) {
+        const path = new Path2D();
+        for (const f of (gj && gj.features) || []) {
+            const gm = f.geometry; if (!gm) continue;
+            const polys = gm.type === "Polygon" ? [gm.coordinates] : gm.type === "MultiPolygon" ? gm.coordinates : [];
+            for (const poly of polys) for (const ring of poly) {
+                ring.forEach(([lon, lat], i) => i ? path.lineTo(X(lon), Y(lat)) : path.moveTo(X(lon), Y(lat)));
+                path.closePath();
+            }
+        }
+        return path;
+    }
     const decode = (buf, dtype) => {
         if (dtype === "<f2") { 
             const h = new Uint16Array(buf), o = new Float32Array(h.length); 
@@ -283,9 +300,15 @@ async function wflowmanager(map, meta, flowName, opts = {}){
             .then((r) => { if (!r.ok) throw new Error(`velocity ${i}: HTTP ${r.status}`); return r.arrayBuffer(); })
             .then((buf) => {
                 const a = decode(buf, vinfo.dtype);
-                const wet = [];
-                for (let j = 0; j < Nv; j++) if (Number.isFinite(a[j]) && (a[j] !== 0 || a[Nv + j] !== 0)) wet.push(j);
-                PT.frames.set(i, a); PT.wet.set(i, Uint32Array.from(wet));
+                const all = [], land = [];
+                for (let j = 0; j < Nv; j++) {
+                    if (Number.isFinite(a[j]) && (a[j] !== 0 || a[Nv + j] !== 0)) {
+                        all.push(j);
+                        if (S.mask[S.valid[j]] !== 2) land.push(j);
+                    }
+                }
+                PT.frames.set(i, a);
+                PT.wet.set(i, { all: Uint32Array.from(all), land: Uint32Array.from(land) });
                 if (PT.frames.size > 48) {
                     const keep = Math.floor(S.t);
                     for (const k of PT.frames.keys()) if (Math.abs(k - keep) > 24) { PT.frames.delete(k); PT.wet.delete(k); }
@@ -294,15 +317,17 @@ async function wflowmanager(map, meta, flowName, opts = {}){
             }).finally(() => PT.pending.delete(i));
         PT.pending.set(i, p); return p;
     }
+    const blocked = (k) => cellOf[k] < 0 || (PT.stopInWater && S.mask[k] === 2);
     function sampleVel(fa, fb, w, gx, gy) {
+        const ic = Math.round(gx), jc = Math.round(gy);
+        if (ic < 0 || jc < 0 || ic >= g.nx || jc >= g.ny || blocked(jc * g.nx + ic)) return null;
         const i0 = Math.floor(gx), j0 = Math.floor(gy), fx = gx - i0, fy = gy - j0;
         let su = 0, sv = 0, sw = 0;
         for (let c = 0; c < 4; c++) {
             const i = i0 + (c & 1), j = j0 + (c >> 1);
             if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) continue;
-            const q = cellOf[j * g.nx + i];
-            if (q < 0) continue;
-            const ua = fa[q], ub = fb[q];
+            const kk = j * g.nx + i; if (blocked(kk)) continue;
+            const q = cellOf[kk]; const ua = fa[q], ub = fb[q];
             const wa = Number.isFinite(ua) ? 1 - w : 0, wb = Number.isFinite(ub) ? w : 0;
             if (wa + wb < 0.5) continue;
             const ws = ((c & 1) ? fx : 1 - fx) * ((c >> 1) ? fy : 1 - fy);
@@ -316,7 +341,7 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     function respawn(k, fa, fb, w, wet) {
         if (!wet || !wet.length) { PT.age[k] = 0; return; }
         for (let tries = 0; tries < 8; tries++) {
-            const q = S.valid[wet[(Math.random() * wet.length) | 0]];
+            const q = S.valid[wet[(Math.random() * wet.length) | 0]]; if (blocked(q)) continue;
             const gx = (q % g.nx) + Math.random() - 0.5, gy = ((q / g.nx) | 0) + Math.random() - 0.5;
             if (sampleVel(fa, fb, w, gx, gy)) {
                 PT.px[k] = gx; PT.py[k] = gy; PT.age[k] = 1; PT.life[k] = 40 + ((Math.random() * 90) | 0); return;
@@ -358,6 +383,12 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         pctx.globalCompositeOperation = "destination-in";
         pctx.fillStyle = `rgba(0,0,0,${PT.trail})`; pctx.fillRect(0, 0, W, H);
         pctx.globalCompositeOperation = "source-over";
+        if (pathsDirty) {
+            basinPath = basinGeo ? buildGeoPath(basinGeo) : null;
+            waterPath = waterGeo ? buildGeoPath(waterGeo) : null;
+            pathsDirty = false;
+        }
+        pctx.save(); if (basinPath) pctx.clip(basinPath, "evenodd");
         pctx.lineWidth = (PT.color === "white" ? 1.3 : 1.5) * P.dpr; pctx.lineCap = "round";
         const solid = PARTICLE_SOLID[PT.color];
         for (let b = 0; b < PBUCKETS; b++) {
@@ -367,8 +398,16 @@ async function wflowmanager(map, meta, flowName, opts = {}){
                 ? `rgba(${solid[0]},${solid[1]},${solid[2]},${0.55 + 0.45 * (b / (PBUCKETS - 1))})`
                 : PARTICLE_RAMP[b];
             pctx.beginPath();
-            for (let q = 0; q < seg.length; q += 4) { pctx.moveTo(seg[q], seg[q + 1]); pctx.lineTo(seg[q + 2], seg[q + 3]); }
+            for (let q = 0; q < seg.length; q += 4) { 
+                pctx.moveTo(seg[q], seg[q + 1]); pctx.lineTo(seg[q + 2], seg[q + 3]); 
+            }
             pctx.stroke();
+        }
+        pctx.restore();
+        if (PT.stopInWater && waterPath) {
+            pctx.globalCompositeOperation = "destination-out";
+            pctx.fillStyle = "#000"; pctx.fill(waterPath, "evenodd");
+            pctx.globalCompositeOperation = "source-over";
         }
     }
     const clearParticles = () => pctx.clearRect(0, 0, partCv.width, partCv.height);
@@ -377,7 +416,8 @@ async function wflowmanager(map, meta, flowName, opts = {}){
         const T = tms.length, i0 = Math.max(0, Math.min(T - 1, Math.floor(tCur))), i1 = Math.min(i0 + 1, T - 1);
         const fa = PT.frames.get(i0), fb = PT.frames.get(i1);
         if (!fa || !fb) { loadVel(i0).catch(() => {}); loadVel(i1).catch(() => {}); return; }
-        stepParticles(fa, fb, tCur - i0, PT.wet.get(i0)); drawParticles();
+        const wl = PT.wet.get(i0);
+        stepParticles(fa, fb, tCur - i0, wl && (PT.stopInWater ? wl.land : wl.all)); drawParticles();
     }
     if (vinfo) { allocParticles(); loadVel(0).catch(() => {}); loadVel(1).catch(() => {}); }
     // ===================== PARTICLES =====================
@@ -732,6 +772,18 @@ async function wflowmanager(map, meta, flowName, opts = {}){
     on(obj.pTrail, "input", (e) => { PT.trail = +e.target.value; showP(); });
     on(obj.pCurve, "change", (e) => { PT.curve = e.target.value; });
     on(obj.pColor, "change", (e) => { PT.color = e.target.value; clearParticles();});
+    const waterOutside = !hasWater && !!meta.water; 
+    PT.stopInWater = hasWater && (obj.pWater ? obj.pWater.checked : true);
+    if (obj.pWater) {
+        obj.pWater.disabled = !hasWater || !vinfo;
+        obj.pWater.title = hasWater ? ""
+            : waterOutside ? "The water area lies outside the model basin – particles already stop at the shoreline."
+            : "No water area in this scenario.";
+    }
+    on(obj.pWater, "change", (e) => {
+        PT.stopInWater = e.target.checked && hasWater;
+        if (PT.age) PT.age.fill(0); clearParticles();
+    });
     // End Particles options
     if (obj.thresholdRow) obj.thresholdRow.hidden = true;
     if (obj.mode && !obj.mode.options.length) {

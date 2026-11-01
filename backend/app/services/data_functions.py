@@ -1,5 +1,5 @@
-import os, dotenv, base64, requests, math, rasterio, rioxarray, pyflwdir
-import traceback, sys, shutil, cdsapi, calendar, json, asyncio
+import os, dotenv, base64, requests, math, rasterio, pyflwdir
+import traceback, sys, shutil, json, asyncio, rioxarray
 from rasterio.warp import calculate_default_transform, reproject, transform_bounds
 from rasterio.shutil import copy as rio_copy # type: ignore
 from shapely.geometry import Point, shape
@@ -7,33 +7,12 @@ from rasterio.enums import Resampling
 from rasterio.features import shapes
 import pandas as pd, xarray as xr, numpy as np, geopandas as gpd
 from config import PROJECT_ROOT
-from services import functions, flow_functions
-from pathlib import Path
+from services import functions, flow_functions, era5_function
 from services.flow_functions import StreamToLogger
-from datetime import datetime, timezone
-from dateutil.relativedelta import relativedelta
+from datetime import datetime, timezone, timedelta
 import dask.array as da
 from pyflwdir import dem
 
-
-variables = {
-    'total_precipitation': 'tp', # Precipitation
-    '2m_temperature': 't2m', # Temperature
-    '10m_u_component_of_wind': 'u10', '10m_v_component_of_wind': 'v10', # Wind
-    'surface_pressure': 'sp',  # Pressure
-    'surface_solar_radiation_downwards': 'ssrd', # Shortwave radiation
-    'toa_incident_solar_radiation': 'tisr', # Longwave radiation
-    'total_cloud_cover': 'tcc', # Cloud cover
-}
-
-var_revert = {
-    'tp': 'Total Precipitation (mm)', 't2m': 'Temperature (degC)',
-    'u10': 'Wind (u Component) (m/s)', 'v10': 'Wind (v Component) (m/s)',
-    'sp': 'Surface Pressure (hPa)', 'tcc': 'Total Cloud Cover (%)',
-    'ssrd': 'Shortwave Radiation (W/m^2)', 'tisr': 'Longwave Radiation (W/m^2)',
-    'Time': 'Time', 'wind_speed': 'Wind Speed (m/s)',
-    'wind_direction': 'Wind Direction (degrees)'
-}
 
 class Regnbyge():
     def __init__(self, name, secret, username, password) -> None:
@@ -144,147 +123,128 @@ class Regnbyge():
         data = data.reset_index(drop=True)
         data = data.replace(float("nan"), None) # Fill NaN values
         return data
-
-def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:str, vars:list, 
-    lat:float, lon:float, start:str, end:str, time_zone:str, buffer:float=0.01):
+    
+def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:str, vars:list, lat:float, 
+    lon:float, start:str, end:str, time_zone:str, log_file:str, ERA5_LATENCY_DAYS:int = 6, method: str = "bilinear", 
+    elevation: float | None = None, auto_elevation: bool = True, max_wait_hours: float = 2):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
     # Remove old log
-    log_path = os.path.join(dir, "log.txt")
+    log_path = os.path.join(dir, "logs", log_file)
     if os.path.exists(log_path): os.remove(log_path)
-    logger = flow_functions.setup_logger("cdsapi", log_path)
-    CDS_url, CDS_key = os.getenv('CDS_URL'), api_key
-    config_path = Path.home() / '.cdsapirc'
-    if not config_path.exists():
-        logger.info("Creating .cdsapirc ...")
-        config_path.write_text(f"url: {CDS_url}\nkey: {CDS_key}\n", encoding='utf-8')
-        logger.info(f"Created at: {config_path}")
+    logger = flow_functions.setup_logger(f"era5.{key_process}", log_path)
     download_dir = os.path.join(dir, 'download')
-    if os.path.exists(download_dir): shutil.rmtree(download_dir)
-    os.makedirs(download_dir, exist_ok=True)
-    area = [lat + buffer, lon - buffer, lat - buffer, lon + buffer]
-    dataset, df_result = 'reanalysis-era5-single-levels', pd.DataFrame()
-    old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout, sys.stderr = StreamToLogger(logger), StreamToLogger(logger)
-    start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
-    end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
-    if (start_time >= end_time):
-        logger.info("Start time must be before end time.")
-        processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
+    csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
+    tmp_csv, max_wait_s = csv_path + ".part", max_wait_hours * 3600
     try:
-        logger.info("ERA5 downloader started")
-        logger.info(f"Location: lat={lat}, lon={lon}")
-        logger.info("="*70)
-        logger.info(f"Starting time: {start}   --   Ending time: {end}")
-        # Download ERA5 data
-        logger.info("Downloading ERA5 data...")
-        client = cdsapi.Client(quiet=False, debug=False)
-        current = start_time.replace(day=1)
-        monthly_frames = []
-        while current <= end_time:
-            logger.info("="*35)
-            logger.info(f"Downloading month: {current}")
-            files, bad_files, month_files = [], [], []
-            year, month = current.year, current.month
-            last_day = calendar.monthrange(year, month)[1]
-            month_start = datetime(year, month, 1)
-            month_end = datetime(year, month, last_day, 23)
-            # Clip by requested range
-            actual_start = max(start_time, month_start)
-            actual_end = min(end_time, month_end)
-            # Days to download
-            days = [f"{d:02d}" for d in range(actual_start.day, actual_end.day + 1)]
-            month_data = {}
-            vals = {item: variables[item] for item in vars if item in variables.keys()}
-            for idx, var in vals.items():
-                logger.info("="*35)
-                logger.info(f"Downloading variable: {var}")
-                request = {
-                    'product_type': 'reanalysis', 'variable': [idx],
-                    'year': [str(year)], 'month': [f"{month:02d}"], 'day': days,
-                    'time': [f"{h:02d}:00" for h in range(24)], 'area': area,
-                    'data_format': 'netcdf', 'download_format': 'unarchived'
-                }
-                out_file = f"{year}_{month:02d}_{var}.nc"
-                out_path = os.path.join(download_dir, out_file)
-                client.retrieve(dataset, request, out_path)
-                # Check valid files
-                if flow_functions.is_valid_netcdf(out_path, var): 
-                    files.append(out_path)
-                    with xr.open_dataset(out_path) as ds:
-                        time_dim = 'valid_time' if 'valid_time' in ds.dims else 'time'
-                        timestamps = pd.to_datetime(ds[time_dim].values, utc=True)
-                        ds_point = ds.sel(latitude=lat, longitude=lon, method='nearest')
-                        data_var = [v for v in ds_point.data_vars
-                            if v not in ('latitude', 'longitude', 'time', 'valid_time', 'number')][0]
-                        values = ds_point[data_var].values.squeeze()
-                    month_data[var] = (timestamps, values)
-                    # os.remove(out_path)
-                else: bad_files.append(out_path)
-                month_files.append(out_path)
-            if month_data:
-                month_series = {}
-                for var in month_data:
-                    timestamps, values = month_data[var]
-                    month_series[var] = pd.Series(values, index=pd.DatetimeIndex(timestamps))
-                month_df = pd.DataFrame(month_series)
-                month_df.index.name = 'time'
-                monthly_frames.append(month_df)
-            current += relativedelta(months=1)
-        if monthly_frames:
-            df_result = pd.concat(monthly_frames).sort_index()
-            df_result = df_result[~df_result.index.duplicated(keep='first')]
-            start_ts = pd.Timestamp(start_time).tz_localize('UTC')
-            end_ts = pd.Timestamp(end_time).tz_localize('UTC')
-            df_result = df_result[(df_result.index >= start_ts) & (df_result.index <= end_ts)]
-            logger.info(f"Final DataFrame shape: {df_result.shape}")
-        logger.info("ERA5 download completed successfully")
-        # Check valid files
-        logger.info("="*40)
-        logger.info("Checking valid files...")
-        # Filter valid files
-        logger.info(f"Year: {year}, Month: {month}")
-        n = len(files) + len(bad_files)
-        logger.info(f"Number of valid files: {len(files)}/{n}")
-        logger.info(f"Number of invalid files: {len(bad_files)}/{n}")
-        if len(bad_files) > 0:
-            logger.info("Bad files:")
-            for f in bad_files: logger.info(f" - {os.path.basename(f)}")
-        logger.info("="*20)
-        df_result.index = functions.utc_to_local(df_result.index, time_zone)
-        df_result.index.name = 'Time'
-        columns = df_result.columns.tolist()
-        if 'tp' in columns: df_result['tp'] *= 1000
-        if 't2m' in columns: df_result['t2m'] -= 273.15
-        if 'tcc' in columns: df_result['tcc'] *= 100
-        if 'ssrd' in columns: df_result['ssrd'] /= 3600
-        if 'tisr' in columns: df_result['tisr'] /= 3600
-        if 'wind_speed' in vars:
-            df_result['wind_speed'] = np.sqrt(df_result['u10']**2 + df_result['v10']**2)
-            df_result['wind_direction'] = np.arctan2(df_result['v10'], df_result['u10'])
-        csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
-        df_result = df_result.reset_index()
-        df_result.to_csv(csv_path, index=False)
+        era5_function.set_status(processes, key_process, "running", "ERA5 downloader started.")
+        if not api_key or not str(api_key).strip(): raise era5_function.ERA5Error("ERA5 API key is missing or empty.")
+        lat, lon = float(lat), float(lon)
+        if not (-90 <= lat <= 90 and -180 <= lon <= 360):
+            raise era5_function.ERA5Error(f"Invalid location: lat={lat}, lon={lon}")
+        method = (method or "bilinear").lower()
+        if method not in ("bilinear", "nearest"):
+            raise era5_function.ERA5Error(f"Unknown interpolation method: {method}")
+        start_time = functions.local_to_utc(start, time_zone).replace(tzinfo=None)
+        end_time = functions.local_to_utc(end, time_zone).replace(tzinfo=None)
+        if (start_time >= end_time):
+            raise era5_function.ERA5Error("Start time must be before end time.")
+        latest = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=ERA5_LATENCY_DAYS)
+        if end_time > latest:
+            raise era5_function.ERA5Error(
+                f"ERA5 is only available until about {latest:%Y-%m-%d} (≈{era5_function.ERA5_LATENCY_DAYS} days delay).")
+        wanted, wants_wind, cds_vars = era5_function.var_detector(vars, logger)
+        h_site = era5_function.elevation_detector(wanted, lat, lon, elevation, auto_elevation, logger)
+        do_elev = h_site is not None
+        era5_function.set_status(processes, key_process, "running", "Preparing ERA5 request...")
+        glat, glon = era5_function.snap_to_era5_grid(lat, lon)
+        logger.info(f"Location: lat={lat}, lon={lon} | method: {method}")
+        if method == "bilinear":
+            for (la, lo), w in era5_function.bilinear_weights(lat, lon).items():
+                logger.info(f"  ERA5 corner ({la}, {lo}) weight {w:.3f}")
+        else: logger.info(f"Nearest ERA5 grid point: {glat}, {glon}")
+        logger.info(f"Local: {start} -> {end} ({time_zone}) | UTC: {start_time} -> {end_time}")
+        logger.info(f"Variables: {', '.join(cds_vars)}")
+        logger.info("=" * 70)
+        shutil.rmtree(download_dir, ignore_errors=True)
+        os.makedirs(download_dir, exist_ok=True)
+        all_units, h_era_values, frames, done = {}, [], [], False
+        common = dict(api_key=api_key, lat=lat, lon=lon, method=method, processes=processes,
+            key_process=key_process, download_dir=download_dir, all_units=all_units,
+            h_era_values=h_era_values, max_wait_s=max_wait_s, logger=logger)
+        if method == "nearest":
+            try:
+                req = {"variable": list(cds_vars), "location": {"latitude": glat, "longitude": glon},
+                    "date": [f"{start_time:%Y-%m-%d}/{end_time:%Y-%m-%d}"], "data_format": "netcdf"}
+                ts = era5_function.fetch(
+                    dataset=era5_function.DATASET_POINT, tag="timeseries", request=req, names=wanted, **common
+                )
+                if do_elev:
+                    area, _, _ = era5_function.single_point_area(lat, lon)
+                    era5_function.fetch(dataset=era5_function.DATASET_GRID, tag="orography",
+                        request=era5_function.orography_request(start_time, area), names=["z"], **common)
+                frames, done = [ts], True
+            except era5_function.DownloadCancelled: raise
+            except Exception as e:
+                logger.warning(f"Time-series dataset failed ({e}). Falling back to gridded download.")
+                frames.clear()
+                h_era_values.clear()
+        if not done:
+            area = era5_function.cell_area(lat, lon) if method == "bilinear" else era5_function.single_point_area(lat, lon)[0]
+            logger.info(f"Download area [N, W, S, E]: {area}")
+            req_vars = list(cds_vars) + (["geopotential"] if do_elev else [])
+            names = wanted + (["z"] if do_elev else [])
+            for tag, req in era5_function.month_requests(start_time, end_time, req_vars, area):
+                logger.info(f"Request: {tag}")
+                df = era5_function.fetch(dataset=era5_function.DATASET_GRID, tag=tag, request=req, names=names, **common)
+                frames.append(df.drop(columns=["z"], errors="ignore"))
+        era5_function.set_status(processes, key_process, "running", "Processing data...")
+        df = pd.concat(frames).sort_index()
+        df = df[~df.index.duplicated(keep="first")]
+        df = df.loc[(df.index >= start_time) & (df.index <= end_time)]
+        if df.empty: raise era5_function.ERA5Error("No data in the requested time range.")
+        if df.isna().any().any(): logger.info(f"Missing values per column: {df.isna().sum()[lambda s: s > 0].to_dict()}")
+        if do_elev:
+            if h_era_values: df = era5_function.apply_elevation_correction(df, float(np.mean(h_era_values)), h_site, logger)
+            else: logger.warning("ERA5 orography not available -> no elevation correction.")
+        df = era5_function.convert_units(df, all_units)
+        if wants_wind:
+            df = era5_function.add_wind(df)
+            df = df.drop(columns=[v for v in ["u10", "v10"] if v in df.columns], errors="ignore")
+        df = df.round(4)
+        df.index = functions.utc_to_local(df.index.tz_localize("UTC"), time_zone)
+        df.index.name = "Time"
+        df.reset_index().to_csv(tmp_csv, index=False)
+        os.replace(tmp_csv, csv_path)
+        logger.info(f"Final table: {df.shape[0]} rows x {df.shape[1]} columns")
         logger.info(f"Saved CSV to: {csv_path}")
-        if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        logger.info("Temporary monthly files removed.")
-        logger.handlers[0].flush()
-        processes[key_process] = {"status": "finished", "message": "Weather download completed successfully.\n\n"}
+        logger.info("=" * 70)
+        logger.info("Weather download completed successfully.")
+        era5_function.set_status(processes, key_process, "finished", "Weather download completed successfully.\n\n")
+    except era5_function.DownloadCancelled as e:
+        logger.info(str(e))
+        era5_function.set_status(processes, key_process, "failed", str(e))
+    except era5_function.ERA5Error as e:
+        logger.error(f"FAILED: {e}")
+        era5_function.set_status(processes, key_process, "failed", str(e))
     except Exception as e:
-        print('/era5_downloader:\n==============')
-        traceback.print_exc()
-        logger.exception("Weather download failed.")
-        processes[key_process] = {"status": "failed", "message": str(e)}
+        logger.error("ERA5 download failed:\n" + traceback.format_exc())
+        era5_function.set_status(processes, key_process, "failed", str(e))
     finally:
-        if os.path.exists(download_dir): shutil.rmtree(download_dir)
-        sys.stdout, sys.stderr = old_stdout, old_stderr
+        shutil.rmtree(download_dir, ignore_errors=True)
+        if os.path.exists(tmp_csv):
+            try: os.remove(tmp_csv)
+            except OSError: pass
         for h in logger.handlers[:]:
-            h.close()
+            try:
+                h.flush()
+                h.close()
+            except Exception: pass
             logger.removeHandler(h)
 
 def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
-    ids:list, columns:list, vars:list, start:str, end:str, time_zone:str):
-    log_path = os.path.join(dir, "log.txt")
+    ids:list, columns:list, vars:list, start:str, end:str, time_zone:str, log_file:str):
+    log_path = os.path.join(dir, "logs", log_file)
     if os.path.exists(log_path): os.remove(log_path)
     logger = flow_functions.setup_logger("met", log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr
@@ -387,8 +347,8 @@ def cloud_cover_to_percent(series):
     return values / 8 * 100
 
 def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
-    ids:list, columns:list, vars:list, interval:int, start:str, end:str, time_zone:str):
-    log_path = os.path.join(dir, "log.txt")
+    ids:list, columns:list, vars:list, interval:int, start:str, end:str, time_zone:str, log_file:str):
+    log_path = os.path.join(dir, "logs", log_file)
     if os.path.exists(log_path): os.remove(log_path)
     logger = flow_functions.setup_logger(key, log_path)
     old_stdout, old_stderr = sys.stdout, sys.stderr

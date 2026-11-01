@@ -8,7 +8,7 @@ from config import PROJECT_ROOT, SOURCE_BACKEND
 from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
 from rasterio.io import MemoryFile
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, box
 from shapely.ops import unary_union, linemerge
 from shapely import force_2d
 from pyflwdir import dem
@@ -590,6 +590,24 @@ def wflow_basins(project_name: str = Query(alias="projectName"), flow_name: str 
     try:
         gdf = gpd.read_file(path)
         if gdf.crs is not None and gdf.crs.to_epsg() != 4326: gdf = gdf.to_crs(4326)
+        return JSONResponse(json.loads(gdf.to_json()), headers=NO_STORE)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@router.get("/wflow_water")
+def wflow_water(project_name: str = Query(alias="projectName"), flow_name: str = Query(alias="flowName"),
+    model_folder: str = Query(None, alias="modelFolder"), user=Depends(functions.basic_auth)):
+    wflow_dir, meta, err = flow_connection.wflow_ctx(project_name, flow_name, model_folder, user, _META)
+    if meta is None: return flow_connection.not_ready(err)
+    path = flow_connection.water_file(wflow_dir)
+    if path is None:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "No water area in this scenario."})
+    try:
+        gdf = gpd.read_file(path)
+        gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+        gdf = gdf.set_crs(4326) if gdf.crs is None else gdf.to_crs(4326)
+        (south, west), (north, east) = meta["grid"]["bounds"]
+        gdf = gpd.clip(gdf[["geometry"]], box(west, south, east, north))
         return JSONResponse(json.loads(gdf.to_json()), headers=NO_STORE)
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
