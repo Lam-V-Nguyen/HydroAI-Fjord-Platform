@@ -242,6 +242,38 @@ def era5_downloader(key:str, api_key:str, dir:str, processes:dict, key_process:s
             except Exception: pass
             logger.removeHandler(h)
 
+def toa_incident_solar_radiation(times_utc, lat, lon):
+    t = pd.DatetimeIndex(times_utc)
+    t = t.tz_convert("UTC").tz_localize(None) if t.tz is not None else t
+    mid = t - pd.Timedelta(minutes=30)
+    J = mid.dayofyear.values.astype(float)
+    hour = mid.hour.values + mid.minute.values / 60.0
+    phi = np.radians(lat)
+    dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * J)
+    delta = 0.409 * np.sin(2 * np.pi / 365 * J - 1.39)
+    b = 2 * np.pi * (J - 81) / 364
+    Sc = 0.1645 * np.sin(2 * b) - 0.1255 * np.cos(b) - 0.025 * np.sin(b)
+    omega = np.pi / 12 * ((hour + lon / 15.0 + Sc) - 12)
+    ws = np.arccos(np.clip(-np.tan(phi) * np.tan(delta), -1, 1))
+    w1 = np.clip(omega - np.pi / 24, -ws, ws)
+    w2 = np.clip(omega + np.pi / 24, -ws, ws)
+    Ra = 12 * 60 / np.pi * 0.0820 * dr * ((w2 - w1) * np.sin(phi) * np.sin(delta)
+        + np.cos(phi) * np.cos(delta) * (np.sin(w2) - np.sin(w1)))
+    return np.round(np.maximum(Ra, 0) * 1e6 / 3600.0, 4)
+
+def cloud_cover_to_percent(series):
+    """
+    Convert total cloud cover from MET code (0-8) to percentage.
+    0  -> 0%, 8  -> 100%, -3 -> NaN, 9  -> NaN
+    """
+    values = pd.to_numeric(series, errors="coerce")
+    # Invalid/special codes
+    values = values.replace([-3, 9], np.nan)
+    # Keep only valid values from 0 to 8
+    values = values.where(values.between(0, 8), np.nan)
+    # Convert 0-8 -> 0-100%
+    return values / 8 * 100
+
 def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
     ids:list, columns:list, vars:list, start:str, end:str, time_zone:str, log_file:str):
     log_path = os.path.join(dir, "logs", log_file)
@@ -255,7 +287,10 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
     if (start_time >= end_time): 
         logger.info("Start time must be before end time.")
         processes[key_process] = {"status": "failed", "message": "Start time must be before end time."}
+        return
     start_date, end_date = start_time.strftime('%Y-%m-%d'), end_time.strftime('%Y-%m-%d')
+    compute_toa = "compute_toa_MET" in vars
+    met_vars = [(element, column) for element, column in zip(vars, columns) if element != "compute_toa_MET"]
     try:
         logger.info("MET downloader started.")
         logger.info(f"Starting time: {start}   --   Ending time: {end}")
@@ -264,12 +299,10 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         for station in ids:
             station_id = station[0]
             logger.info(f"Downloading data for station: {station_id}")
-            for i in range(len(vars)):
-                element = vars[i]
+            for element, column in met_vars:
                 logger.info(f"Station: {station_id}, Element: {element}")
                 params = {
-                    "sources": station_id, "elements": element, 
-                    "referencetime": f"{start_date}/{end_date}"
+                    "sources": station_id, "elements": element, "referencetime": f"{start_date}/{end_date}"
                 }
                 try:
                     response = requests.get(url, params=params, auth=(api_key, ''), timeout=60)
@@ -293,7 +326,7 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
                         obs.reset_index(drop=True)
                     ], axis=1)
                     result['Time'] = pd.to_datetime(stations['referenceTime'], utc=True)
-                    result['stationId'], result['elementId'] = station_id, columns[i]
+                    result['stationId'], result['elementId'] = station_id, column
                     result = result[result["timeResolution"] == "PT1H"].copy()
                     all_observations.append(result)
                 except requests.exceptions.RequestException as e:
@@ -302,7 +335,7 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         df = pd.concat(all_observations, ignore_index=True) if all_observations else pd.DataFrame()
         if df.empty:
             logger.error("No data downloaded")
-            processes[key_process] = {"status": "failed", "message": "No data downloaded"}
+            processes[key_process] = {"status": "failed", "message": "No data downloaded."}
             return
         df = df[['Time', 'stationId', 'elementId', 'value']]
         df = df.pivot_table(
@@ -311,9 +344,18 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         df.columns.name = None
         df["Time"] = pd.to_datetime(df["Time"], utc=True)
         df = df[(df["Time"] >= start_time) & (df["Time"] < end_time)].copy()
+        if compute_toa:
+            station_coords = {str(station[0]): (float(station[1]), float(station[2])) for station in ids}
+            df["TOA Radiation (W/m²)"] = np.nan
+            for station_id, (lat, lon) in station_coords.items():
+                mask = df["stationId"].astype(str) == station_id
+                if not mask.any(): continue
+                df.loc[mask, "TOA Radiation (W/m²)"] = toa_incident_solar_radiation(df.loc[mask, "Time"], lat, lon)
+        if "Hourly Mean Surface Air Pressure (at 2m) (Pa)" in df.columns: 
+            df["Hourly Mean Surface Air Pressure (at 2m) (Pa)"] *= 100
+        if "Total Cloud Cover (%)" in df.columns: 
+            df["Total Cloud Cover (%)"] = cloud_cover_to_percent(df["Total Cloud Cover (%)"])
         df['Time'] = functions.utc_to_local(df['Time'], time_zone)
-        if "Air Pressure (hPa)" in df.columns: df["Air Pressure (hPa)"] *= 100
-        if "Cloud cover (%)" in df.columns: df["Cloud cover (%)"] = cloud_cover_to_percent(df["Cloud cover (%)"])
         csv_path = os.path.normpath(os.path.join(dir, f'{key}.csv'))
         df.to_csv(csv_path, index=False)
         logger.info(f"Saved CSV to: {csv_path}")
@@ -330,21 +372,6 @@ def met_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         for h in logger.handlers[:]:
             h.close()
             logger.removeHandler(h)
-def cloud_cover_to_percent(series):
-    """
-    Convert total cloud cover from MET code (0-8) to percentage.
-    0  -> 0%
-    8  -> 100%
-    -3 -> NaN
-    9  -> NaN
-    """
-    values = pd.to_numeric(series, errors="coerce")
-    # Invalid/special codes
-    values = values.replace([-3, 9], np.nan)
-    # Keep only valid values from 0 to 8
-    values = values.where(values.between(0, 8), np.nan)
-    # Convert 0-8 -> 0-100%
-    return values / 8 * 100
 
 def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_process:str, 
     ids:list, columns:list, vars:list, interval:int, start:str, end:str, time_zone:str, log_file:str):
@@ -365,7 +392,7 @@ def nve_downloader(key:str, api_key:str, url:str, dir:str, processes:dict, key_p
         start_date = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
         end_date = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')    
         logger.info("NVE downloader started.")
-        logger.info(f"Starting time: {start}   --   Ending time: {end}")
+        logger.info(f"Starting time: {start}   -->   Ending time: {end}")
         logger.info("="*60)
         all_observations = []
         for station in ids:
@@ -725,3 +752,4 @@ def write_forcing(directory:str, start:str, end:str, time_zone:str, interval:int
         print('/write_forcing:\n==============')
         traceback.print_exc()
         return {"status": "failed", "message": str(e)}
+

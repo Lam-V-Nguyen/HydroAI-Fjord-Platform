@@ -303,7 +303,7 @@ function updateManager() {
             const data = await jsonLoader('download_met', contents);
             if (data.status === 'error') { alert(data.message); return; }
             updateLog(currentProject, obj.metLogText, 2, key, async () => {
-                alert('Downloading weather completed.');
+                alert('Downloading data completed.');
                 const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_weather_csv', content_csv);
@@ -442,7 +442,7 @@ function updateManager() {
             const data = await jsonLoader('download_nve', contents);
             if (data.status === 'error') { alert(data.message); return; }
             updateLog(currentProject, obj.nveLogText, 2, key, async () => {
-                alert('Downloading weather completed.');
+                alert('Downloading data completed.');
                 const content_csv = { projectName: currentProject, fileName: `${key}.csv` };
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_weather_csv', content_csv);
@@ -661,7 +661,7 @@ function updateManager() {
             const data = await jsonLoader('download_era5', contents);
             if (data.status === 'error') { alert(data.message); return; }
             updateLog(currentProject, obj.era5LogText, 2, ERA5_KEY, async () => {
-                alert('Downloading weather completed.');
+                alert('Downloading data completed.');
                 const content_csv = { projectName: currentProject, fileName: `${ERA5_KEY}.csv` };
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
                 const csv = await jsonLoader('upload_era5_csv', content_csv); signalSender('hideOverlay');

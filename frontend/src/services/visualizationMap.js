@@ -58,12 +58,8 @@ export async function pointPloter(key, points, map, content) {
                 const country = properties.country || 'N/A';
                 const { getSelectedLayer, setSelectedLayer, getSelected, table, label } = content;
                 const formatValue = (value) => {
-                    if (value === null || value === undefined || value === '') {
-                        return 'N/A';
-                    }
-                    if (Array.isArray(value)) {
-                        return value.length > 0 ? value.join(', ') : 'N/A';
-                    }
+                    if (value === null || value === undefined || value === '') { return 'N/A'; }
+                    if (Array.isArray(value)) { return value.length > 0 ? value.join(', ') : 'N/A'; }
                     return value;
                 };
                 const hoverTooltip = `
@@ -89,8 +85,8 @@ export async function pointPloter(key, points, map, content) {
                         ${Object.entries(properties)
                         .filter(([propertyKey]) => propertyKey !== 'id')
                         .map(([propertyKey, value]) => `
-                                <div>• <b>${propertyKey}:</b> ${formatValue(value)}</div>
-                            `).join('')}
+                            <div>• <b>${propertyKey}:</b> ${formatValue(value)}</div>
+                        `).join('')}
                     </div>
                 `;
                 layer._hoverTooltip = hoverTooltip; layer._fullTooltip = fullTooltip;
@@ -110,13 +106,17 @@ export async function pointPloter(key, points, map, content) {
                     }
                     if (setSelectedLayer) setSelectedLayer(layer); layer.unbindTooltip();
                     layer.bindTooltip(fullTooltip, {
-                        permanent: true, direction: 'bottom',
-                        opacity: 1, offset: [0, 10], className: 'met-tooltip'
+                        permanent: true, direction: 'bottom', opacity: 1, offset: [0, 10], className: 'met-tooltip'
                     }).openTooltip();
                     const isSelected = getSelected ? getSelected() : false;
                     if (isSelected && table && label) {
-                        const data = [String(id), name, country, lat, lon];
-                        fillTable([data], table, false);
+                        const stationId = String(id), rows = getDataFromTable(table, true).rows;
+                        // Check whether the station ID already exists in the table.
+                        const exists = Array.from(rows).some(row => {
+                            const firstCell = row[0]; return firstCell && firstCell.trim() === stationId;
+                        });
+                        if (exists) { alert(`Station "${stationId}" has already been selected.`); return; }
+                        const data = [stationId, name, country, lat, lon]; fillTable([data], table, false);
                         const n = table.querySelectorAll('tbody tr.selected').length;
                         const m = table.querySelectorAll('tbody tr').length;
                         label.innerHTML = `(Selected Station(s): ${n}/${m})`;
@@ -129,12 +129,8 @@ export async function pointPloter(key, points, map, content) {
                 const river = properties.riverName || 'N/A', council = properties.councilName || 'N/A';
                 const { getSelectedLayer, setSelectedLayer, getSelected, table, label, key, params } = content;
                 const formatValue = (value) => {
-                    if (value === null || value === undefined || value === '') {
-                        return 'N/A';
-                    }
-                    if (Array.isArray(value)) {
-                        return value.length > 0 ? value.join(', ') : 'N/A';
-                    }
+                    if (value === null || value === undefined || value === '') { return 'N/A'; }
+                    if (Array.isArray(value)) { return value.length > 0 ? value.join(', ') : 'N/A'; }
                     return value;
                 };
                 const hoverTooltip = `
@@ -172,20 +168,23 @@ export async function pointPloter(key, points, map, content) {
                         prevLayer.closeTooltip(); prevLayer.unbindTooltip();
                         if (prevLayer._hoverTooltip) {
                             prevLayer.bindTooltip(prevLayer._hoverTooltip, {
-                                sticky: true, permanent: false,
-                                direction: 'bottom', opacity: 1, offset: [0, 10]
+                                sticky: true, permanent: false, direction: 'bottom', opacity: 1, offset: [0, 10]
                             });
                         }
                     }
                     if (setSelectedLayer) setSelectedLayer(layer); layer.unbindTooltip();
                     layer.bindTooltip(fullTooltip, {
-                        permanent: true, direction: 'bottom',
-                        opacity: 1, offset: [0, 10], className: 'met-tooltip'
+                        permanent: true, direction: 'bottom', opacity: 1, offset: [0, 10], className: 'met-tooltip'
                     }).openTooltip();
                     const isSelected = getSelected ? getSelected() : false;
                     if (isSelected && table && label) {
-                        const data = [String(id), name, river, council, lat, lon];
-                        fillTable([data], table, false);
+                        const stationId = String(id), rows = getDataFromTable(table, true).rows;
+                        // Check whether the station ID already exists in the table.
+                        const exists = Array.from(rows).some(row => {
+                            const firstCell = row[0]; return firstCell && firstCell.trim() === stationId;
+                        });
+                        if (exists) { alert(`Station "${stationId}" has already been selected.`); return; }
+                        const data = [stationId, name, river, council, lat, lon]; fillTable([data], table, false);
                         const n = table.querySelectorAll('tbody tr.selected').length;
                         const m = table.querySelectorAll('tbody tr').length;
                         label.innerHTML = `(Selected Station(s): ${n}/${m})`;
@@ -193,8 +192,7 @@ export async function pointPloter(key, points, map, content) {
                     if (key === 'data-preparation') {
                         const {stationID, stationName, basinArea} = params;
                         stationID.value = id; stationName.value = name;
-                        basinArea.value = properties?.drainageBasinArea 
-                            || properties?.drainageBasinAreaNorway || '';
+                        basinArea.value = properties?.drainageBasinArea || properties?.drainageBasinAreaNorway || '';
                     }
                 });
             } else if (key === 'regnbyge' || ['flow', 'level', 'rain'].includes(key)) {
