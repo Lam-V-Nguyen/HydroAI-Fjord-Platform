@@ -8,7 +8,7 @@ const obj = {
     infoArea: $("textarea"), checkboxContainer: $("checkbox-container")
 };
 
-let currentProject = null, logIntervalHYD = null,
+let currentProject = null, logIntervalHYD = null, logFile = 'log_hyd.txt',
     lastOffsetHYD = 0, HYDRunning = false, activeHYDProject = null;
 
 hydComponents();
@@ -36,14 +36,14 @@ async function hydComponents() {
         lastOffsetHYD = 0; activeHYDProject = projectName;
         const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: projectName});
         if (statusRes.status === "running" || statusRes.status === "reorganizing") {
-            const res = await fetch(`/sim_log_full/${projectName}?log_file=log_hyd.txt`);
+            const res = await fetch(`/sim_log_full/${projectName}?log_file=${logFile}`);
             if (res.ok) {
                 const data = await res.json();
                 obj.infoArea.value = data.content || ''; lastOffsetHYD = data.offset;
             }
             obj.showCheckbox.checked = true; HYDRunning = true;
             // Run hydrodynamics simulation and Update logs every 10 seconds
-            updateLogHYD( projectName, obj.progressbar, obj.progressText, obj.infoArea, 10);
+            updateLogHYD( projectName, obj.progressbar, obj.progressText, obj.infoArea, 10, logFile );
         } else { obj.showCheckbox.checked = false; HYDRunning = false; }
         obj.progressText.innerText = statusRes.message;
         obj.progressbar.value = statusRes.progress;
@@ -64,29 +64,29 @@ async function hydComponents() {
         }
         // Check if HYD simulation is running
         if (HYDRunning) { alert("Detected an HYD simulation is running. Please wait until it finishes."); return; }
-        const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: currentProject});
+        const statusRes = await jsonLoader('check_sim_status_hyd', { projectName: currentProject });
         if (statusRes.status === "running") { alert("HYD simulation is running."); return; }
         const res = await jsonLoader('check_folder', {projectName: currentProject, folder: 'output', key: 'hyd'});
         if (res.status === "ok") { if (!confirm("Output exists. Re-run will overwrite it. Continue?")) return; }
-        const start = await jsonLoader('start_sim_hyd', {projectName: currentProject});
+        const start = await jsonLoader('start_sim_hyd', { projectName: currentProject, log_file: logFile });
         if (start.status === "error") { alert(start.message); return; }
         obj.progressText.innerText = 'Preparing data for the HYD simulation...';
-        updateLogHYD(currentProject, obj.progressbar, obj.progressText, obj.infoArea, 10);
+        updateLogHYD(currentProject, obj.progressbar, obj.progressText, obj.infoArea, 10, logFile);
     });
 }
 
-function updateLogHYD(hydProject, progress_bar, progress_text, info, seconds){
+function updateLogHYD(hydProject, progress_bar, progress_text, info, seconds, log_file){
     activeHYDProject = hydProject;
     logIntervalHYD = setInterval(async () => {
         if (activeHYDProject !== hydProject) { clearInterval(logIntervalHYD); logIntervalHYD = null; }
         try {
-            const statusRes = await jsonLoader('check_sim_status_hyd', {projectName: hydProject});
+            const statusRes = await jsonLoader('check_sim_status_hyd', { projectName: hydProject });
             progress_text.innerText = statusRes.message; progress_bar.value = statusRes.progress;
             if (statusRes.status !== "running" && statusRes.status !== "reorganizing") {
                 info.value += statusRes.message; info.scrollTop = info.scrollHeight;
                 if (logIntervalHYD) { clearInterval(logIntervalHYD); logIntervalHYD = null; }
             }
-            const res = await fetch(`/sim_log_tail_hyd/${hydProject}?offset=${lastOffsetHYD}&log_file=log_hyd.txt`);
+            const res = await fetch(`/sim_log_tail/${hydProject}?offset=${lastOffsetHYD}&log_file=${log_file}`);
             if (!res.ok) return;
             const data = await res.json();
             for (const line of data.lines) { 

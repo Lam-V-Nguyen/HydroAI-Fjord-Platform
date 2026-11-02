@@ -120,7 +120,7 @@ async function nveSourceManagement(){
         nveLayer = await pointPloter('nve', data.content.point, mapObj, contents);
     });
     obj.downloadBtn.addEventListener('click', async () => {
-        const apiKey = obj.sourceAPIKey.value, key = 'nve';
+        const apiKey = obj.sourceAPIKey.value, key = 'nve', logFile = 'NVE_HYD_log.txt';
         if (!apiKey || apiKey === '') { alert('Please enter your NVE API key.'); return; }
         const stationID = obj.stationID.value;
         if (stationID === '') { alert('Please select a station from NVE first.'); return; }
@@ -134,7 +134,7 @@ async function nveSourceManagement(){
             const contents = {
                 projectName: currentProject, api_key: apiKey, ids: [[stationID]], 
                 interval: 60, startTime: start, endTime: end, timeZone: getLastTimeZone(),
-                variables: ['1001'], columns: ['Discharge (m³/s)'], key: key
+                variables: ['1001'], columns: ['Discharge (m³/s)'], key: key, logFile: logFile
             };
             const data = await jsonLoader('download_nve', contents);
             if (data.status === 'error') { alert(data.message); return; }
@@ -150,7 +150,7 @@ async function nveSourceManagement(){
                 addDataToTable(obj.dischargeTable, csv.columns, csv.content);
                 obj.dischargeLogContainer.style.display = 'none';
                 obj.dischargeTable.style.display = 'table';
-            });
+            }, logFile);
         } catch (error) {
             alert(error.message || error); 
             obj.dischargeLogContainer.style.display = 'flex';

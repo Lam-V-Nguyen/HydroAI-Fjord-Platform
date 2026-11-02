@@ -292,7 +292,7 @@ function updateManager() {
         }
         try {
             const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
-            if (statusRes.status === "running") { alert("Weather download is running."); return; }
+            if (statusRes.status === "running") { alert("Data download is running."); return; }
             obj.metLogText.value = ''; obj.metLogContainer.style.display = 'flex';
             obj.metSaveBtn.style.display = 'none'; obj.metDownloadTable.style.display = 'none';
             const contents = {
@@ -431,7 +431,7 @@ function updateManager() {
         }
         try {
             const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: key });
-            if (statusRes.status === "running") { alert("Weather download is running."); return; }
+            if (statusRes.status === "running") { alert("Data download is running."); return; }
             obj.nveLogText.value = ''; obj.nveLogContainer.style.display = 'flex';
             obj.nveSaveBtn.style.display = 'none'; obj.nveDownloadTable.style.display = 'none';
             const contents = {
@@ -649,7 +649,7 @@ function updateManager() {
         }
         try {
             const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: ERA5_KEY });
-            if (statusRes.status === "running") { alert("Weather download is running."); return; }
+            if (statusRes.status === "running") { alert("Data download is running."); return; }
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
             obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none'; 
             obj.era5CancelBtn.style.display = 'block';

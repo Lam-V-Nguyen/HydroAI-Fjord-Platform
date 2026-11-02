@@ -24,15 +24,6 @@ async def check_folder(request: Request, user=Depends(functions.basic_auth)):
     status = 'ok' if os.path.exists(path) else 'error'
     return JSONResponse({"status": status})
 
-@router.get("/sim_log_full/{project_name}")
-async def sim_log_full(project_name: str, log_file: str = Query(""), user=Depends(functions.basic_auth)):
-    project_name, _ = functions.project_definer(project_name, user)
-    log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, log_file))
-    if not os.path.exists(log_path): return {"content": ""}
-    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
-        content = f.read()
-    return {"content": content, "offset": os.path.getsize(log_path)}
-
 # Check if simulation is running
 @router.post("/check_sim_status_hyd")
 async def check_sim_status_hyd(request: Request, user=Depends(functions.basic_auth)):
@@ -76,7 +67,9 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
         if not os.path.exists(bat_path): 
             return JSONResponse({"status": "error", "progress": 0.0, "message": "Executable file not found."})
         # Remove old log
-        log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "log_hyd.txt"))
+        log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.normpath(os.path.join(log_dir, "log_hyd.txt"))
         if os.path.exists(log_path): os.remove(log_path)
         percent_re = re.compile(r'(?P<percent>\d{1,3}(?:\.\d+)?)\s*%')
         time_re = re.compile(r'(?P<tt>\d+d\s+\d{1,2}:\d{2}:\d{2})')
@@ -156,14 +149,13 @@ async def start_sim_hyd(request: Request, user=Depends(functions.basic_auth)):
         threading.Thread(target=stream_logs, daemon=True).start()
     return JSONResponse({"status": "ok", "message": f"Simulation {project_name} started."})
 
-@router.get("/sim_log_tail_hyd/{project_name}")
-async def sim_log_tail_hyd(project_name: str, offset: int = Query(0), 
+@router.get("/sim_log_tail/{project_name}")
+async def sim_log_tail(project_name: str, offset: int = Query(0), 
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
     log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    log_path, lines = os.path.join(log_dir, log_file), []
-    log_path = os.path.normpath(log_path)
+    log_path, lines = os.path.normpath(os.path.join(log_dir, log_file)), []
     if not os.path.exists(log_path): return {"lines": lines, "offset": offset}
     with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
         f.seek(offset)
@@ -199,7 +191,7 @@ async def check_sim_status_waq(request: Request, user=Depends(functions.basic_au
 async def start_sim_waq(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    waq_name = body.get('waqName')
+    waq_name, log_file = body.get('waqName'), body.get('logFile')
     redis, process_key = request.app.state.redis, f"{project_name}:{waq_name}"
     lock = redis.lock(process_key, timeout=1000, blocking_timeout=10)
     async with lock:
@@ -207,13 +199,15 @@ async def start_sim_waq(request: Request, user=Depends(functions.basic_auth)):
         if info and info["status"] in ("preparing", "running", "reorganizing"):
             return JSONResponse({"status": "running", "message": "WAQ simulation is already running."})
         processes[process_key] = {"status": "preparing", "progress": 0, "message": "Preparing data for the WAQ simulation...", "process": None}
-        asyncio.create_task(run_waq_simulation(project_name, waq_name))
+        asyncio.create_task(run_waq_simulation(project_name, waq_name, log_file))
     return JSONResponse({"status": "ok", "message": "Simulation started."})
 
-async def run_waq_simulation(project_name, waq_name):
+async def run_waq_simulation(project_name, waq_name, log_file):
     process_key = f"{project_name}:{waq_name}"
     processes[process_key] = {"status": "not_started", "progress": 0, "message": "", "process": None}
-    log_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "log_waq.txt"))
+    log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
     log_file = open(log_path, "a", encoding=functions.encoding_detect(log_path), errors="replace")
     log_file.write(f"Project: {project_name}\n")
@@ -384,19 +378,13 @@ async def run_waq_simulation(project_name, waq_name):
         log_file.flush(); log_file.close()
         return
 
-@router.get("/sim_log_tail_waq/{project_name}")
-async def sim_log_tail_waq(project_name: str, offset: int = Query(0),
-    log_file: str = Query(""), user=Depends(functions.basic_auth)):
+@router.get("/sim_log_full/{project_name}")
+async def sim_log_full(project_name: str, log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
     log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, log_file)
-    if not os.path.exists(log_path): return {"lines": [], "offset": 0}
-    if offset > os.path.getsize(log_path): offset = 0
-    with open(log_path, "rb") as f:
-        f.seek(offset)
-        chunk = f.read()
-    end = chunk.rfind(b"\n")
-    if end == -1: return {"lines": [], "offset": offset}
-    text = chunk[:end + 1].decode(functions.encoding_detect(log_path) or "utf-8", errors="replace")
-    return {"lines": text.splitlines(), "offset": offset + end + 1}
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
+    if not os.path.exists(log_path): return {"content": ""}
+    with open(log_path, "r", encoding=functions.encoding_detect(log_path), errors="replace") as f:
+        content = f.read()
+    return {"content": content, "offset": os.path.getsize(log_path)}

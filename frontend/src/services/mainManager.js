@@ -96,7 +96,7 @@ function widgetMenuManager() {
                 await renderTimezoneList(resultsBox, "");
             }
             return; 
-        } else if (id === 'data-download') { w = 9; h = 12; }
+        } else if (id === 'data-download') { w = 12; h = 12; }
         else if (id === 'preparation-hyd') { w = 12; h = 10; 
             title = 'Data Preparation for HYD Scenario'; }
         else if (id === 'grid-generation') { w = 12; h = 10; }
