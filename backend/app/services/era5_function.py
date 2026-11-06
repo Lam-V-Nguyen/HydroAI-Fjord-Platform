@@ -1,4 +1,4 @@
-import os, math, requests, cdsapi, threading, time, zipfile, glob, shutil
+import os, math, requests, cdsapi, threading, time, zipfile, glob, shutil, hashlib
 from dateutil.relativedelta import relativedelta
 from datetime import datetime, timedelta
 import xarray as xr, numpy as np, pandas as pd
@@ -24,6 +24,9 @@ G = 9.80665          # m/s²
 RD = 287.05          # J/(kg·K)
 LAPSE_T = 0.0065     # K/m  (temperature)
 LAPSE_TD = 0.0018    # K/m  (dew point temperature)
+_account_locks: dict = {}
+_account_locks_guard = threading.Lock()
+
 
 variables = {
     'total_precipitation': 'tp', # Precipitation
@@ -61,6 +64,12 @@ def set_status(processes, key, status, message=None, **extra):
 
 def is_cancel_requested(processes, key):
     return bool(processes.get(key, {}).get("cancel"))
+
+def account_lock(api_key):
+    k = hashlib.sha256(api_key.strip().encode()).hexdigest()
+    with _account_locks_guard:
+        return _account_locks.setdefault(k, threading.Lock())
+
 
 def check_cancel(processes, key):
     if is_cancel_requested(processes, key):

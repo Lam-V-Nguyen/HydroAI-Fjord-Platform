@@ -1,45 +1,43 @@
 import { jsonLoader } from "./commonFunctions.js";
 import { origin, setLastProject } from "./constant.js";
 
-
 export async function projectModifier(user) {
     const overlay = document.createElement("div");
     overlay.className = "pm-overlay";
     const modal = document.createElement("div");
     modal.className = "pm-modal";
-    modal.innerHTML = `
-        <h3 style="margin-top:0;">Open Project</h3>
+    modal.innerHTML = `<h3>Open Project</h3>
         <div class="pm-row">
-            <label>Select Project</label>
-            <select id="projectList"
-                style="width: 100%; box-sizing: border-box; padding: 4px 6px;">
+            <label for="projectList">Select Project</label>
+            <select id="projectList">
                 <option value="">-- No selected --</option>
             </select>
         </div>
-        <div style="text-align:right; gap: 10px; margin: 10px">
-            <button class="button-grid" id="okBtn">Open</button>
-            <button class="button-grid" id="closeBtn">Cancel</button>
+        <div class="pm-actions">
+            <button class="pm-open" id="okBtn">Open</button>
+            <button class="pm-cancel" id="closeBtn">Cancel</button>
         </div>
     `;
-    overlay.appendChild(modal); document.body.appendChild(overlay);
-    // Get the list of projects
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
     const projectList = modal.querySelector("#projectList");
-    if (!projectList) return;
-    const contents = { filename: '', key: 'getProjects', folder_check: '' };
+    const contents = {filename: '',  key: 'getProjects', folder_check: ''};
     const data = await jsonLoader('select_project', contents);
     if (data.status === "error") { alert(data.message); overlay.remove(); return; }
     data.content.forEach(project => {
-        const option = document.createElement("option");
-        option.value = project;
-        option.textContent = project;
-        projectList.appendChild(option);
-    }); 
+        const option = document.createElement("option"); option.value = project;
+        option.textContent = project; projectList.appendChild(option);
+    });
     if (data.content.length > 0) { projectList.selectedIndex = 1; }
     modal.querySelector("#okBtn").onclick = async () => {
-        let value = projectList.value.trim();
-        if (value === "") { alert("Please select a project from the list."); return; }
+        const value = projectList.value.trim();
+        if (value === "") {
+            alert("Please select a project from the list."); return;
+        }
         setLastProject(value);
-        window.parent.postMessage({type: 'showNote', content: `${user}/${value}`}, origin);
+        window.parent.postMessage(
+            { type: 'showNote', content: `${user}/${value}` }, origin
+        );
         overlay.remove(); location.reload();
     };
     modal.querySelector("#closeBtn").onclick = () => { overlay.remove(); };

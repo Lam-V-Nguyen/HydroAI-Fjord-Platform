@@ -223,8 +223,10 @@ async def get_scenario(request: Request, user=Depends(functions.basic_auth)):
                     data["meteoName"] = params.get('FILENAME', '')
                     variables = params.get('QUANTITY', '')
             if data["meteoName"] == '': 
-                return JSONResponse({"status": 'error', "message": "No meteorological parameter detected. Please check the scenario again."})
-            headers = [x.strip() for x in variables.split('_')]
+                return JSONResponse({"status": 'error', "message": "No meteorological parameter detected.\nPlease check the scenario again."})
+            if variables == 'humidity_airtemperature_cloudiness':
+                headers = ['Humidity (%)', 'Air Temperature (°C)', 'Cloud Coverage (%)']
+            else: headers = [x.strip() for x in variables.split('_')]
             data["meteoPath"], meteos = [], []
             meteo_path = os.path.normpath(os.path.join(in_dir, data["meteoName"]))
             if os.path.exists(meteo_path):

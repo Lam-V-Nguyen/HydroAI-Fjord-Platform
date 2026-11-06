@@ -50,7 +50,7 @@ let currentProject, demLayer = null, drawChecker = '', mapContainer = null, poin
     terrainTileURL = '', terrainMinMax = null, terrainBounds = null, html = '',
     streamTileURL = '', streamMinMax = null, streamBounds = null, catchmentLayer = null,
     catchmentTileURL = '', catchmentBounds = null, pointLayer = null, waterLayer = null,
-    soilLayer = null, soilTileURL = '', soilBounds = null, soilMinMax = null,
+    soilLayer = null, soilTileURL = '', soilBounds = null, soilMinMax = null, keyChecker = 'weather',
     landLayer = null, landContent = null, selectedRiver = null, riverLayer = null;
 
 
@@ -104,7 +104,8 @@ function settingManager() {
             const options = soilData.map(
                 row => `<option value="${row.value}">${row.label}</option>`
             ).join('');
-            obj.soilLayer.innerHTML = defaultOption + options; obj.soilSource.value = "isric";
+            obj.soilLayer.innerHTML = defaultOption + options; 
+            obj.soilSource.value = "isric"; obj.soilSource.dispatchEvent(new Event("change"));
         } else { obj.soilLayer.innerHTML = defaultOption; }
         obj.weatherStart.value = forcing.start; obj.weatherEnd.value = forcing.end; 
         obj.weatherInterval.value = forcing.interval;
@@ -417,13 +418,14 @@ function soilManager() {
             if (statusRes.status === "running") { alert("Soil download is running."); return; }
             obj.soilTable.style.display = 'none'; obj.soilDownload.style.display = 'flex'; obj.soilLog.value = '';
             const content = {
-                projectName: currentProject, key: key, flowName: name,
-                waterArea: obj.waterInputText.value.trim(), soilSource: value, logFile: logFile
+                projectName: currentProject, key: key, flowName: name, logFile: logFile,
+                waterArea: obj.waterInputText.value.trim(), soilSource: value
             };
             const request = await jsonLoader('start_download_soil', content);
             if (request.status === 'error') { alert(request.message); return; }
             updateLog(currentProject, obj.soilLog, 2, key, async () => {
-                alert('Downloading soil data completed.'); obj.soilCheckerBtn.click();
+                alert('Downloading soil data completed.'); obj.soilCheckbox.checked = true;
+                // obj.soilCheckerBtn.click();
             }, logFile);
         } catch (error) { alert(`Downloading soil data failed: ${error.message}`); }
     });
@@ -739,6 +741,11 @@ function weatherManager() {
     const start = new Date(now); start.setDate(start.getDate() - 20);
     const end = new Date(now); end.setDate(end.getDate() - 10);
     obj.weatherStart.value = formatDate(start); obj.weatherEnd.value = formatDate(end);
+    const setFlowRunning = (running) => {
+        obj.cancelWeatherBtn.style.display = running ? 'block' : 'none';
+        obj.cancelWeatherBtn.disabled = false; obj.cancelWeatherBtn.textContent = 'Cancel';
+    };
+    setFlowRunning(false);
     document.querySelectorAll('input[name="weather"]').forEach(item => {
         item.addEventListener('change', (e) => {
             if (e.target.value === 'weather-csv') {
@@ -795,10 +802,10 @@ function weatherManager() {
         alert(response.message); if (response.status === "error") { return; }
     });
     obj.downloadWeatherBtn.addEventListener('click', async () => {
-        const name = obj.projectName.value.trim(), value = obj.weatherSelector.value, logFile = 'log_weather.txt';
+        const name = obj.projectName.value.trim(), value = obj.weatherSelector.value, logFile = 'flow_weather_log.txt';
         if (name === '') { alert('Please select a scenario from first.'); return; }
         if (!value || value === '') { alert('Please select weather source data first.'); return; }
-        const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value, keyChecker = 'weather';
+        const startTime = obj.weatherStart.value, endTime = obj.weatherEnd.value;
         if (startTime === '' || endTime === '') { alert('Please select a time range.'); return; }
         if (new Date(startTime) >= new Date(endTime)) { alert('Start time must be before end time.'); return; }
         if (value !== 'era5') return;
@@ -808,23 +815,35 @@ function weatherManager() {
             if (value == 'era5') {
                 const contentChecker = { projectName: currentProject, key: keyChecker };
                 const statusRes = await jsonLoader('check_download_status', contentChecker);
-                if (statusRes.status === "running") { alert("Weather download is running."); return; }
-                obj.weatherLog.value = '';
+                if (statusRes.status === "running") {
+                    alert(statusRes.cancelling ? 'Previous download is being cancelled. Please wait a moment.'
+                        : 'Weather download is running.'); return;
+                }
                 const content = {
                     projectName: currentProject, flowName: name, timeZone: getLastTimeZone(),
                     start: startTime, end: endTime, key: keyChecker, apiKey: apiKey, logFile: logFile
                 };
                 const start = await jsonLoader('start_download_weather', content);
                 if (start.status === "error") { alert(start.message); return; }
+                obj.weatherLog.value = ''; setFlowRunning(true);
                 updateLog(currentProject, obj.weatherLog, 2, keyChecker, async () => {
+                    const res = await jsonLoader('check_download_status', { projectName: currentProject, keyChecker });
+                    setFlowRunning(false);
+                    if (res.cancelled) { alert('Weather download cancelled. No data was saved.'); return; }
+                    if (res.status !== 'finished') { alert(`Weather download failed: ${res.message}`); return; }
                     alert('Downloading weather completed.');
                 }, logFile);
             }
         } catch (error) { alert(error.message); return; }
     });
     obj.cancelWeatherBtn.addEventListener('click', async () => {
-        const res = await jsonLoader('cancel_download_weather', { projectName: currentProject, key: keyChecker });
-        alert(res.message);
+        if (!confirm('Cancel the ERA5 download?')) return;
+        obj.cancelWeatherBtn.disabled = true; obj.cancelWeatherBtn.textContent = 'Cancelling...';
+        try {
+            const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: keyChecker });
+            if (res.status === 'idle') setFlowRunning(false); 
+            obj.cancelWeatherBtn.style.display = 'none'; alert('ERA5 download cancelled.');
+        } catch (error) { obj.cancelWeatherBtn.disabled = false; alert(error.message || error); }
     });
 }
 

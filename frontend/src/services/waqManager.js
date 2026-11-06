@@ -6,14 +6,13 @@ import { getProjectList, jsonLoader, fillTable, deleteTable, addRowToTable, sign
 import { projectRender } from "./projectManager.js";
 import { toUTC } from "./projectSaver.js";
 
-const defaultWAQ = `<option value="">-- New WAQ model --</option>`;
-let projectSelected = [], subKey = '', folderName = '', useforsTo = [], 
-    volPath = '', timeStep1 = 0, timeStep2 = 0, nSegments = 0, attrPath_ =' ',
-    exchange_x = 0, exchange_z = 0, exchange_y = 0, ptrPath = '', areaPath = '',
-    flowPath = '', lengthPath = '', srfPath = '', vdfPath = '', temPath = '',
-    salPath = '', usefors = null, initial_area = null, scheme = null, maxiter = null,
-    tolerance = null, useforsFrom = [], waqContent = [], from_initial = null,
-    initial_value = null, to_usefors = null, from_usesfor = null, n_layers='';
+const DEFAULT_SCHEME = '15', DEFAULT_MAXITER = '500', DEFAULT_TOLERANCE = '1E-07';
+const POINT_HEADER = ['Name', 'Latitude', 'Longitude'];
+const TIME_HEADER = ['YYYY-MM-DD HH:MM:SS', 'PointName', 'Substance', 'Value'];
+const TIME_PATTERN = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(:\d{2})?$/;
+const USEFOR_PATTERN = /^USEFOR\s+'([^']+)'\s+'([^']+)'$/;
+
+let projectSelected = [], waqContent = [], loadedScenario = '';
 
 const $ = (id) => document.getElementById(id);
 const obj = {
@@ -50,7 +49,149 @@ const obj = {
     maxInterMirobial: $('max-iterations-microbial'), toleranceMirobial: $('tolerance-microbial'),
 };
 
+const tabs = {
+    physical: {
+        selector: $('wq-physical'), name: $('wq-physical-name'),
+        useforsFrom: $('wq-physical-usefors-from'), useforsTo: $('wq-physical-usefors-to'),
+        usefors: $('wq-usefors-physical'), initialFrom: $('wq-physical-initial-from'),
+        initialValue: $('wq-physical-initial'), initialArea: $('wq-initial-physical'),
+        scheme: $('wq-scheme-physical'), maxiter: $('max-iterations-physical'),
+        tolerance: $('tolerance-physical'),
+    },
+    chemical: {
+        selector: $('wq-chemical'), name: $('wq-chemical-name'),
+        useforsFrom: $('wq-chemical-usefors-from'), useforsTo: $('wq-chemical-usefors-to'),
+        usefors: $('wq-usefors-chemical'), initialFrom: $('wq-chemical-initial-from'),
+        initialValue: $('wq-chemical-initial'), initialArea: $('wq-initial-chemical'),
+        scheme: $('wq-scheme-chemical'), maxiter: $('max-iterations-chemical'),
+        tolerance: $('tolerance-chemical'),
+    },
+    microbial: {
+        selector: $('wq-microbial'), name: $('wq-microbial-name'),
+        useforsFrom: $('wq-microbial-usefors-from'), useforsTo: $('wq-microbial-usefors-to'),
+        usefors: $('wq-usefors-microbial'), initialFrom: $('wq-microbial-initial-from'),
+        initialValue: $('wq-microbial-initial'), initialArea: $('wq-initial-microbial'),
+        scheme: $('wq-scheme-microbial'), maxiter: $('max-iterations-microbial'),
+        tolerance: $('tolerance-microbial'),
+    },
+};
+const tabOf = (key) => tabs[String(key || '').replace(/^wq-/, '')];
+
 setupTabs(document); projectOptions(); waqManager();
+
+function setOptions(select, items) {
+    select.replaceChildren(...(items || []).map(item => new Option(item, item)));
+}
+ 
+function renderWaqList(selected = '') {
+    obj.waqSelector.replaceChildren(new Option('-- New WAQ model --', ''),
+        ...waqContent.map(name => new Option(name, name)));
+    obj.waqSelector.value = selected;
+}
+ 
+function setScenarioButtons(visible) {
+    obj.projectCloner.style.display = visible ? "flex" : "none";
+    obj.projectRemover.style.display = visible ? "flex" : "none";
+}
+ 
+function showDescription() {
+    obj.controlTab.style.display = "none"; obj.descriptionTab.style.display = "block";
+}
+ 
+function clearPreview() {
+    obj.timePreview.value = ''; obj.timePreviewContainer.style.display = 'none';
+}
+ 
+function clearTimeTable() {
+    deleteTable(obj.timeTable); addRowToTable(obj.timeTable, TIME_HEADER); clearPreview();
+}
+ 
+function resetTab(t) {
+    t.selector.value = ''; t.name.value = '';
+    [t.useforsFrom, t.useforsTo, t.initialFrom].forEach(select => select.replaceChildren());
+    t.usefors.value = ''; t.initialArea.value = ''; t.initialValue.value = '0';
+    t.scheme.value = DEFAULT_SCHEME; t.maxiter.value = DEFAULT_MAXITER; t.tolerance.value = DEFAULT_TOLERANCE;
+}
+ 
+function sendPointsToMap() {
+    window.parent.postMessage({ type: 'waqPoint', content: getDataFromTable(obj.obsPointTable, true) }, origin);
+    window.parent.postMessage({ type: 'loadsPoint', content: getDataFromTable(obj.loadsPointTable, true) }, origin);
+}
+ 
+// Show the overlay while fn runs and always hide it again, also when the request fails
+async function withOverlay(message, fn) {
+    signalSender('showOverlay', message);
+    try { return await fn(); }
+    catch (err) { return { status: 'error', message: `Error: ${err?.message || err}` }; }
+    finally {
+        signalSender('hideOverlay');
+        await new Promise(resolve => setTimeout(resolve, 100)); // let the overlay close before an alert
+    }
+}
+
+const isBlank = (value) => String(value ?? '').trim() === '';
+const toNumber = (value) => (isBlank(value) ? NaN : Number(value));
+// Rows that are entirely empty (e.g. the placeholder row) are ignored
+const tableRows = (table) => (getDataFromTable(table, true).rows || []).filter(row => row.some(v => !isBlank(v)));
+ 
+function showErrors(errors) {
+    const shown = errors.slice(0, 10);
+    if (errors.length > shown.length) shown.push(`... and ${errors.length - shown.length} more.`);
+    alert(shown.join('\n'));
+}
+ 
+function validatePoints(rows, label) {
+    const errors = [], seen = new Set();
+    rows.forEach((row, i) => {
+        const name = String(row[0] ?? '').trim(), lat = toNumber(row[1]), lon = toNumber(row[2]);
+        if (name === '') errors.push(`${label}, row ${i + 1}: name is empty.`);
+        else if (/['"]/.test(name)) errors.push(`${label}, row ${i + 1}: name "${name}" must not contain quotes.`);
+        else if (seen.has(name)) errors.push(`${label}: name "${name}" is used more than once.`);
+        seen.add(name);
+        if (!(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180))
+            errors.push(`${label}, row ${i + 1}: latitude/longitude is not a valid number.`);
+    });
+    return errors;
+}
+ 
+function validateTimeRows(rows, loadNames) {
+    const errors = [], loads = new Set(loadNames);
+    rows.forEach((row, i) => {
+        const [time, location, substance, value] = row.map(v => String(v ?? '').trim());
+        if (!TIME_PATTERN.test(time)) errors.push(`Time series, row ${i + 1}: time "${time}" must be YYYY-MM-DD HH:MM:SS.`);
+        if (!loads.has(location)) errors.push(`Time series, row ${i + 1}: location "${location}" is not in the list of loads.`);
+        if (substance === '' || /['"\s]/.test(substance)) errors.push(`Time series, row ${i + 1}: substance "${substance}" is empty or contains quotes/spaces.`);
+        if (!Number.isFinite(toNumber(value))) errors.push(`Time series, row ${i + 1}: value "${value}" is not a number.`);
+    });
+    return errors;
+}
+ 
+function validateScenarioName(name) {
+    if (name === '') { alert('Please specify the scenario name.'); return false; }
+    if (nameChecker(name)) { alert(`Scenario name "${name}" contains invalid characters.`); return false; }
+    return true;
+}
+
+async function loadScenario(projectName, waqName) {
+    const data = await jsonLoader('load_waq', { projectName, waqName, timeZone: getLastTimeZone() });
+    if (data.status === "error") { alert(data.message || `Cannot load scenario '${waqName}'.`); return; }
+    const c = data.content, t = tabs[c.mode];
+    if (!t) { alert(`Scenario '${waqName}' has an unknown model group '${c.mode}'.`); return; }
+    if (c.obs.length > 0) { fillTable(c.obs, obj.obsPointTable, true); }
+    fillTable(c.loads, obj.loadsPointTable, true);
+    deleteTable(obj.timeTable); fillTable(c.time_data, obj.timeTable, true);
+    t.selector.value = c.key; t.name.value = c.name;
+    t.usefors.value = c.usefors; t.initialArea.value = c.initial;
+    t.scheme.value = c.scheme; t.maxiter.value = c.maxiter; t.tolerance.value = c.tolerance;
+    setOptions(t.useforsFrom, c.useforsFrom); setOptions(t.initialFrom, c.useforsFrom);
+    setOptions(t.useforsTo, c.useforsTo);
+    // Restore the saved simulation window and layers (older scenarios do not have them)
+    if (c.startTime) { obj.startTime.value = c.startTime; }
+    if (c.stopTime) { obj.stopTime.value = c.stopTime; }
+    if (c.nLayers) { obj.nLayers.value = c.nLayers; }
+    obj.timePreviewContainer.style.display = 'flex';
+    obj.timePreview.value = c.times; loadedScenario = waqName;
+}
 
 async function projectOptions(){
     projectSelected = await getProjectList();
@@ -63,8 +204,7 @@ async function projectOptions(){
             const li = document.createElement("li");
             li.textContent = p;
             li.addEventListener('mousedown', () => {
-                obj.projectName.value = p; 
-                obj.projectList.style.display = "none";
+                obj.projectName.value = p; obj.projectList.style.display = "none";
             });
             obj.projectList.appendChild(li);
         });
@@ -73,13 +213,11 @@ async function projectOptions(){
     obj.projectName.addEventListener('input', (e) => { 
         const value = e.target.value.trim();
         if (value === '') {
-            obj.controlTab.style.display = "none"; 
-            obj.descriptionTab.style.display = "block";
-            obj.waqSelector.innerHTML = ''; 
+            showDescription(); waqContent = []; loadedScenario = '';
+            obj.waqSelector.replaceChildren();
             obj.waqSelector.style.display = "none"; 
             obj.waqLabel.style.display = "none";
-            obj.projectCloner.style.display = "none"; 
-            obj.projectRemover.style.display = "none";
+            setScenarioButtons(false);
         }
         projectRender(obj.projectName, obj.projectList, projectSelected);
     });
@@ -88,34 +226,23 @@ async function projectOptions(){
     });
     obj.projectList.addEventListener('mousedown', async () => {
         const name = obj.projectName.value.trim();
-        const data = await jsonLoader('select_waq', { projectName: name });
-        if (!name || name === '' || data.status === "error") { 
-            obj.waqSelector.style.display = "none"; obj.waqSelector.value = '';
-            obj.waqLabel.style.display = "none"; obj.projectCloner.style.display = "none"; 
-            obj.projectRemover.style.display = "none"; return; 
+        showDescription(); loadedScenario = ''; setScenarioButtons(false);
+        const data = name ? await jsonLoader('select_waq', { projectName: name }) : { status: 'error' };
+        waqContent = data.status === 'error' ? [] : data.content;
+        if (!name || data.status === "error") { 
+            obj.waqSelector.style.display = "none"; renderWaqList('');
+            obj.waqLabel.style.display = "none"; return; 
         }
-        waqContent = data.content; obj.descriptionTab.style.display = "block";
-        obj.controlTab.style.display = "none";
-        const waqTemp = waqContent.map(name => `<option value="${name}">${name}</option>`).join('');
-        obj.waqSelector.innerHTML = defaultWAQ + waqTemp; obj.waqSelector.value = '';
+        renderWaqList('');
         obj.waqSelector.style.display = "flex"; obj.waqLabel.style.display = "flex";
     });
     obj.waqSelector.addEventListener('change', async (e) => { 
-        const value = e.target.value;
-        if (value === '') {
-            obj.projectCloner.style.display = "none"; 
-            obj.projectRemover.style.display = "none";
-        } else {
-            obj.projectCloner.style.display = "flex"; 
-            obj.projectRemover.style.display = "flex";
-        }
-        obj.controlTab.style.display = "none"; 
-        obj.descriptionTab.style.display = "block";
+        setScenarioButtons(e.target.value !== ''); showDescription();
     });    
-    // Create new WAQ scenario
+    // Create a new WAQ scenario, or open the selected one
     obj.projectCreator.addEventListener('click', async () => {
         const name = obj.projectName.value.trim();
-        if (!name || name.trim() === '') { alert('Please select a HYD Scenario from the list.'); return; }
+        if (!name) { alert('Please select a HYD Scenario from the list.'); return; }
         // Find .hyd file
         const data = await jsonLoader('select_hyd', { projectName: name, timeZone: getLastTimeZone() });
         if (data.status === "error") { alert(data.message); return; }
@@ -124,141 +251,93 @@ async function projectOptions(){
         obj.sourcesContainer.style.display = data.content.sink_sources.length > 0 ? "block":"none";
         fillTable(data.content.sink_sources, obj.sourcesTable, true);
         // Assign values
-        obj.hydFilename.value = data.content.filename; volPath = data.content.vol_path;
-        timeStep1 = data.content.time_step1; timeStep2 = data.content.time_step2;
-        nSegments = data.content.n_segments; attrPath_ = data.content.attr_path;
-        exchange_x = data.content.exchange_x; exchange_z = data.content.exchange_z;
-        if (data.content.exchange_y) { exchange_y = data.content.exchange_y; }
-        ptrPath = data.content.ptr_path; areaPath = data.content.area_path;
-        flowPath = data.content.flow_path; lengthPath = data.content.length_path;
+        obj.hydFilename.value = data.content.filename;
         if (data.content.n_layers) { obj.nLayers.value = data.content.n_layers; }
-        srfPath = data.content.srf_path; vdfPath = data.content.vdf_path;
-        temPath = data.content.tem_path; salPath = data.content.sal_path;
         obj.startTime.value = data.content.start_time; 
         obj.stopTime.value = data.content.stop_time;
         // Plot grid on map
         const content = { 
-            projectName: name, gridName: data.content.grid, 
-            key: 'waq', opacity: 0.2
+            projectName: name, gridName: data.content.grid, key: 'waq', opacity: 0.2
         }
-        iframeConnector(null, null, 'gridPlot', content);
+        iframeConnector(null, null, 'gridPlot', content);        
         // Set default values
         deleteTable(obj.obsPointTable); deleteTable(obj.loadsPointTable);
-        addRowToTable(obj.obsPointTable, ['Name', 'Latitude', 'Longitude']);
-        addRowToTable(obj.loadsPointTable, ['Name', 'Latitude', 'Longitude']);
-        deleteTable(obj.timeTable); 
-        addRowToTable(obj.timeTable, ['Time', 'Location', 'Substance', 'Value']);
-        // Physical tab
-        obj.physicalSelector.value = ''; obj.physicalName.value = ''; 
-        obj.usesforFromPhysical.innerHTML = ''; obj.usesforToPhysical.innerHTML = '';
-        obj.usesforPhysical.value = ''; obj.initialFromPhysical.innerHTML = '';
-        obj.initialAreaPhysical.value = ''; obj.schemePhysical.value = '15';
-        obj.maxInterPhysical.value = '500'; obj.tolerancePhysical.value = '1E-07';
-        // Chemical tab
-        obj.chemicalSelector.value = ''; obj.chemicalName.value = '';
-        obj.usesforFromChemical.innerHTML = ''; obj.usesforToChemical.innerHTML = '';
-        obj.usesforChemical.value = ''; obj.initialFromChemical.innerHTML = '';
-        obj.initialAreaChemical.value = ''; obj.schemeChemical.value = '15';
-        obj.maxInterChemical.value = '500'; obj.toleranceChemical.value = '1E-07';
-        // Microbial tab
-        obj.microbialSelector.value = ''; obj.microbialName.value = '';
-        obj.usesforFromMirobial.innerHTML = ''; obj.usesforToMirobial.innerHTML = '';
-        obj.usesforMicrobial.value = ''; obj.initialFromMirobial.innerHTML = '';
-        obj.initialAreaMirobial.value = ''; obj.schemeMicrobial.value = '15';
-        obj.maxInterMirobial.value = '500'; obj.toleranceMirobial.value = '1E-07';
-        obj.timePreview.value = ''; obj.timePreviewContainer.style.display = 'none';
+        addRowToTable(obj.obsPointTable, POINT_HEADER);
+        addRowToTable(obj.loadsPointTable, POINT_HEADER);
+        deleteTable(obj.timeTable); addRowToTable(obj.timeTable, ['Time', 'Location', 'Substance', 'Value']);
+        Object.values(tabs).forEach(resetTab); clearPreview(); loadedScenario = '';
         const waqValue = obj.waqSelector.value;
-        if (waqValue !== '') { 
-            const content = { projectName: name, waqName: waqValue, timeZone: getLastTimeZone() };
-            const data = await jsonLoader('load_waq', content);
-            if (data.status === "error") { alert(data.message); return; }
-            if (data.content.obs.length > 0) { fillTable(data.content.obs, obj.obsPointTable, true); }
-            fillTable(data.content.loads, obj.loadsPointTable, true);
-            deleteTable(obj.timeTable); fillTable(data.content.time_data, obj.timeTable, true);
-            if (data.content.mode === 'physical') {
-                obj.physicalSelector.value = data.content.key;
-                obj.physicalName.value = data.content.name;
-                obj.chemicalSelector.value = ''; obj.chemicalName.value = '';
-                obj.microbialSelector.value = ''; obj.microbialName.value = '';
-                from_usesfor = obj.usesforFromPhysical; to_usefors = obj.usesforToPhysical;
-                from_initial = obj.initialFromPhysical; usefors = obj.usesforPhysical;
-                initial_area = obj.initialAreaPhysical; scheme = obj.schemePhysical;
-                maxiter = obj.maxInterPhysical; tolerance = obj.tolerancePhysical;
-            } else if (data.content.mode === 'chemical') {
-                obj.chemicalSelector.value = data.content.key;
-                obj.chemicalName.value = data.content.name;
-                obj.physicalSelector.value = ''; obj.physicalName.value = '';
-                obj.microbialSelector.value = ''; obj.microbialName.value = '';
-                from_usesfor = obj.usesforFromChemical; to_usefors = obj.usesforToChemical;
-                from_initial = obj.initialFromChemical; usefors = obj.usesforChemical;
-                initial_area = obj.initialAreaChemical; scheme = obj.schemeChemical;
-                maxiter = obj.maxInterChemical; tolerance = obj.toleranceChemical;
-            } else if (data.content.mode === 'microbial') {
-                obj.microbialSelector.value = data.content.key;
-                obj.microbialName.value = data.content.name;
-                obj.physicalSelector.value = ''; obj.physicalName.value = '';
-                obj.chemicalSelector.value = ''; obj.chemicalName.value = '';
-                from_usesfor = obj.usesforFromMirobial; to_usefors = obj.usesforToMirobial;
-                from_initial = obj.initialFromMirobial; usefors = obj.usesforMicrobial;
-                initial_area = obj.initialAreaMirobial; scheme = obj.schemeMicrobial;
-                maxiter = obj.maxInterMirobial; tolerance = obj.toleranceMirobial;
-            }
-            usefors.value = data.content.usefors; initial_area.value = data.content.initial;
-            scheme.value = data.content.scheme; maxiter.value = data.content.maxiter;
-            tolerance.value = data.content.tolerance;
-            data.content.useforsFrom.forEach(item => {
-                [from_usesfor, from_initial].forEach(select => {
-                    const option = document.createElement('option');
-                    option.value = item; option.text = item;
-                    select.add(option);
-                })
-            });
-            data.content.useforsTo.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item; option.text = item;
-                to_usefors.add(option);
-            });
-            obj.timePreviewContainer.style.display = 'flex';
-            obj.timePreview.value = data.content.times;
-        }
+        if (waqValue !== '') { await loadScenario(name, waqValue); }
+        sendPointsToMap();
     });
     // Clone scenario
     obj.projectCloner.addEventListener('click', async () => { 
         const name = obj.waqSelector.value;
-        if (!name || name === '') { alert('Please select a WAQ scenario first.'); return; }
-        const newName = prompt('Please enter a name for the new WAQ scenario.');
-        if (!newName || newName === '') { alert('Please define the clone scenario name.'); return; }
-        if (nameChecker(newName)) { alert('Scenario name contains invalid characters.'); return; }
-        signalSender('showOverlay', `Cloning WAQ scenario '${name}' to '${newName}'. Please be patient...`);
-        const data = await jsonLoader('clone_waq', {
-            projectName: obj.projectName.value, oldName: name, newName: newName
-        });
-        if (data.status === "error") { signalSender('hideOverlay'); return; }
-        waqContent.push(newName); obj.waqSelector.innerHTML = '';
-        const waqTemp = waqContent.map(name => `<option value="${name}">${name}</option>`).join('');
-        obj.waqSelector.innerHTML = defaultWAQ + waqTemp; obj.waqSelector.value = newName;
-        signalSender('hideOverlay'); alert(data.message);
+        if (!name) { alert('Please select a WAQ scenario first.'); return; }
+        const answer = prompt('Please enter a name for the new WAQ scenario.');
+        if (answer === null) { alert('Please define the clone scenario name.'); return; }
+        const newName = answer.trim();
+        if (!validateScenarioName(newName)) { return; }
+        if (waqContent.includes(newName)) { alert(`Scenario '${newName}' already exists.`); return; }
+        const data = await withOverlay(`Cloning WAQ scenario '${name}' to '${newName}'. Please be patient...`,
+            () => jsonLoader('clone_waq', { projectName: obj.projectName.value.trim(), oldName: name, newName: newName }));
+        if (data.status === "error") { alert(data.message); return; }
+        waqContent = [...waqContent, newName].sort();
+        renderWaqList(newName); setScenarioButtons(true); showDescription(); alert(data.message);
     });
     // Delete scenario
     obj.projectRemover.addEventListener('click', async () => {
         const name = obj.projectName.value.trim(), waqName = obj.waqSelector.value;
+        if (!waqName) { alert('Please select a WAQ scenario first.'); return; }
         if (!confirm(`Are you sure you want to delete scenario '${waqName}'?`)) { return; }
-        signalSender('showOverlay', `Deleting WAQ scenario '${waqName}'. Please be patient...`);
-        const data = await jsonLoader('delete_waq', { projectName: name, name: waqName });
-        obj.waqSelector.innerHTML = '';
+        const data = await withOverlay(`Deleting WAQ scenario '${waqName}'. Please be patient...`,
+            () => jsonLoader('delete_waq', { projectName: name, name: waqName }));
+        if (data.status === "error") { alert(data.message); return; }
         waqContent = waqContent.filter(item => item !== waqName);
-        const waqTemp = waqContent.map(name => `<option value="${name}">${name}</option>`).join('');
-        obj.waqSelector.innerHTML = defaultWAQ + waqTemp;
-        obj.waqSelector.value = ''; signalSender('hideOverlay'); alert(data.message); 
+        renderWaqList(''); setScenarioButtons(false);
+        showDescription(); loadedScenario = ''; alert(data.message);
     });
+}
+
+async function processTimeSeries(t) {
+    const folderName = t.name.value.trim();
+    if (!t.selector.value) { alert('Please specify type of simulation.'); return null; }
+    if (!validateScenarioName(folderName)) { return null; }
+    const loads = tableRows(obj.loadsPointTable);
+    if (loads.length === 0) {
+        alert("No loads data found in the table.\nPlease check the load table in tab 'Point Settings'.");
+        clearPreview(); return null;
+    }
+    const timeRows = tableRows(obj.timeTable);
+    if (timeRows.length === 0) {
+        alert("No time-series data found in the table.\nPlease check the table 'Time-Series Preparation'.");
+        clearPreview(); return null;
+    }
+    const errors = [...validatePoints(loads, 'List of loads'),
+        ...validateTimeRows(timeRows, loads.map(row => String(row[0]).trim()))];
+    if (errors.length > 0) { showErrors(errors); return null; }
+    const data = await jsonLoader('wq_time_to_waq', {
+        folderName, loadsData: loads, timeData: timeRows, timeZone: getLastTimeZone()
+    });
+    if (data.status === "error") { clearPreview(); alert(data.message); return null; }
+    obj.timePreview.value = data.content; obj.timePreviewContainer.style.display = 'flex';
+    setOptions(t.useforsTo, data.tos);
+    // Keep only the assignments whose time-series substance still exists
+    t.usefors.value = t.usefors.value.split('\n').filter(line => {
+        const match = line.trim().match(USEFOR_PATTERN);
+        return match && data.tos.includes(match[2]);
+    }).join('\n');
+    return data;
 }
 
 async function waqManager(){
     // Check whether map widget exists
-    const layout = localStorage.getItem('grid-layout');
-    const hasMap = layout ? JSON.parse(layout).some(item => item.id === waqMapId) : false;
-    const content = { id: waqMapId, title: 'Water Quality Scenario Map' };
-    if (!hasMap) signalSender('addMapWidget', content);
+    let hasMap = false;
+    try {
+        const layout = localStorage.getItem('grid-layout');
+        hasMap = layout ? JSON.parse(layout).some(item => item.id === waqMapId) : false;
+    } catch { hasMap = false; }
+    if (!hasMap) signalSender('addMapWidget', { id: waqMapId, title: 'Water Quality Scenario Map' });
     // Update location
     iframeConnector(obj.obsPointPicker, [obj.obsPointName, obj.obsPointTable],
         'waqPoint', () => getDataFromTable(obj.obsPointTable, true), ''
@@ -273,273 +352,143 @@ async function waqManager(){
     obj.obsPointRemove.addEventListener('click', () => {
         const name = obj.obsPointName.value.trim();
         if (name === '') { alert('Please enter name of observation point from list to remove.'); return; }
-        removeRowFromTable(obj.obsPointTable, name); obj.obsPointName.value = '';
-        const contents = { type: 'waqPoint', content: getDataFromTable(obj.obsPointTable, true) }
-        window.parent.postMessage(contents, origin);
+        removeRowFromTable(obj.obsPointTable, name); obj.obsPointName.value = ''; sendPointsToMap();
     });
     obj.loadsPointRemove.addEventListener('click', () => {
         const name = obj.loadsPointName.value.trim();
         if (name === '') { alert('Please enter name of loads point from list to remove.'); return; }
-        removeRowFromTable(obj.loadsPointTable, name); obj.loadsPointName.value = '';
-        const contents = { type: 'loadsPoint', content: getDataFromTable(obj.loadsPointTable, true) }
-        window.parent.postMessage(contents, origin);
+        removeRowFromTable(obj.loadsPointTable, name); 
+        obj.loadsPointName.value = ''; sendPointsToMap();
     });
     // Update when user change Combobox
-    substanceChanger(obj.waqSelector, obj.chemicalSelector, obj.chemicalName, 'wq-chemical');
-    substanceChanger(obj.waqSelector, obj.physicalSelector, obj.physicalName, 'wq-physical');
-    substanceChanger(obj.waqSelector, obj.microbialSelector, obj.microbialName, 'wq-microbial');
+    Object.values(tabs).forEach(substanceChanger);
     // Add new row to table
-    obj.timeTableAddRow.addEventListener('click', () => {
-        addRowToTable(obj.timeTable, ['YYYY-MM-DD HH:MM:SS', 'PointName', 'Substance', 'Value']);
-    });
+    obj.timeTableAddRow.addEventListener('click', () => { addRowToTable(obj.timeTable, TIME_HEADER); });
     // Delete table
-    obj.removeTable.addEventListener('click', () => { 
-        deleteTable(obj.timeTable); obj.timePreview.value = ''; 
-        obj.timePreviewContainer.style.display = 'none';
-        addRowToTable(obj.timeTable, ['YYYY-MM-DD HH:MM:SS', 'PointName', 'Substance', 'Value']);
-    });
+    obj.removeTable.addEventListener('click', clearTimeTable);
     // Upload CSV
-    obj.csvTable.addEventListener('click', () => { 
-        obj.inputFile.click();
-        obj.inputFile.addEventListener('change', () => {
-            if (obj.inputFile.files.length > 0) {
-                const file = obj.inputFile.files[0];
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const text = e.target.result;
-                    // Get the first row
-                    const firstLine = text.split(/\r?\n/)[0];
-                    const columns = firstLine.split(/\t|,/);
-                    if (columns.length !== 4) { 
-                    alert(`The current table has ${columns.length} columns.\nNumber of columns must be 4.`); 
-                        obj.inputFile.value = ''; return; 
-                    }
-                    const rows = text.split(/\r?\n/).slice(1).filter(row => row.trim() !== ''); // Split into rows 
-                    const data_arr = rows.map(row => row.split(/\t|,/).slice(0, 4)); // Split into columns
-                    fillTable(data_arr, obj.timeTable, true);
-                    obj.inputFile.value = "";
-                };
-                reader.readAsText(file, 'UTF-8');
+    obj.csvTable.addEventListener('click', () => { obj.inputFile.click(); });
+    obj.inputFile.addEventListener('change', () => {
+        const file = obj.inputFile.files[0]; if (!file) { return; }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const lines = String(e.target.result).replace(/^/, '').split(/\r?\n/);
+            const columns = lines[0].split(/\t|,/);
+            if (columns.length !== 4) { 
+            alert(`The current table has ${columns.length} columns.\nNumber of columns must be 4.`); 
+                obj.inputFile.value = ''; return; 
             }
-        }, {once: true});
+            const rows = lines.slice(1).filter(row => row.trim() !== '');
+            fillTable(rows.map(row => row.split(/\t|,/).slice(0, 4).map(v => v.trim())), obj.timeTable, true);
+            clearPreview(); obj.inputFile.value = "";
+        };
+        reader.onerror = () => { alert(`Cannot read file '${file.name}'.`); obj.inputFile.value = ''; };
+        reader.readAsText(file, 'UTF-8');
     });
     // Check function to process time-series
     document.querySelectorAll('.wq-process-time-series').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const loadsData = getDataFromTable(obj.loadsPointTable, true);
-            if (loadsData.rows.length === 0) {
-                alert("No loads data found in the table.\nPlease check the load table in tab 'Point Settings'."); 
-                obj.timePreviewContainer.style.display = 'none'; return; 
-            }
-            const timeData = getDataFromTable(obj.timeTable, true);
-            if (timeData.rows.length === 0) {
-                alert("No time-series data found in the table.\nPlease check the table 'Time-Series Preparation'."); 
-                obj.timePreviewContainer.style.display = 'none'; return; 
-            }
-            if (btn.id === 'wq-chemical') {
-                subKey = obj.chemicalSelector.value; folderName = obj.chemicalName.value.trim();
-                initial_area = obj.initialAreaChemical; usefors = obj.usesforChemical;
-                to_usefors = obj.usesforToChemical; initial_value = obj.initialToChemical;
-            } else if (btn.id === 'wq-physical') {
-                subKey = obj.physicalSelector.value; folderName = obj.physicalName.value.trim();
-                initial_area = obj.initialAreaPhysical; usefors = obj.usesforPhysical;
-                to_usefors = obj.usesforToPhysical; initial_value = obj.initialToPhysical;
-            } else if (btn.id === 'wq-microbial') {
-                subKey = obj.microbialSelector.value; folderName = obj.microbialName.value.trim();
-                initial_area = obj.initialAreaMirobial; usefors = obj.usesforMicrobial;
-                to_usefors = obj.usesforToMirobial; initial_value = obj.initialToMirobial;
-            }
-            obj.timePreview.value = ''; initial_area.value = ''; usefors.value = ''; initial_value.value = '0';
-            if (subKey === '') { alert('Please specify type of simulation.'); return; }
-            if (folderName === '') { alert('Please specify name of substance.'); return; }
-            const content = { folderName: folderName, loadsData: loadsData.rows, 
-                timeData: timeData.rows, timeZone: getLastTimeZone()
-            };
-            const data = await jsonLoader('wq_time_to_waq', content);
-            if (data.status === "error") {
-                obj.timePreviewContainer.style.display = 'none'; 
-                obj.timePreview.value = ''; alert(data.message); return;
-            };
-            obj.timePreview.value = data.content; useforsTo = data.tos;
-            obj.timePreviewContainer.style.display = 'flex'; to_usefors.innerHTML = '';
-            data.tos.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item; option.text = item;
-                to_usefors.add(option);
-            });
-        });
+        btn.addEventListener('click', async () => { processTimeSeries(tabOf(btn.id)); });
     });
     // Update USEFORS data
     document.querySelectorAll('.wq-usefors').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (btn.dataset.info === 'physical') {
-                from_usesfor = obj.usesforFromPhysical; 
-                to_usefors = obj.usesforToPhysical;
-                usefors = obj.usesforPhysical;
-            } else if (btn.dataset.info === 'chemical') {
-                from_usesfor = obj.usesforFromChemical; 
-                to_usefors = obj.usesforToChemical;
-                usefors = obj.usesforChemical;
-            } else if (btn.dataset.info === 'microbial') {
-                from_usesfor = obj.usesforFromMirobial; 
-                to_usefors = obj.usesforToMirobial;
-                usefors = obj.usesforMicrobial;
+            const t = tabOf(btn.dataset.info);
+            const from = t.useforsFrom.value, to = t.useforsTo.value;
+            if (!from || !to) { 
+                alert('Please select both the model substance and the time-series substance.'); return; 
             }
-            const txt = `USEFOR '${from_usesfor.value}' '${to_usefors.value}'`;
-            let content = usefors.value;
-            content = content === '' ? txt : content + '\n' + txt;
-            // Split and remove duplicates
-            usefors.value = [...new Set(content.split('\n'))].join('\n');
+            const lines = t.usefors.value.split('\n').filter(line => line.trim() !== '');
+            lines.push(`USEFOR '${from}' '${to}'`);
+            t.usefors.value = [...new Set(lines)].join('\n');
         });
     });
-    // Update initial data
+    // Add or replace an initial condition
     document.querySelectorAll('.wq-initial').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (btn.dataset.info === 'physical') {
-                from_initial = obj.initialFromPhysical; 
-                initial_value = obj.initialToPhysical;
-                initial_area = obj.initialAreaPhysical;
-            } else if (btn.dataset.info === 'chemical') {
-                from_initial = obj.initialFromChemical; 
-                initial_value = obj.initialToChemical;
-                initial_area = obj.initialAreaChemical;
-            } else if (btn.dataset.info === 'microbial') {
-                from_initial = obj.initialFromMirobial; 
-                initial_value = obj.initialToMirobial;
-                initial_area = obj.initialAreaMirobial;
-            }
-            const txt = `${from_initial.value} ${initial_value.value}`;
-            let content = initial_area.value;
-            content = content === '' ? txt : content + '\n' + txt;
-            content = [...new Set(content.split('\n'))].join('\n');
-            initial_area.value = content;
+            const t = tabOf(btn.dataset.info);
+            const from = t.initialFrom.value, value = t.initialValue.value.trim();
+            if (!from) { alert('Please select a substance.'); return; }
+            const number = toNumber(value);
+            if (!Number.isFinite(number) || number < 0) { alert('The initial value must be a number >= 0.'); return; }
+            // One line per substance: a new value replaces the old one
+            const lines = t.initialArea.value.split('\n')
+                .filter(line => line.trim() !== '' && line.trim().split(/\s+/)[0] !== from);
+            lines.push(`${from} ${value}`);
+            t.initialArea.value = lines.join('\n');
         });
     });
     // Save water quality simulation
     document.querySelectorAll('.wq-simulation').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const name = obj.projectName.value.trim();
-            if (!name || name === '') { alert('Please define project.'); return; }
-            const hydPath = obj.hydFilename.value.trim();
-            if (!hydPath || hydPath === '') { alert('Please define hydrological (*.hyd) file.'); return; }
-            const start = obj.startTime.value, stop = obj.stopTime.value;
-            if (!start || start === '' || !stop || stop === '') { alert("The fields 'Start time' and 'Stop time' are required"); return; }
-            const data = await jsonLoader('select_hyd', { projectName: name, timeZone: getLastTimeZone() });
-            if (data.status === "error") { alert(data.message); return; }
-            timeStep1 = data.content.time_step1; timeStep2 = data.content.time_step2;
-            attrPath_ = data.content.attr_path; volPath = data.content.vol_path;
-            nSegments = data.content.n_segments; ptrPath = data.content.ptr_path;
-            exchange_x = data.content.exchange_x; exchange_z = data.content.exchange_z;
-            if (data.content.exchange_y) { exchange_y = data.content.exchange_y; }
-            flowPath = data.content.flow_path; lengthPath = data.content.length_path;
-            areaPath = data.content.area_path; n_layers = obj.nLayers.value.trim();
-            if (!n_layers || n_layers === '') { alert("The field 'Nr. sigma layers' is required"); return; }
-            srfPath = data.content.srf_path; vdfPath = data.content.vdf_path;
-            temPath = data.content.tem_path; salPath = data.content.sal_path;
-            const sourceTable = getDataFromTable(obj.sourcesTable, true);         
-            const obsTable = getDataFromTable(obj.obsPointTable, true);
-            const loadTable = getDataFromTable(obj.loadsPointTable, true);
-            if (loadTable.rows.length === 0) { alert('No loads data found. Please add at least one load.'); return; }
-            const timeData = obj.timePreview.value.trim(), timeZone = getLastTimeZone();
-            if (!timeData || timeData === '') { alert("Post-processing field is required"); return; }
-            if (btn.dataset.info === 'chemical') {
-                subKey = obj.chemicalSelector.value; folderName = obj.chemicalName.value.trim();
-                useforsFrom = obj.usesforFromChemical; useforsTo = obj.usesforToChemical;
-                usefors = obj.usesforChemical; initial_area = obj.initialAreaChemical;
-                maxiter = obj.maxInterChemical; tolerance = obj.toleranceChemical; 
-                scheme = obj.schemeChemical; 
-            } else if (btn.dataset.info === 'physical') {
-                subKey = obj.physicalSelector.value; folderName = obj.physicalName.value.trim();
-                useforsFrom = obj.usesforFromPhysical; useforsTo = obj.usesforToPhysical;
-                usefors = obj.usesforPhysical; initial_area = obj.initialAreaPhysical;
-                maxiter = obj.maxInterPhysical; tolerance = obj.tolerancePhysical; 
-                scheme = obj.schemePhysical;
-            } else if (btn.dataset.info === 'microbial') {
-                subKey = obj.microbialSelector.value; folderName = obj.microbialName.value.trim();
-                useforsFrom = obj.usesforFromMirobial; useforsTo = obj.usesforToMirobial;
-                usefors = obj.usesforMicrobial; initial_area = obj.initialAreaMirobial;
-                maxiter = obj.maxInterMirobial; tolerance = obj.toleranceMirobial; 
-                scheme = obj.schemeMicrobial;
-            }
-            if (!folderName || folderName === '') { alert("Name of substance is required"); return; }
-            const userforValue = usefors.value.trim();
-            if (userforValue === '') { alert("The field 'Assigned Substance' must has at least one value"); return; }
-            const valueFrom = Array.from(useforsFrom.options).map(option => option.value);
-            const valueTo = Array.from(useforsTo.options).map(option => option.value);
-            const initialArea = initial_area.value.trim();
-            if (maxiter.value === '' || parseInt(maxiter.value) <= 0) { alert('Please define maximum number of iterations.'); return; }
-            if (tolerance.value === '' || parseFloat(tolerance.value) <= 0) { alert('Please define tolerance.'); return; }
-            const params = { mode: btn.dataset.info, projectName: name, key: subKey, folderName: folderName,
-                hydName: hydPath, nLayers: n_layers, timeStep1: timeStep1, timeStep2: timeStep2, nSegments: nSegments,
-                startTime: toUTC(start, timeZone), stopTime: toUTC(stop, timeZone), exchangeY: exchange_y, exchangeX: exchange_x,
-                exchangeZ: exchange_z, attrPath: attrPath_, volPath: volPath, ptrPath: ptrPath, areaPath: areaPath, 
-                flowPath: flowPath, lengthPath: lengthPath, srfPath: srfPath, vdfPath: vdfPath, temPath: temPath,
-                salPath: salPath, useforsFrom: valueFrom, useforsTo: valueTo, usefors: userforValue,
-                sources: sourceTable.rows, obsPoints: obsTable.rows, loadsData: loadTable.rows, timeTable: timeData, 
-                initial: initialArea, maxiter: maxiter.value, tolerance: tolerance.value, scheme: scheme.value
-            }
-            signalSender('showOverlay', "Saving water quality configurations.\nPlease wait...")
-            const waq_config = await jsonLoader('waq_config_writer', params);
-            signalSender('hideOverlay'); await new Promise(resolve => setTimeout(resolve, 100));
-            if (waq_config.status === 'error') { alert(waq_config.message); return; }
-            alert(waq_config.message);
-        });
+        btn.addEventListener('click', async () => { saveScenario(btn.dataset.info); });
     });
 }
 
-function substanceChanger(waqModel, target, name, type){
-    target.addEventListener('change', async () => {
-        if (type === 'wq-chemical') {
-            from_usesfor = obj.usesforFromChemical; to_usefors = obj.usesforToChemical;
-            usefors = obj.usesforChemical; from_initial = obj.initialFromChemical;
-            initial_area = obj.initialAreaChemical; scheme = obj.schemeChemical;
-            maxiter = obj.maxInterChemical; tolerance = obj.toleranceChemical;
-            initial_value = obj.initialToChemical;
-        } else if (type === 'wq-physical') {
-            from_usesfor = obj.usesforFromPhysical; to_usefors = obj.usesforToPhysical;
-            usefors = obj.usesforPhysical; from_initial = obj.initialFromPhysical;
-            initial_area = obj.initialAreaPhysical; scheme = obj.schemePhysical;
-            maxiter = obj.maxInterPhysical; tolerance = obj.tolerancePhysical;
-            initial_value = obj.initialToPhysical;
-        } else if (type === 'wq-microbial') {
-            from_usesfor = obj.usesforFromMirobial; to_usefors = obj.usesforToMirobial;
-            usefors = obj.usesforMicrobial; from_initial = obj.initialFromMirobial;
-            initial_area = obj.initialAreaMirobial; scheme = obj.schemeMicrobial;
-            maxiter = obj.maxInterMirobial; tolerance = obj.toleranceMirobial;
-            initial_value = obj.initialToMirobial;
+function substanceChanger(t){
+    t.selector.addEventListener('change', async () => {
+        [t.useforsFrom, t.useforsTo, t.initialFrom].forEach(select => select.replaceChildren());
+        t.usefors.value = ''; t.initialArea.value = ''; t.initialValue.value = '0';
+        t.scheme.value = DEFAULT_SCHEME; t.maxiter.value = DEFAULT_MAXITER; t.tolerance.value = DEFAULT_TOLERANCE;
+        clearPreview();
+        const key = t.selector.value;
+        if (!key) { t.name.value = ''; return; }
+        // The backend accepts the model key directly ("simple-oxygen")
+        const data = await jsonLoader('wq_time_from_waq', { key });
+        if (data.status === "error") { alert(data.message); return; }
+        if (t.name.value.trim() === '') { t.name.value = data.name || key; }
+        setOptions(t.useforsFrom, data.froms); setOptions(t.initialFrom, data.froms);
+        // Substances differ between models: ask before clearing what the user typed
+        if (tableRows(obj.timeTable).length > 0 &&
+            confirm('The substances of the new model may differ. Clear the time-series table?')) {
+            clearTimeTable();
         }
-        from_usesfor.innerHTML = ''; from_initial.innerHTML = ''; 
-        initial_area.value = ''; initial_value.value = '0';
-        scheme.value = '15'; maxiter.value = '500'; tolerance.value = '1E-07';
-        const key = target.value;
-        if (key === 'simple-oxygen') { subKey = 'Simple_Oxygen'; }
-        else if (key === 'oxygen-bod-water') { subKey = 'Oxygen_BOD'; }
-        else if (key === 'cadmium') { subKey = 'Cadmium'; }
-        else if (key === 'eutrophication') { subKey = 'Eutrophication'; }
-        else if (key === 'trace-metals') { subKey = 'Trace_Metals'; }
-        else if (key === 'conservative-tracers') { subKey = 'Conservative_Tracers'; }
-        else if (key === 'suspend-sediment') { subKey = 'Suspend_Sediment'; }
-        else if (key === 'trwp-metals') { subKey = 'Metals_Tire_Road'; }
-        else if (key === 'coliform') { subKey = 'Coliform'; }
-        else { 
-            obj.timePreviewContainer.style.display = 'none'; 
-            obj.timePreview.value = ''; name.value = ''; 
-            to_usefors.innerHTML = ''; usefors.value = ''; return;
-        }
-        if (waqModel.value !== '') { subKey = waqModel.value; }
-        const data = await jsonLoader('wq_time_from_waq', { key: subKey });
-        if (data.status === "error") {
-            obj.timePreviewContainer.style.display = 'none'; 
-            obj.timePreview.value = ''; alert(data.message); return;
-        };
-        name.value = subKey; useforsFrom = data.froms;
-        [from_usesfor, from_initial].forEach(select => { 
-            data.froms.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item; option.text = item;
-                select.add(option);
-            }); 
-        });
-        obj.removeTable.dispatchEvent(new Event('click'));
     });
+}
+
+async function saveScenario(mode) {
+    const t = tabOf(mode), name = obj.projectName.value.trim();
+    if (!name) { alert('Please define project.'); return; }
+    const hydPath = obj.hydFilename.value.trim();
+    if (!hydPath) { alert('Please define hydrological (*.hyd) file.'); return; }
+    const start = obj.startTime.value, stop = obj.stopTime.value, timeZone = getLastTimeZone();
+    if (!start || !stop) { alert("The fields 'Start time' and 'Stop time' are required"); return; }
+    const startMs = Date.parse(String(start).replace(' ', 'T')), stopMs = Date.parse(String(stop).replace(' ', 'T'));
+    if (Number.isFinite(startMs) && Number.isFinite(stopMs) && startMs >= stopMs) {
+        alert("'Start time' must be before 'Stop time'."); return;
+    }
+    const nLayers = obj.nLayers.value.trim();
+    if (!nLayers) { alert("The field 'Nr. sigma layers' is required"); return; }
+    const folderName = t.name.value.trim();
+    if (!t.selector.value) { alert('Please specify type of simulation.'); return; }
+    if (!validateScenarioName(folderName)) { return; }
+    if (waqContent.includes(folderName) && folderName !== loadedScenario &&
+        !confirm(`Scenario '${folderName}' already exists. Do you want to overwrite it?`)) { return; }
+    const sources = tableRows(obj.sourcesTable), obsPoints = tableRows(obj.obsPointTable);
+    const loadsData = tableRows(obj.loadsPointTable);
+    if (loadsData.length === 0) { alert('No loads data found. Please add at least one load.'); return; }
+    const errors = [...validatePoints(obsPoints, 'Observation points'), ...validatePoints(loadsData, 'List of loads')];
+    if (errors.length > 0) { showErrors(errors); return; }
+    if (t.maxiter.value === '' || !(parseInt(t.maxiter.value) > 0)) { alert('Please define maximum number of iterations.'); return; }
+    if (t.tolerance.value === '' || !(parseFloat(t.tolerance.value) > 0)) { alert('Please define tolerance.'); return; }
+    // Rebuild the time table from the current tables and name, so the saved table is never stale
+    const processed = await processTimeSeries(t); if (!processed) { return; }
+    const useforLines = t.usefors.value.split('\n').map(line => line.trim()).filter(Boolean);
+    if (useforLines.length === 0) { alert("The field 'Assigned Substance' must have at least one value"); return; }
+    const badLine = useforLines.find(line => !USEFOR_PATTERN.test(line));
+    if (badLine) { alert(`Invalid line in 'Assigned Substance':\n${badLine}`); return; }
+    // Paths, segment and exchange counts are read from the .hyd file by the server
+    const params = { mode, projectName: name, key: t.selector.value, folderName,
+        hydName: hydPath, nLayers, startTime: toUTC(start, timeZone), stopTime: toUTC(stop, timeZone),
+        useforsFrom: Array.from(t.useforsFrom.options).map(o => o.value),
+        useforsTo: Array.from(t.useforsTo.options).map(o => o.value),
+        usefors: useforLines.join('\n'), sources, obsPoints, loadsData,
+        timeTable: obj.timePreview.value.trim(), initial: t.initialArea.value.trim(),
+        maxiter: t.maxiter.value, tolerance: t.tolerance.value, scheme: t.scheme.value
+    };
+    const result = await withOverlay("Saving water quality configurations.\nPlease wait...",
+        () => jsonLoader('waq_config_writer', params));
+    if (result.status === 'error') { alert(result.message); return; }
+    if (!waqContent.includes(folderName)) { waqContent = [...waqContent, folderName].sort(); }
+    renderWaqList(folderName); setScenarioButtons(true);
+    obj.waqSelector.style.display = "flex"; obj.waqLabel.style.display = "flex";
+    loadedScenario = folderName; alert(result.message);
 }

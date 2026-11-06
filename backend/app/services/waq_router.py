@@ -1,12 +1,33 @@
 import os, json, re, traceback, asyncio, shutil
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
-from services import functions, wq_functions
+from services import functions, wq_functions, waq_models
 from config import PROJECT_ROOT
 import numpy as np, pandas as pd
 
 router = APIRouter()
+MISSING_VALUE = -999.0
+HYD_FIELDS = {
+    'attrPath': 'attr_path', 'volPath': 'vol_path', 'ptrPath': 'ptr_path', 'areaPath': 'area_path',
+    'flowPath': 'flow_path', 'lengthPath': 'length_path', 'srfPath': 'srf_path', 'vdfPath': 'vdf_path',
+    'temPath': 'tem_path', 'salPath': 'sal_path', 'nSegments': 'n_segments',
+    'exchangeX': 'exchange_x', 'exchangeZ': 'exchange_z', 'timeStep1': 'time_step1', 'timeStep2': 'time_step2',
+}
 
+
+def _scenario_name(name) -> str:
+    """Validate a scenario name coming from the client, so it cannot point outside the scenario folder."""
+    name = str(name or '').strip()
+    if name.endswith('.json'): name = name[:-5]
+    if not name or name in ('.', '..') or any(c in name for c in '/\\:') or '\x00' in name:
+        raise ValueError(f"Invalid scenario name '{name}'.")
+    return name
+
+def _scenario_folder(project_name: str) -> str:
+    return os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
+
+def _usefors_include(folder: str) -> str:
+    return f"INCLUDE 'includes_deltashell/load_data_tables/{folder}.usefors'"
 
 @router.post("/select_hyd")
 async def select_hyd(request: Request, user=Depends(functions.basic_auth)):
@@ -19,57 +40,75 @@ async def select_hyd(request: Request, user=Depends(functions.basic_auth)):
     message = f"Error: Cannot find .hyd file in project '{project_name}'.\nPlease run a hydrodynamic simulation first."
     return JSONResponse({"status": 'error', "message": message})
 
+def _parse_time_table(time_table: str, time_zone: str) -> list:
+    """Turn the DATA_ITEM blocks written by /wq_time_to_waq back into rows [time, location, substance, value]."""
+    rows = []
+    for part in re.split('DATA_ITEM', time_table or ''):
+        lines = [line.strip() for line in part.strip().split('\n') if line.strip()]
+        if len(lines) < 6: continue
+        location, substances = lines[0], [s.replace("'", "") for s in lines[4].split()]
+        for line in lines[5:]:
+            values = line.split()
+            time = pd.to_datetime(values[0], utc=True, format='%Y/%m/%d-%H:%M:%S')
+            time = functions.utc_to_local(time, time_zone)
+            for idx, substance in enumerate(substances):
+                if idx + 1 >= len(values): break
+                value = values[idx + 1]
+                try:
+                    if float(value) == MISSING_VALUE: continue
+                except ValueError: continue
+                rows.append([time, location, substance, value])
+    return rows
+
 @router.post("/load_waq")
 async def load_waq(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder = [PROJECT_ROOT, project_name, "output", 'scenarios', f"{body.get('waqName')}.json"]
-        path, data, time_zone = os.path.normpath(os.path.join(*folder)), {}, body.get('timeZone')
+        name, time_zone = _scenario_name(body.get('waqName')), body.get('timeZone')
+        path = os.path.normpath(os.path.join(_scenario_folder(project_name), f"{name}.json"))
         if not os.path.exists(path): return JSONResponse({"status": 'error', "message": 'Configuration file not found.'})
         with open(path, 'r', encoding=functions.encoding_detect(path)) as f:
             files = json.load(f)
-        parts = re.split('DATA_ITEM', files['timeTable'])
-        parts, time_data = [p.strip() for p in parts if p.strip()], []
-        for part in parts:
-            temp = part.split('\n')
-            location, substances, times = temp[0].strip(), temp[4].strip().split(' '), temp[5:]
-            if len(times) > 0:
-                for idx, substance in enumerate(substances):
-                    for item in times:
-                        temp_item = item.strip().split(' ')
-                        temp_time = pd.to_datetime(temp_item[0], utc=True, format='%Y/%m/%d-%H:%M:%S')
-                        temp_time = functions.utc_to_local(temp_time, time_zone)
-                        time_data.append([temp_time, location, substance.replace("'", ""), temp_item[idx + 1]])
-        result = [item for item in time_data if item[3] != '-999.0']
-        data['key'], data['name'], data['mode'] = files['key'], files['folderName'], files['mode']
-        data['obs'], data['loads'], data['time_data'] = files['obsPoints'], files['loadsData'], result
-        data['times'], data['usefors'] = files['timeTable'], files['usefors']
-        data['initial'], data['scheme'] = files['initial'], files['scheme']
-        data['maxiter'], data['tolerance'] = files['maxiter'], files['tolerance']
-        data['useforsFrom'], data['useforsTo'] = files['useforsFrom'], files['useforsTo']
+        data = {
+            'key': files['key'], 'name': files['folderName'], 'mode': files['mode'],
+            'obs': files['obsPoints'], 'loads': files['loadsData'],
+            'time_data': _parse_time_table(files['timeTable'], time_zone),
+            'times': files['timeTable'], 'usefors': files['usefors'],
+            'initial': files['initial'], 'scheme': files['scheme'],
+            'maxiter': files['maxiter'], 'tolerance': files['tolerance'],
+            'useforsFrom': files['useforsFrom'], 'useforsTo': files['useforsTo'],
+        }
         return JSONResponse({"status": 'ok', "content": data})
-    except: return JSONResponse({"status": 'error'})
+    except Exception as e: 
+        print('/load_waq:\n==============')
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
 
 @router.post("/clone_waq")
 async def clone_waq(request: Request, user=Depends(functions.basic_auth)):
+    extend_task = None
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         old_name, new_name = body.get('oldName'), body.get('newName')
-        project_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
+        project_folder = _scenario_folder(project_name)
         redis = request.app.state.redis
-        extend_task, lock = None, redis.lock(f"{project_name}:clone_waq", timeout=100, blocking_timeout=10)
+        lock = redis.lock(f"{project_name}:clone_waq", timeout=60, blocking_timeout=10)
         async with lock:
             extend_task = asyncio.create_task(functions.auto_extend(lock))
             old_path = os.path.normpath(os.path.join(project_folder, f"{old_name}.json"))
             new_path = os.path.normpath(os.path.join(project_folder, f"{new_name}.json"))
             if not os.path.exists(old_path): 
-                return JSONResponse({"status": 'error', "message": f"Path '{old_path}' does not exist."})
-            data = json.load(open(old_path, 'r', encoding=functions.encoding_detect(old_path)))
-            data['folderName'] = new_name.replace('.json', '')
-            data['timeTable'] = data['timeTable'].replace(old_name, new_name)
-            json.dump(data, open(new_path, 'w', encoding=functions.encoding_detect(new_path)))
+                return JSONResponse({"status": 'error', "message": f"Scenario '{new_name}' already exists."})
+            with open(old_path, 'r', encoding=functions.encoding_detect(old_path)) as f:
+                data = json.load(f)
+            data['folderName'] = new_name
+            for sep in ('\\', '/'):
+                old_inc = f"includes_deltashell{sep}load_data_tables{sep}{old_name}.usefors"
+                data['timeTable'] = data['timeTable'].replace(old_inc, f"includes_deltashell/load_data_tables/{new_name}.usefors")
+            with open(new_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
             return JSONResponse({"message": f"WAQ scenario '{new_name}' was cloned successfully!"})
     except Exception as e:
         print('/clone_waq:\n==============')
@@ -84,26 +123,27 @@ async def clone_waq(request: Request, user=Depends(functions.basic_auth)):
 # Delete a file
 @router.post("/delete_waq")
 async def delete_waq(request: Request, user=Depends(functions.basic_auth)):
+    extend_task = None
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        redis, file = request.app.state.redis, body.get('name')
-        scenario_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'scenarios'))
+        redis, name = request.app.state.redis, _scenario_name(body.get('name'))
+        scenario_folder = _scenario_folder(project_name)
         waq_folder = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, 'output', 'WAQ'))
-        extend_task, lock = None, redis.lock(f"{project_name}:delete_waq", timeout=300)
+        lock = redis.lock(f"{project_name}:delete_waq", timeout=300)
         async with lock:
             extend_task = asyncio.create_task(functions.auto_extend(lock))
-            file_name = os.path.normpath(os.path.join(scenario_folder, f"{file}.json"))
+            file_name = os.path.normpath(os.path.join(scenario_folder, f"{name}.json"))
             if not os.path.exists(file_name): 
                 return JSONResponse({"status": 'error', "message": f"Path '{file_name}' does not exist."})
-            if os.path.exists(waq_folder):
-                waq_files = [f for f in os.listdir(waq_folder) if file in f]
-                if len(waq_files) > 0:
-                    for f in waq_files:
-                        temp_path = os.path.normpath(os.path.join(waq_folder, f))
-                        functions.safe_remove(temp_path) if f.endswith('.json') else shutil.rmtree(temp_path)
+            if os.path.isdir(waq_folder):
+                for f in os.listdir(waq_folder):
+                    if os.path.splitext(f)[0] != name and f != name: continue
+                    temp_path = os.path.normpath(os.path.join(waq_folder, f))
+                    if os.path.isdir(temp_path): shutil.rmtree(temp_path)
+                    else: functions.safe_remove(temp_path)
             functions.safe_remove(file_name)
-            return JSONResponse({"message": f"Scenario '{file}' was deleted successfully!"})
+            return JSONResponse({"message": f"Scenario '{name}' was deleted successfully!"})
     except Exception as e:
         print('/delete_waq:\n==============')
         traceback.print_exc()
@@ -119,38 +159,20 @@ async def select_waq(request: Request, user=Depends(functions.basic_auth)):
     try:
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
-        folder = [PROJECT_ROOT, project_name, "output", 'scenarios']
-        path = os.path.normpath(os.path.join(*folder))
-        files = [f.replace('.json', '') for f in os.listdir(path) if f.endswith('.json')]
-        if len(files) == 0: return JSONResponse({"status": 'error'})
+        path = _scenario_folder(project_name)
+        files = sorted(f[:-5] for f in os.listdir(path) if f.endswith('.json')) if os.path.isdir(path) else []
+        if len(files) == 0: return JSONResponse({"status": 'error', 'message': 'Files not found.'})
         return JSONResponse({"status": 'ok', "content": files})
-    except: return JSONResponse({"status": 'error'})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({"status": 'error', "message": f"Error: {str(e)}"})
 
 @router.post("/wq_time_from_waq")
 async def wq_time_from_waq(request: Request):
     try:
         body = await request.json()
-        key = body.get('key')
-        if key == 'Simple_Oxygen': from_ = ['NH4', 'CBOD5', 'OXY', 'SOD']
-        elif key == 'Oxygen_BOD': from_ = ['OXY', 'CBOD5']
-        elif key == 'Cadmium': from_ = ['IM1', 'Cd', 'IM1S1', 'CdS1']
-        elif key == 'Eutrophication': from_ = ['A', 'DP', 'NORG', 'NH4', 'NO3']
-        elif key == 'Trace_Metals': from_ = ['ASWTOT', 'CUWTOT', 'NIWTOT', 
-            'PBWTOT', 'POCW', 'AOCW', 'DOCW', 'SSW', 'ZNWTOT', 'ASREDT', 'ASSTOT', 
-            'ASSUBT', 'CUREDT', 'CUSTOT', 'CUSUBT', 'NIREDT', 'NISTOT', 'NISUBT',
-            'PBREDT', 'PBSTOT', 'PBSUBT', 'DOCB', 'DOCSUB', 'POCB', 'POCSUB', 
-            'S', 'ZNREDT', 'ZNSTOT', 'ZNSUBT']
-        elif key == 'Conservative_Tracers': from_ = ['cTR1', 'cTR2', 'cTR3', 'dTR1', 'dTR2', 'dTR3']
-        elif key == 'Suspend_Sediment': from_ = ['IM1', 'IM2', 'IM3', 'IM1S1', 'IM2S1', 'IM3S1']
-        elif key == 'Metals_Tire_Road': from_ = ['Continuity', 'cTR1', 'dTR1', 'ModTemp', 'IM1', 
-            'Cd', 'Cr', 'Cu', 'Ni', 'Pb', 'Zn', 'Tyre1', 'Tyre2', 'Tyre3', 'Tyre4',
-            'TyreAgg11', 'TyreAgg12', 'TyreAgg13', 'TyreAgg21', 'TyreAgg22', 'TyreAgg23',
-            'TyreAgg31', 'TyreAgg32', 'TyreAgg33', 'TyreAgg41', 'TyreAgg42', 'TyreAgg43', 'IM1S1',
-            'IM1S2', 'CdS1', 'CdS2', 'CrS1', 'CrS2', 'CuS1', 'CuS2', 'NiS1', 'NiS2', 'PbS1', 
-            'PbS2', 'ZnS1', 'ZnS2', 'TAggSed11', 'TAggSed12', 'TAggSed13', 'TAggSed21', 'TAggSed22',
-            'TAggSed23', 'TAggSed31', 'TAggSed32', 'TAggSed33', 'TAggSed41', 'TAggSed42', 'TAggSed43']
-        elif key == 'Coliform': from_ = ['Salinity', 'EColi']
-        return JSONResponse({"status": 'ok', "froms": from_})
+        model = waq_models.get_model(body.get('key'))
+        return JSONResponse({"status": 'ok', "froms": list(model.substances)})
     except Exception as e:
         return JSONResponse({"status": 'error', "message":  f"Error: {str(e)}"})
 
@@ -158,48 +180,33 @@ async def wq_time_from_waq(request: Request):
 async def wq_time(request: Request):
     try:
         body = await request.json()
-        load_data, time_data = body.get('loadsData'), body.get('timeData')
-        folder, time_zone = body.get('folderName'), body.get('timeZone')
+        load_data, time_data = body.get('loadsData') or [], body.get('timeData') or []
+        folder, time_zone = _scenario_name(body.get('folderName')), body.get('timeZone')
         # Check whether the location in time-series is in the load data
-        loads, times = [x[0] for x in load_data], [x[1] for x in time_data]
-        if not any(x in times for x in loads):
+        loads = [x[0] for x in load_data]
+        if not any(row[1] in loads for row in time_data):
             return JSONResponse({"status": 'error', 
                 "message": 'Error: No Location found in the table.\nThe field "Location" has to be defined in the table "List of Loads".'})        
-        # Read file and prepare data
-        time_data, idx = np.array(time_data), []
-        idx = [functions.local_to_utc(x, time_zone) for x in time_data[:, 0]]
-        df = pd.DataFrame(time_data[:, 1:], index=idx, columns=['source', 'substance', 'value'])
-        # Sort data
-        df = df.sort_index(ascending=True)
-        # Structure data
-        groups, result = df.groupby(['source']), []
-        if len(groups) == 0: return JSONResponse({"status": 'error',
-                "message": 'The inputed time-series data is not found in the table.'})
-        for name, group in groups:
-            if (len(group) == 0 or name[0] not in loads): continue
-            gr_substance = [x[0][0] for x in group.groupby(['substance'])]
-            subs = ' '.join(f"'{x}'" for x in gr_substance)
-            temp = ["DATA_ITEM", name[0], "CONCENTRATIONS",
-                f"INCLUDE 'includes_deltashell\\load_data_tables\\{folder}.usefors'",
-                "TIME LINEAR DATA", subs]
-            # Assign data
-            temp_df = pd.DataFrame()
-            for item in gr_substance:
-                subset = group[group['substance'] == item].copy()
-                subset.index = pd.to_datetime(subset.index)
-                temp_df[item] = pd.to_numeric(subset.value, errors="coerce")
-            temp_df = temp_df.sort_index(ascending=True).fillna(-999)
-            if isinstance(temp_df.index, pd.DatetimeIndex):
-                if temp_df.index.tz is None:
-                    temp_df.index = temp_df.index.tz_localize('UTC')
-                else: temp_df.index = temp_df.index.tz_convert('UTC')
-            temp_df.index = temp_df.index.strftime('%Y/%m/%d-%H:%M:%S')
-            temp_df.reset_index(inplace=True)
-            lst = temp_df.astype(str).values.tolist() # Convert to string
-            lst = [' '.join(x) for x in lst]
-            temp += lst
-            result.append('\n'.join(temp))
-        return JSONResponse({"status": 'ok',"content": '\n\n\n'.join(result), "tos": gr_substance})
+        # Read data: rows are [local time, location, substance, value]
+        df = pd.DataFrame([row[1:4] for row in time_data], columns=['source', 'substance', 'value'])
+        df['time'] = pd.to_datetime([functions.local_to_utc(row[0], time_zone) for row in time_data], utc=True)
+        df['value'] = pd.to_numeric(df['value'], errors='coerce')
+        df = df[df['source'].isin(loads)]
+        result, substances_used = [], []
+        for source, group in df.groupby('source', sort=True):
+            # One column per substance; if the same time is entered twice the last value wins
+            table = group.pivot_table(index='time', columns='substance', values='value', aggfunc='last', dropna=False).sort_index()
+            substances = [str(s) for s in table.columns]
+            substances_used += [s for s in substances if s not in substances_used]
+            table = table.fillna(MISSING_VALUE).astype(float)
+            lines = ["DATA_ITEM", str(source), "CONCENTRATIONS", _usefors_include(folder),
+                     "TIME LINEAR DATA", ' '.join(f"'{s}'" for s in substances)]
+            for time, values in zip(table.index.strftime('%Y/%m/%d-%H:%M:%S'), table.values.tolist()):
+                lines.append(' '.join([time] + [str(v) for v in values]))
+            result.append('\n'.join(lines))
+        if not result:
+            return JSONResponse({"status": 'error', "message": 'The inputed time-series data is not found in the table.'})
+        return JSONResponse({"status": 'ok', "content": '\n\n\n'.join(result), "tos": substances_used})
     except Exception as e: return JSONResponse({"status": 'error', "message":  f"Error: {str(e)}"})
 
 @router.post("/waq_config_writer")
@@ -208,13 +215,24 @@ async def waq_config_writer(request: Request, user=Depends(functions.basic_auth)
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, file_name = request.app.state.redis, body.get('folderName')
+        hyd_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "DFM_DELWAQ", 'FlowFM.hyd'))
+        if not os.path.exists(hyd_path):
+            return JSONResponse({"status": 'error', "message": f"Cannot find .hyd file in project '{project_name}'."})
+        hyd = wq_functions.hydReader(hyd_path, None)
+        for field, hyd_key in HYD_FIELDS.items():
+            if hyd_key in hyd: body[field] = hyd[hyd_key]
+            else: body.pop(field, None)
+        body.setdefault('exchangeY', 0)
+        body['folderName'] = file_name
         lock = redis.lock(f"{project_name}:waq_config", timeout=10)
         async with lock:
-            config_path = os.path.normpath(os.path.join(PROJECT_ROOT, project_name, "output", "scenarios"))
-            if not os.path.exists(config_path): os.makedirs(config_path)
+            config_path = _scenario_folder(project_name)
+            os.makedirs(config_path, exist_ok=True)
             config_file = os.path.normpath(os.path.join(config_path, f"{file_name}.json"))
-            if os.path.exists(config_file): os.remove(config_file)
-            with open(config_file, 'w', encoding=functions.encoding_detect(config_file)) as f:
+            # Write to a temporary file first so a failed write never leaves a half-written scenario
+            tmp_file = config_file + '.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
                 json.dump(body, f, indent=4)
+            os.replace(tmp_file, config_file)
             return JSONResponse({"status": 'ok', "message": f"Configurations of model '{file_name}' saved successfully."})
     except Exception as e: return JSONResponse({"status": 'error', "message":  f"Error: {str(e)}"})

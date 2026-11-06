@@ -18,11 +18,10 @@ async function hydComponents() {
     if (respond.length === 0) { obj.scenarioSelector.innerHTML = `<option value="">--- No projects found ---</option>`; return; }
     const options = respond.map(name => `<option value="${name}">${name}</option>`).join('');
     const defaultOption = `<option value="" selected>--- No selected ---</option>`;
-    obj.scenarioSelector.innerHTML = defaultOption + options;
-    obj.showCheckbox.checked = false;
+    obj.scenarioSelector.innerHTML = defaultOption + options; obj.showCheckbox.checked = false;
     obj.showCheckbox.addEventListener('change', (e) => { 
         if (e.target.checked && (obj.progressText.innerText === 'No simulation running' 
-            || obj.progressText.innerText === 'Simulation completed successfully')) { obj.infoArea.value = ''; }
+            || obj.progressText.innerText === 'Simulation completed successfully.')) { obj.infoArea.value = ''; }
         obj.textareaWrapper.style.display = e.target.checked ? 'flex' : 'none';
     });
     obj.scenarioSelector.addEventListener('change', async() => {
@@ -43,12 +42,10 @@ async function hydComponents() {
             }
             obj.showCheckbox.checked = true; HYDRunning = true;
             // Run hydrodynamics simulation and Update logs every 10 seconds
-            updateLogHYD( projectName, obj.progressbar, obj.progressText, obj.infoArea, 10, logFile );
+            updateLogHYD(projectName, obj.progressbar, obj.progressText, obj.infoArea, 10, logFile);
         } else { obj.showCheckbox.checked = false; HYDRunning = false; }
-        obj.progressText.innerText = statusRes.message;
-        obj.progressbar.value = statusRes.progress;
-        obj.checkboxContainer.style.display = 'block'; 
-        obj.showCheckbox.dispatchEvent(new Event('change'));
+        obj.progressText.innerText = statusRes.message; obj.progressbar.value = statusRes.progress;
+        obj.checkboxContainer.style.display = 'block'; obj.showCheckbox.dispatchEvent(new Event('change'));
     });
     // Run new simulation
     obj.runBtn.addEventListener('click', async () => {

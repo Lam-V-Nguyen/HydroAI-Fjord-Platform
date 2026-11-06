@@ -1,4 +1,4 @@
-import os, pickle, json, traceback, threading, requests, ast, rasterio, time
+import os, pickle, json, traceback, threading, requests, ast, rasterio, time, asyncio
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, Response, Query
@@ -14,7 +14,7 @@ from rio_tiler.colormap import cmap
 from rio_tiler.utils import render
 from rio_tiler.errors import TileOutsideBounds
 
-STALE_AFTER_S = 15 * 60
+STALE_AFTER_S, CANCEL_WAIT_S  = 15 * 60, 20
 
 router, processes = APIRouter(), {}
 
@@ -27,10 +27,9 @@ def _is_active(info):
 async def log_tail_download(project_name: str, offset: int = Query(0),
     log_file: str = Query(""), user=Depends(functions.basic_auth)):
     project_name, _ = functions.project_definer(project_name, user)
-    log_name = os.path.basename(log_file) or "log.txt"
     log_dir = os.path.join(PROJECT_ROOT, project_name, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.normpath(os.path.join(log_dir, log_name))
+    log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if not os.path.exists(log_path): return {"lines": [], "offset": 0, "reset": offset > 0}
     file_size = os.path.getsize(log_path)
     reset = offset > file_size
@@ -52,7 +51,11 @@ async def check_download_status(request: Request, user=Depends(functions.basic_a
     status, message = info.get("status", "idle"), info.get("message", "")
     if status == "running" and not _is_active(info):
         status, message = "failed", "Previous download stopped responding. You can start again."
-    return JSONResponse({"status": status, "message": message, "results": info.get("results", [])})
+    return JSONResponse({
+        "status": status, "message": message, "results": info.get("results", []),
+        "cancelled": bool(info.get("cancelled")),
+        "cancelling": status == "running" and bool(info.get("cancel")),
+    })
 
 @router.post("/save_client")
 async def save_client(request: Request, user=Depends(functions.basic_auth)):
@@ -82,9 +85,7 @@ async def load_client(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     path = os.path.join(PROJECT_ROOT, project_name, 'credentials.json')
-    temp = {
-        'client_id': '', 'client_secret': '', 'client_username': '', 'client_password': ''
-    }
+    temp = {'client_id': '', 'client_secret': '', 'client_username': '', 'client_password': ''}
     if os.path.exists(path):
         with open(path, 'r', encoding='utf-8') as f:
             content = json.load(f)
@@ -165,7 +166,9 @@ async def plot_station(request: Request):
         obj = regnbyge(client_name, client_secret, client_username, client_password)
         df = obj.get_Values(mode, id, start_utc, end_utc, interval)
         if df.empty:
-            return JSONResponse({'status': 'error', 'message': f"No data available for station '{name}' between '{start}' and '{end}'."})
+            return JSONResponse({
+                'status': 'error', 'message': f"No data available for station '{name}' between '{start}' and '{end}'."
+            })
         if 'id' in df.columns: df = df.drop(columns=['id'])
         # Convert time back to local time zone
         df['timestamp'] = functions.utc_to_local(df['timestamp'], time_zone)
@@ -226,8 +229,7 @@ async def download_era5(request: Request, user=Depends(functions.basic_auth)):
     missing = [k for k in required if body.get(k) in (None, "", [])]
     if missing: return JSONResponse({"status": "error", "message": f"Missing fields: {', '.join(missing)}"})
     try:
-        lat, lon = float(body["lat"]), float(body["lon"])
-        elevation = body.get("elevation")
+        lat, lon, elevation = float(body["lat"]), float(body["lon"]), body.get("elevation")
         elevation = float(elevation) if elevation not in (None, "") else None
     except (TypeError, ValueError):
         return JSONResponse({"status": "error", "message": "Latitude, longitude and elevation must be numbers."})
@@ -258,6 +260,25 @@ async def cancel_download_era5(request: Request, user=Depends(functions.basic_au
     info["cancel"], info["message"] = True, "Cancelling download..."
     return JSONResponse({"status": "ok", "message": "Cancelling download..."})
 
+def _downloads_to_cancel(project_name, main_key):
+    keys = []
+    for k, info in list(processes.items()):
+        if not k.startswith(f"{project_name}:") or not _is_active(info): continue
+        if k == main_key or info.get("cds_request_id"): keys.append(k)
+    return keys
+ 
+async def _cancel_and_wait(keys, timeout=CANCEL_WAIT_S):
+    for k in keys:
+        info = processes.get(k)
+        if info is not None:
+            info["cancel"] = True
+            info["message"] = "Cancelling download (clearing CDS queue)..."
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not any(_is_active(processes.get(k)) for k in keys): return []
+        await asyncio.sleep(0.5)
+    return [k for k in keys if _is_active(processes.get(k))]
+
 @router.post("/cds_clear_queue")
 async def cds_clear_queue(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
@@ -265,14 +286,23 @@ async def cds_clear_queue(request: Request, user=Depends(functions.basic_auth)):
     api_key = (body.get("api_key") or "").strip()
     if not api_key:
         return JSONResponse({"status": "error", "message": "Please enter your ERA5 API key."})
-    if _is_active(processes.get(f"{project_name}:{body.get('key') or 'era5'}")):
-        return JSONResponse({"status": "error", "message": "Cancel the running download first."})
+    main_key = f"{project_name}:{body.get('key') or 'era5'}"
+    to_cancel = _downloads_to_cancel(project_name, main_key)
+    still_running = await _cancel_and_wait(to_cancel) if to_cancel else []
+    cancelled = [k.split(":", 1)[1] for k in to_cancel if k not in still_running]
     try:
         n = await run_in_threadpool(era5_function.delete_active_jobs, api_key)
-        return JSONResponse({"status": "ok", "message": f"Removed {n} queued/running ERA5 request(s) from CDS."})
     except Exception as e:
         traceback.print_exc()
         return JSONResponse({"status": "error", "message": f"Could not clear CDS queue: {e}"})
+    parts = []
+    if cancelled: parts.append(f"Cancelled running download(s): {', '.join(cancelled)}.")
+    if still_running:
+        parts.append("Some downloads are still stopping and will end shortly: "
+            f"{', '.join(k.split(':', 1)[1] for k in still_running)}.")
+    parts.append(f"Removed {n} queued/running ERA5 request(s) from CDS.")
+    return JSONResponse({"status": "ok", "message": " ".join(parts),
+        "cancelled": cancelled, "removed": n})
 
 @router.post("/upload_era5_csv")
 async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
@@ -287,7 +317,6 @@ async def upload_era5_csv(request: Request, user=Depends(functions.basic_auth)):
         df = pd.read_csv(path)
         df['Time'] = pd.to_datetime(df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
         columns = [era5_function.var_revert[x] for x in df.columns]
-        print(df)
         content = df.astype(object).where(pd.notna(df), None).values.tolist()
         functions.safe_remove(path)
         return JSONResponse({'status': 'ok', 'columns': columns, 'content': content})
@@ -491,7 +520,7 @@ async def stations_nve(request: Request, user=Depends(functions.basic_auth)):
 async def download_nve(request: Request, user=Depends(functions.basic_auth)):
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
-    dir, api_key, key = os.path.join(PROJECT_ROOT, project_name), body.get('api_key'), body.get('key')
+    dir, api_key, key = os.path.join(PROJECT_ROOT, project_name), body.get('apiKey'), body.get('key')
     start, end, time_zone = body.get('startTime'), body.get('endTime'), body.get('timeZone')
     variables, ids, columns = body.get('variables'), body.get('ids'), body.get('columns')
     url, interval = f"{os.getenv('NVE_URL')}/Observations", int(body.get('interval'))
@@ -541,8 +570,8 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
         body = await request.json()
         project_name, _ = functions.project_definer(body.get('projectName'), user)
         redis, start, end = request.app.state.redis, body.get('start'), body.get('end')
-        lat, lon = body.get('lat'), body.get('lon')
-        key, data_source = body.get('key'), body.get('dataService')
+        lat, lon, log_file = body.get('lat'), body.get('lon'), body.get('logFile')
+        key, data_source, api_key = body.get('key'), body.get('dataService'), body.get('apiKey')
         key_process, time_zone = f"{project_name}:{key}", body.get('timeZone')
         lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
         async with lock:
@@ -554,7 +583,8 @@ async def start_meteo(request: Request, user=Depends(functions.basic_auth)):
             elif key == 'wind': target = hyd_functions.wind_downloader
             threading.Thread(
                 target=target, args=(
-                    project_name, data_source, processes, key_process, lat, lon, start, end, time_zone, key
+                    project_name, api_key, data_source, processes, key_process, 
+                    lat, lon, start, end, time_zone, key, log_file
                 ), daemon=True
             ).start()
         return JSONResponse({"status": "ok", "message": "Weather downloading started"})
@@ -660,10 +690,11 @@ async def start_download_soil(request: Request, user=Depends(functions.basic_aut
     redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
     lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
     async with lock:
-        # Check if simulation already running
-        if key_process in processes and processes[key_process]["status"] == "running":
-            return JSONResponse({"status": "running", "message": 'Soil downloading is in progress.'})
-        processes[key_process] = {"status": "running", "message": "Preparing soil data download ..."}
+        if _is_active(processes.get(key_process)):
+            return JSONResponse({"status": "running", "message": "Soil downloading in progress."})
+        now = time.time()
+        processes[key_process] = {"status": "running", "message": "Preparing soil data download ...",
+            "started_at": now, "heartbeat": now}
         threading.Thread(
             target=flow_functions.soil_downloader, 
             args=(project_name, processes, key_process, flow_name, 
@@ -677,7 +708,7 @@ async def start_download_weather(request: Request, user=Depends(functions.basic_
     body = await request.json()
     project_name, _ = functions.project_definer(body.get('projectName'), user)
     redis, key_process = request.app.state.redis, f"{project_name}:{body.get('key')}"
-    lock = redis.lock(key_process, timeout=1000, blocking_timeout=10)
+    lock = redis.lock(key_process, timeout=60, blocking_timeout=10)
     async with lock:
         if _is_active(processes.get(key_process)):
             return JSONResponse({"status": "running", "message": "Data downloading in progress."})

@@ -16,12 +16,8 @@
                 <ul id="project-list"></ul>
             </div>
             <button class="tab-btn" id="create-btn">Create/Edit Scenario</button>
-            <button class="tab-btn" id="duplicate-btn" 
-                style="color: rgb(2, 240, 248);">Clone Scenario
-            </button>
-            <button class="tab-btn" id="remove-btn" 
-                style="color: crimson;">Delete Scenario
-            </button>
+            <button class="tab-btn" id="duplicate-btn" style="color: rgb(2, 240, 248);">Clone Scenario</button>
+            <button class="tab-btn" id="remove-btn" style="color: crimson;">Delete Scenario</button>
         </div>
         <section id="desription-tab">
             <p>To quickly create a new project, you should prepare the following data in advance:</p>
@@ -215,13 +211,11 @@
                                         </div>
                                         <table class="attributes-table" id="boundary-table">
                                             <thead><tr><th>Name</th><th>Latitude (°)</th><th>Longitude (°)</th></tr></thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" placeholder="Name"></td>
-                                                    <td><input type="text" placeholder="Latitude"></td>
-                                                    <td><input type="text" placeholder="Longitude"></td>
-                                                </tr>
-                                            </tbody>
+                                            <tbody><tr>
+                                                <td><input type="text" placeholder="Name"></td>
+                                                <td><input type="text" placeholder="Latitude"></td>
+                                                <td><input type="text" placeholder="Longitude"></td>
+                                            </tr></tbody>
                                         </table>
                                     </div>                              
                                     <div class="tile"><h3>Edit Sub-boundary Condition</h3>
@@ -243,15 +237,11 @@
                                             <button type="button" id="boundary-add-row">Add Row</button>
                                         </div>
                                         <table class="attributes-table" id="boundary-edit-table">
-                                            <thead>
-                                                <tr><th>Time</th><th>Value</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
-                                                    <td><input type="text" placeholder="Value"></td>
-                                                </tr>
-                                            </tbody>
+                                            <thead><tr><th>Time</th><th>Value</th></tr></thead>
+                                            <tbody><tr>
+                                                <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                                <td><input type="text" placeholder="Value"></td>
+                                            </tr></tbody>
                                         </table>
                                         <div class="row">
                                             <button type="button" id="boundary-update">Create/Update Boundary</button>
@@ -397,14 +387,12 @@
                                             <thead><tr>
                                                 <th>Time</th><th>Discharge (m³/s)</th><th>Salinity (ppt)</th><th>Temperature (°C)</th>
                                             </tr></thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
-                                                    <td><input type="text" placeholder="Discharge"></td>
-                                                    <td><input type="text" placeholder="Salinity"></td>
-                                                    <td><input type="text" placeholder="Temperature"></td>
-                                                </tr>
-                                            </tbody>
+                                            <tbody><tr>
+                                                <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                                <td><input type="text" placeholder="Discharge"></td>
+                                                <td><input type="text" placeholder="Salinity"></td>
+                                                <td><input type="text" placeholder="Temperature"></td>
+                                            </tr></tbody>
                                         </table>
                                     </div>
                                 </div>
@@ -432,14 +420,12 @@
                                             <thead><tr>
                                                 <th>Time</th><th>Humidity (%)</th><th>Air Temperature (°C)</th><th>Cloud Coverage (%)</th>
                                             </tr></thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
-                                                    <td><input type="text" placeholder="Humidity"></td>
-                                                    <td><input type="text" placeholder="Air temperature"></td>
-                                                    <td><input type="text" placeholder="Cloud coverage"></td>
-                                                </tr>
-                                            </tbody>
+                                            <tbody><tr>
+                                                <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
+                                                <td><input type="text" placeholder="Humidity"></td>
+                                                <td><input type="text" placeholder="Air temperature"></td>
+                                                <td><input type="text" placeholder="Cloud coverage"></td>
+                                            </tr></tbody>
                                         </table>
                                     </div>
                                     <div class="tile" style="grid-column: span 3;"><h3>Weather Data</h3>
@@ -468,9 +454,7 @@
                                             </div>
                                         </div>
                                         <table class="attributes-table" id="weather-edit-table" style="display: none;">
-                                            <thead>
-                                                <tr><th>Time</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr>
-                                            </thead>
+                                            <thead><tr><th>Time</th><th>Magnitude (m/s)</th><th>Direction (°)</th></tr></thead>
                                             <tbody>
                                                 <td><input type="text" placeholder="YYYY-MM-DD HH:MM:SS"></td>
                                                 <td><input type="text" placeholder="Magnitude"></td>

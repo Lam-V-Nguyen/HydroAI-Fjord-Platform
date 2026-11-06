@@ -23,16 +23,18 @@ const obj = {
     sourceInitTemp: $('hyd-source-temperature'), sourceInitSalinity: $('hyd-source-salinity'),
     sourceDrawBtn: $('hyd-source-draw-btn'), sourceTopLeft: $('hyd-source-top-left'), 
     sourceBottomRight: $('hyd-source-bottom-right'), sourceDEM: $('hyd-source-terrain-download-btn'), 
-    sourceDEMResolution: $('hyd-source-terrain-resolution'),
+    sourceDEMResolution: $('hyd-source-terrain-resolution'), meteoAPI: $('era5-meteo-id'), weatherAPI: $('era5-weather-id'),
     sourceThreshold: $('hyd-source-threshold'), sourceFlowBtn: $('hyd-source-flow-btn'),
     sourceArea: $('hyd-source-area'), sourceContainer: $('hyd-source-container'),
     sourceComputeBtn: $('hyd-source-compute-btn'), sourceTable: $('hyd-source-table'), 
     sourceSave: $('hyd-source-save-btn'), meteoLocation: $('meteo-picker-btn'), 
     meteoLat: $('meteo-lat'), meteoLon: $('meteo-lon'), meteoSource: $('hyd-meteo-station'), 
     meteoTable: $('meteo-table'), meteoLog: $('meteo-log-text'), meteoDownload: $('meteo-download-btn'), 
-    meteoSave: $('meteo-save-btn'), meteoLogContainer: $('meteo-log-container'),
+    meteoSave: $('meteo-save-btn'), meteoLogContainer: $('meteo-log-container'), meteoCancelBtn: $('meteo-cancel-btn'),
     weatherLocation: $('weather-picker-btn'), weatherLat: $('weather-lat'), weatherLon: $('weather-lon'), 
-    weatherSource: $('hyd-weather-station'), weatherDownload: $('weather-download-btn'), 
+    weatherSource: $('hyd-weather-station'), weatherDownload: $('weather-download-btn'),
+    weatherCancel: $('weather-cancel-btn'),gtsContainer: $('gts-container'), gtsWeatherAPI: $('gts-weather-id'),
+    era5Container: $('era5-container'), era5WeatherAPI: $('era5-weather-id'),
     weatherLog: $('weather-text'), weatherTable: $('weather-table'), weatherSave: $('weather-save-btn')
 }
 
@@ -43,7 +45,7 @@ let currentProject, nveLayer = null, nveSelected = false, picker = '', mapContai
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-hyd-preparation');
 nveSourceManagement(); sourceManagement(); meteoManagement(); 
-weatherManagement(); mapOptions(mapObj);
+weatherManagement(); mapOptions(mapObj); savePassword();
 
 async function getProject() { 
     const userName = await getUser(); currentProject = userName.split('/').pop();
@@ -72,19 +74,18 @@ function savePassword() {
         alert(response.message); if (response.status === "error") { return; }
     });
 }
-async function loadClient(key) {
+async function loadClient(key, target) {
     const content = { projectName: currentProject, key: key };
     const response = await jsonLoader('load_client', content);
-    obj.sourceAPIKey.value = response.content.client_id;
+    target.value = response.content.client_id;
 }
 
 async function nveSourceManagement(){
-    savePassword(); await loadClient('nve');
+    await loadClient('nve', obj.sourceAPIKey);
     const now = new Date(); now.setHours(0, 0, 0, 0);
-    const start = new Date(now); start.setDate(start.getDate() - 15);
-    const end = new Date(now); end.setDate(end.getDate() - 2);
-    obj.sourceStart.value = formatDate(start);
-    obj.sourceEnd.value = formatDate(end);
+    const start = new Date(now); start.setDate(start.getDate() - 20);
+    const end = new Date(now); end.setDate(end.getDate() - 15);
+    obj.sourceStart.value = formatDate(start); obj.sourceEnd.value = formatDate(end);
     // Toggle sub tabs
     document.querySelectorAll('[data-tab]').forEach(tab => {
         tab.addEventListener('click', async () => {
@@ -132,7 +133,7 @@ async function nveSourceManagement(){
             const statusRes = await jsonLoader('check_download_status', contentChecker);
             if (statusRes.status === "running") { alert("NVE data download is running."); return; }
             const contents = {
-                projectName: currentProject, api_key: apiKey, ids: [[stationID]], 
+                projectName: currentProject, apiKey: apiKey, ids: [[stationID]], 
                 interval: 60, startTime: start, endTime: end, timeZone: getLastTimeZone(),
                 variables: ['1001'], columns: ['Discharge (m³/s)'], key: key, logFile: logFile
             };
@@ -259,44 +260,66 @@ async function sourceManagement() {
     });
 }
 
-function meteoManagement() {
+async function meteoManagement() {
+    await loadClient('era5', obj.meteoAPI);
+    const setMeteoRunning = (running) => {
+        obj.meteoCancelBtn.style.display = running ? 'block' : 'none';
+        obj.meteoCancelBtn.disabled = false; obj.meteoCancelBtn.textContent = 'Cancel';
+    };
+    setMeteoRunning(false);
     obj.meteoLocation.addEventListener('click', () => { picker = 'meteo'; });
     obj.meteoSource.addEventListener('change', () => {
         obj.meteoLog.value = ''; deleteTable(obj.meteoTable);
-        const row = ["YYYY-MM-DD HH:MM:SS", "Humidity", 
-            "Air temperature", "Cloud coverage", "Solar radiation"];
+        const row = ["YYYY-MM-DD HH:MM:SS", "Humidity", "Air temperature", "Cloud coverage"];
         addRowToTable(obj.meteoTable, row);
     });
     obj.meteoDownload.addEventListener('click', async () => {
-        const lat = obj.meteoLat.value, lon = obj.meteoLon.value;
+        const lat = obj.meteoLat.value, lon = obj.meteoLon.value, logFile = 'meteo_HYD_log.txt';
         const key = 'meteo', dataService = obj.meteoSource.value;
+        const apiKey = obj.meteoAPI.value;
+        if (apiKey === '') { alert('Please enter your NVE API key.'); return; }
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
         const start = obj.sourceStart.value, end = obj.sourceEnd.value;
-        if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
+        if (!start || !end) { alert('Please select start/end date(s).'); return; }
+        if (new Date(start) > new Date(end)) { alert('Start date must not be after end date.'); return; }
         try {
-            const contentChecker = {projectName: currentProject, key: key};
+            const contentChecker = { projectName: currentProject, key: key };
             const statusRes = await jsonLoader('check_download_status', contentChecker);
-            if (statusRes.status === "running") { alert("Meteo download is running."); return; }
-            obj.meteoLog.value = '';
+            if (statusRes.status === "running") {
+                alert(statusRes.cancelling ? 'Previous download is being cancelled. Please wait a moment.'
+                    : 'Meteo download is running.'); return;
+            }
             const content = { 
-                projectName: currentProject, lat: lat, lon: lon, dataService: dataService,
-                start: start, end: end, key: key, timeZone: getLastTimeZone()
+                projectName: currentProject, apiKey: apiKey, lat: lat, lon: lon, dataService: dataService, 
+                start: start, end: end, key: key, timeZone: getLastTimeZone(), logFile: logFile
             };
             const request = await jsonLoader('start_meteo', content);
             if (request.status === 'error') { alert(request.message); return; }
+            obj.meteoLog.value = ''; setMeteoRunning(true);
             updateLog(currentProject, obj.meteoLog, 2, key, async () => {
+                const res = await jsonLoader('check_download_status', { projectName: currentProject, key });
+                setMeteoRunning(false);
+                if (res.cancelled) { alert('Meteo download cancelled. No data was saved.'); return; }
+                if (res.status !== 'finished') { alert(`Meteo download failed: ${res.message}`); return; }
                 alert('Downloading meteo data completed.');
-                const res = { projectName: currentProject, fileName: `${key}.csv` };
                 signalSender('showOverlay', 'Uploading meteological data to table. Please wait...');
-                const meteo = await jsonLoader('upload_weather_csv', res); signalSender('hideOverlay');
+                let meteo;
+                try { meteo = await jsonLoader('upload_weather_csv', { projectName: currentProject, fileName: `${key}.csv` }); }
+                finally { signalSender('hideOverlay'); }
                 if (meteo.status === 'error') { alert(meteo.message); return; }
                 addDataToTable(obj.meteoTable, meteo.columns, meteo.content);
-                obj.meteoLogContainer.style.display = 'none';
-                obj.meteoTable.style.display = 'table';
-            });
-        } catch (error) {
-            alert(error.message || error); return;
-        }
+                obj.meteoLogContainer.style.display = 'none'; obj.meteoTable.style.display = 'table';
+            }, logFile);
+        } catch (error) { alert(error.message || error); return; }
+    });
+    obj.meteoCancelBtn.addEventListener('click', async () => {
+        if (!confirm('Cancel the ERA5 download?')) return;
+        obj.meteoCancelBtn.disabled = true; obj.meteoCancelBtn.textContent = 'Cancelling...';
+        try {
+            const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: 'meteo' });
+            if (res.status === 'idle') setMeteoRunning(false); 
+            obj.meteoCancelBtn.style.display = 'none'; alert('ERA5 download cancelled.');
+        } catch (error) { obj.meteoCancelBtn.disabled = false; alert(error.message || error); }
     });
     obj.meteoSave.addEventListener('click', async () => {
         const data = getDataFromTable(obj.meteoTable, true);
@@ -308,29 +331,50 @@ function meteoManagement() {
     });
 }
 
-function weatherManagement() {
+async function weatherManagement() {
+    await loadClient('era5', obj.era5WeatherAPI); await loadClient('nve', obj.gtsWeatherAPI);
+    const setWeatherRunning = (running) => {
+        if (obj.weatherSource.value !== "era5") return;
+        obj.weatherCancel.style.display = running ? 'block' : 'none';
+        obj.weatherCancel.disabled = false;
+        obj.weatherCancel.textContent = 'Cancel';
+    };
+    setWeatherRunning(false);
     obj.weatherLocation.addEventListener('click', () => { picker = 'weather'; });
-    obj.weatherSource.addEventListener('change', () => {
+    obj.weatherSource.addEventListener('change', async(e) => {
+        const value = e.target.value;
+        if (value === "nve-gts") {
+            obj.gtsContainer.style.display = 'flex'; obj.era5Container.style.display = 'none';
+            if (obj.gtsWeatherAPI.value === '') await loadClient('nve', obj.gtsWeatherAPI);
+        } else if (value === "era5") {
+            obj.gtsContainer.style.display = 'none'; obj.era5Container.style.display = 'flex';
+            if (obj.era5WeatherAPI.value === '') await loadClient('era5', obj.era5WeatherAPI);
+        }
         obj.weatherLog.value = ''; deleteTable(obj.weatherTable);
         addRowToTable(obj.weatherTable, ["YYYY-MM-DD HH:MM:SS", "Wind Speed", "Wind Direction"]);
     });
     obj.weatherDownload.addEventListener('click', async () => {
-        const lat = obj.weatherLat.value, lon = obj.weatherLon.value;
+        const lat = obj.weatherLat.value, lon = obj.weatherLon.value, logFile = 'weather_HYD_log.txt';
         const key = 'wind', dataService = obj.weatherSource.value;
         if (lat === '' || lon === '') { alert('Please select a location on map.'); return; }
         const start = obj.sourceStart.value, end = obj.sourceEnd.value;
         if (start === '' || end === '') { alert('Please select start/end date(s).'); return; }
+        const source = obj.weatherSource.value;
+        const apiKey = source === "nve-gts" ? obj.gtsWeatherAPI.value : obj.era5WeatherAPI.value;
+        if (apiKey === '') { alert('Please enter your API key.'); return; }
         try {
             const contentChecker = {projectName: currentProject, key: key};
             const statusRes = await jsonLoader('check_download_status', contentChecker);
             if (statusRes.status === "running") { alert("Wind download is running."); return; }
-            obj.weatherLog.value = '';
+            obj.weatherLog.value = ''; 
+            if (obj.weatherSource.value === "era5") obj.weatherCancel.style.display = 'block';
             const content = { 
-                projectName: currentProject, lat: lat, lon: lon, dataService: dataService, 
-                start: start, end: end, key: key, timeZone: getLastTimeZone()
+                projectName: currentProject, apiKey: apiKey, lat: lat, lon: lon, dataService: dataService, 
+                start: start, end: end, key: key, timeZone: getLastTimeZone(), logFile: logFile
             };
             const request = await jsonLoader('start_meteo', content);
             if (request.status === 'error') { alert(request.message); return; }
+            setWeatherRunning(true);
             updateLog(currentProject, obj.weatherLog, 2, key, async () => {
                 alert('Downloading wind data completed.');
                 const res = { projectName: currentProject, fileName: `${key}.csv` };
@@ -338,10 +382,17 @@ function weatherManagement() {
                 const wind = await jsonLoader('upload_weather_csv', res); signalSender('hideOverlay');
                 if (wind.status === 'error') { alert(wind.message); return; }
                 addDataToTable(obj.weatherTable, wind.columns, wind.content);
-            });
-        } catch (error) {
-            alert(error.message || error); return;
-        }
+            }, logFile);
+        } catch (error) { alert(error.message || error); return; }
+    });
+    obj.weatherCancel.addEventListener('click', async () => {
+        if (!confirm('Cancel the ERA5 download?')) return;
+        obj.weatherCancel.disabled = true; obj.weatherCancel.textContent = 'Cancelling...';
+        try {
+            const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: 'wind' });
+            if (res.status === 'idle') setWeatherRunning(false); 
+            obj.weatherCancel.style.display = 'none'; alert('ERA5 download cancelled.');
+        } catch (error) { obj.weatherCancel.disabled = false; alert(error.message || error); }
     });
     obj.weatherSave.addEventListener('click', async () => {
         const data = getDataFromTable(obj.weatherTable, true);

@@ -48,19 +48,32 @@
                         </div>
                         <div class="tile" style="grid-column: span 3;"><h3>3. Iteration & Run Simulations</h3>
                             <div class="row">
-                                <label for="iteration-number">Number of Iterations:</label>
-                                <input type="number" id="iteration-number" min="1" value="50">
-                            </div>
-                            <div class="row">
-                                <button id="iteration-btn">3.1. Run Iterations</button>
-                                <button id="run-simulation-btn">3.2. Run Simulations</button>
+                                <div class="field-inline">
+                                    <label for="iteration-number">Number of Iterations:</label>
+                                    <input type="number" id="iteration-number" min="1" value="50">
+                                </div>
+                                <div class="field-inline">
+                                    <label style="min-width: 100px; text-align: center;">From:</label><input type="text" id="iteration-start" value="1">
+                                    <label style="min-width: 100px; text-align: center;">To:</label><input type="text" id="iteration-end" value="50">
+                                </div>
+                                <div class="field-inline">
+                                    <button id="iteration-btn">3.1. Run Iterations</button>
+                                    <button id="run-simulation-btn">3.2. Run Simulations</button>
+                                </div>
                             </div>
                             <div class="progress-container" id="progressbar-container">
                                 <progress id="progressbar" value="0" max="100"></progress>
                                 <label id="progress-text"></label>
                             </div>
                         </div>
-                        <div class="tile model-container" style="grid-column: span 5;"><h3>4. View Logs</h3>
+                        <div class="tile model-container" style="grid-column: span 5;">
+                            <div class="field-inline"><h3 style="margin-top: 5px;">4. View Logs</h3>
+                                <div class="row" style="margin-top: -15px;">
+                                    <button type="button" style="font-size: 11px; height: 30px;"
+                                        id="calibration-load-log-btn">Load the last Calibration Log
+                                    </button>
+                                </div>
+                            </div>
                             <textarea wrap="off" id="calibration-text" placeholder="Logs..." readonly></textarea>
                         </div>
                     </div>

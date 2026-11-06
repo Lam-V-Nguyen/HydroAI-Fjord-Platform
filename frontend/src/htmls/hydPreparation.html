@@ -72,7 +72,7 @@
                             <table class="attributes-table" id="discharge-table" style="display: none;">
                                 <thead></thead><tbody></tbody>
                             </table>
-                            <div class="log-container" id="discharge-log-container" style="height: 260px;">
+                            <div class="log-container" id="discharge-log-container" style="height: 250px;">
                                 <textarea wrap="off" class="log-text" id="discharge-log-text" placeholder="Logs..." readonly></textarea>
                             </div>
                         </div>
@@ -101,8 +101,8 @@
                                     <button type="button" id="hyd-source-terrain-download-btn">2. Download DEM</button>
                                 </div>
                                 <div class="field-inline">
-                                    <label for="hyd-source-threshold">Threshold:</label>
-                                    <input type="text" id="hyd-source-threshold" placeholder="Threshold" value="2">
+                                    <label for="hyd-source-threshold">Stream Order:</label>
+                                    <input type="text" id="hyd-source-threshold" placeholder="Threshold" value="3">
                                     <button type="button" id="hyd-source-flow-btn">3. Detect Stream</button>
                                 </div>
                                 <div class="field-inline">
@@ -126,11 +126,11 @@
                                     <input type="text" id="hyd-source-lat" placeholder="Latitude (°)">
                                     <input type="text" id="hyd-source-lon" placeholder="Longitude (°)">
                                 </div>
-                                <div class="field-inline" style="margin-top: -15px;">
+                                <div class="field-inline">
                                     <label for="hyd-source-salinity" style="width: 220px;">Initial Salinity (ppt):</label>
                                     <input type="text" id="hyd-source-salinity" placeholder="Salinity" value="0.02">
                                 </div>
-                                <div class="field-inline" style="margin-top: -15px;">
+                                <div class="field-inline">
                                     <label for="hyd-source-temperature" style="width: 220px;">Initial Temperature (°C):</label>
                                 <input type="text" id="hyd-source-temperature" placeholder="Temperature" value="0.02">
                                 </div>
@@ -175,10 +175,21 @@
                                         <option value="era5" selected>Climate Data Store - ERA5</option>
                                     </select>
                                 </div>
-                                <button type="button" id="meteo-download-btn">Download Data</button>
+                                <div class="field-row">
+                                    <label for="era5-meteo-id">ERA5 API Key:</label>
+                                    <div class="input-with-icon">
+                                        <input type="password" id="era5-meteo-id">
+                                        <button type="button" data-target="era5-meteo-id" class="toggle-password">👁️</button>
+                                    </div>
+                                    <button type="button" id="era5-meteo-remember-btn" style="max-width: 100px;">Remember</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: -5px;">
+                                    <button type="button" id="meteo-download-btn">Download Data</button>
+                                    <button type="button" id="meteo-cancel-btn" style="display: none;">Cancel</button>
+                                </div>
                                 <div class="field-inline">
                                     <a style="margin-top: 0;">References:</a>
-                                    <a class="data-link" style="margin-top: 0;"
+                                    <a class="data-link" style="margin-top: -3px;"
                                         href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
                                         target="_blank">ERA5 - Hourly Data
                                     </a>
@@ -186,7 +197,7 @@
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 6;">
-                            <div class="row"><h3 style="margin-top: -10px;">Attribute Table</h3>
+                            <div class="row"><h3 style="margin-top: 0;">Attribute Table</h3>
                                 <button type="button" id="meteo-save-btn" style="margin-top: -20px; max-width: 200px;">Save Meteo Data</button>
                                 <table class="attributes-table" id="meteo-table" style="margin-top: -15px; display: none;">
                                     <thead><tr>
@@ -201,7 +212,7 @@
                                         <td><input type="text" placeholder="Solar radiation"></td>
                                     </tr></tbody>
                                 </table>
-                                <div class="log-container" id="meteo-log-container" style="height: 230px;">
+                                <div class="log-container" id="meteo-log-container" style="height: 260px; margin-top: -20px;">
                                     <textarea wrap="off" class="log-text" id="meteo-log-text" placeholder="Logs..." readonly></textarea>
                                 </div>
 
@@ -226,9 +237,28 @@
                                         <option value="era5">Climate Data Store - ERA5</option>
                                     </select>
                                 </div>
-                                <button type="button" id="weather-download-btn">Download Data</button>
-                                <div class="field-inline">
-                                    <a style="margin-top: 8px;">References:</a>
+                                <div class="field-row" id="gts-container">
+                                    <label for="gts-weather-id">NVE API Key:</label>
+                                    <div class="input-with-icon">
+                                        <input type="password" id="gts-weather-id">
+                                        <button type="button" data-target="gts-weather-id" class="toggle-password">👁️</button>
+                                    </div>
+                                    <button type="button" id="gts-weather-remember-btn" style="max-width: 100px;">Remember</button>
+                                </div>
+                                <div class="field-row" id="era5-container" style="display: none;">
+                                    <label for="era5-weather-id">ERA5 API Key:</label>
+                                    <div class="input-with-icon">
+                                        <input type="password" id="era5-weather-id">
+                                        <button type="button" data-target="era5-weather-id" class="toggle-password">👁️</button>
+                                    </div>
+                                    <button type="button" id="era5-weather-remember-btn" style="max-width: 100px;">Remember</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: -10px;">
+                                    <button type="button" id="weather-download-btn">Download Data</button>
+                                    <button type="button" id="weather-cancel-btn" style="display: none;">Cancel</button>
+                                </div>
+                                <div class="field-inline" style="margin-top: -15px;">
+                                    <a style="margin-top: 12px;">References:</a>
                                     <a class="data-link" href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
                                         target="_blank">ERA5,
                                     </a>
@@ -242,8 +272,7 @@
                             <textarea wrap="off" id="weather-text" placeholder="Logs..." readonly></textarea>
                         </div>
                         <div class="tile" style="grid-column: span 3;">
-                            <div class="row">
-                                <h3>Attribute Table</h3>
+                            <div class="row"><h3>Attribute Table</h3>
                                 <button type="button" id="weather-save-btn"
                                     style="margin-top: -20px; max-width: 180px;">Save Weather Data</button>
                             </div>

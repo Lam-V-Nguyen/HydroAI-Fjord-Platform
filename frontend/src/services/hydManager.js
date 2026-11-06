@@ -147,8 +147,7 @@ async function hydManager(){
     obj.projectName.addEventListener('input', (e) => { 
         const value = e.target.value.trim();
         if (value === '') { 
-            obj.controlTab.style.display = "none"; 
-            obj.descriptionTab.style.display = "block"; 
+            obj.controlTab.style.display = "none"; obj.descriptionTab.style.display = "block"; 
         }
     });
     // Moving window
@@ -181,8 +180,7 @@ async function hydManager(){
         ); event.target.value = '';
         // Plot grid on map
         const content = { 
-            projectName: obj.projectName.value, key: 'hyd', 
-            gridName: obj.gridPathText.value, opacity: 1
+            projectName: obj.projectName.value, key: 'hyd', gridName: obj.gridPathText.value, opacity: 1
         }
         iframeConnector(null, null, 'gridPlot', content);
     });
@@ -442,7 +440,7 @@ async function hydManager(){
     });
     obj.weatherUpload.addEventListener('click', async () => {
         const nameProject = obj.projectName.value.trim();
-        if (nameProject === ''){ alert('Please check HYD scenario.'); return; }        
+        if (nameProject === '') { alert('Please check HYD scenario.'); return; }        
         const table = getDataFromTable(obj.weatherTable, true);
         if (table.rows.length === 0) { alert('No data to save. Please check the table.'); return; }
         const content = { projectName: nameProject, data: table.rows, timeZone: getLastTimeZone() };

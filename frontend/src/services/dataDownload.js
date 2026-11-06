@@ -65,7 +65,7 @@ let plotChecked = true, waterFlowLayer = null, waterLevelLayer = null,
     evaLayer = null, currentProject = null, era5Checked = false,
     nameID = null, secret = null, userName = null, password = null, key = 'met',
     metLayer = null, metSelected = false, selectedMetLayer = null, nveLayer = null,
-    nveSelected = false, selectedNVELayer = null;
+    nveSelected = false, selectedNVELayer = null, era5ClearingQueue = false;
 
 setupTabs(document); await getProject();
 const mapObj = await initMap('leaflet-map-data'); mapOptions(mapObj);
@@ -649,7 +649,10 @@ function updateManager() {
         }
         try {
             const statusRes = await jsonLoader('check_download_status', { projectName: currentProject, key: ERA5_KEY });
-            if (statusRes.status === "running") { alert("Data download is running."); return; }
+            if (statusRes.status === "running") { 
+                alert(statusRes.cancelling ? 'Previous download is being cancelled. Please wait a moment.'
+                    : 'Weather download is running.');
+            }
             obj.era5LogText.value = ''; obj.era5LogContainer.style.display = 'flex';
             obj.era5SaveBtn.style.display = 'none'; obj.era5Table.style.display = 'none'; 
             obj.era5CancelBtn.style.display = 'block';
@@ -660,26 +663,33 @@ function updateManager() {
             };
             const data = await jsonLoader('download_era5', contents);
             if (data.status === 'error') { alert(data.message); return; }
+            setEra5Running(true);
             updateLog(currentProject, obj.era5LogText, 2, ERA5_KEY, async () => {
-                alert('Downloading data completed.');
-                const content_csv = { projectName: currentProject, fileName: `${ERA5_KEY}.csv` };
+                const res = await jsonLoader('check_download_status', { projectName: currentProject, key: ERA5_KEY });
+                setEra5Running(false);
+                if (res.cancelled) {
+                    if (!era5ClearingQueue) alert('Download cancelled. No data was saved.'); return;
+                }
+                if (res.status !== 'finished') { alert(`Weather download failed: ${res.message}`); return; }
                 signalSender('showOverlay', 'Uploading weather data to table. Please wait...');
-                const csv = await jsonLoader('upload_era5_csv', content_csv); signalSender('hideOverlay');
+                let csv;
+                try { csv = await jsonLoader('upload_era5_csv', { projectName: currentProject, fileName: `${ERA5_KEY}.csv` }); }
+                finally { signalSender('hideOverlay'); }
                 if (csv.status === 'error') { alert(csv.message); return; }
                 addDataToTable(obj.era5Table, csv.columns, csv.content);
                 obj.era5SaveBtn.style.display = 'block'; obj.era5LogContainer.style.display = 'none';
                 obj.era5Table.style.display = 'table'; obj.era5CancelBtn.style.display = 'none';
             }, logFile);
         } catch (error) {
-            alert(error.message || error);
-            obj.era5SaveBtn.style.display = 'none'; return;
+            signalSender('hideOverlay'); setEra5Running(false);
+            alert(error.message || error); obj.era5SaveBtn.style.display = 'none'; return;
         }
     });
     obj.era5CancelBtn.addEventListener('click', async () => {
         if (!confirm('Cancel the ERA5 download?')) return;
         obj.era5CancelBtn.disabled = true; obj.era5CancelBtn.textContent = 'Cancelling...';
         try {
-        const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: ERA5_KEY });
+            const res = await jsonLoader('cancel_download_era5', { projectName: currentProject, key: ERA5_KEY });
             if (res.status === 'idle') setEra5Running(false); 
             obj.era5CancelBtn.style.display = 'none'; alert('ERA5 download cancelled.');
         } catch (error) {
@@ -689,13 +699,25 @@ function updateManager() {
     obj.era5ClearQueueBtn.addEventListener('click', async () => {
         const apiKey = obj.apikeyEra5.value.trim();
         if (!apiKey) { alert('Please enter your ERA5 API key.'); return; }
-        if (!confirm('Remove all queued/running ERA5 requests of this CDS account?')) return;
-        obj.era5ClearQueueBtn.disabled = true;
+        const status = await jsonLoader('check_download_status', { projectName: currentProject, key: ERA5_KEY });
+        const running = status.status === 'running';
+        const question = running
+            ? 'A download is running.\nIt will be cancelled and all queued/running ERA5 requests of this CDS account will be removed.\n\n\nContinue?'
+            : 'Remove all queued/running ERA5 requests of this CDS account?';
+        if (!confirm(question)) return;
+        era5ClearingQueue = running; obj.era5ClearQueueBtn.disabled = true;
+        obj.era5ClearQueueBtn.textContent = running ? 'Cancelling & clearing...' : 'Clearing...';
+        if (running && obj.era5CancelBtn) { obj.era5CancelBtn.disabled = true; obj.era5CancelBtn.textContent = 'Cancelling...'; }
+        signalSender('showOverlay', running ? 'Cancelling download and clearing CDS queue...' : 'Clearing CDS queue...');
         try {
             const res = await jsonLoader('cds_clear_queue', { projectName: currentProject, key: ERA5_KEY, api_key: apiKey });
-            alert(res.message);
-        } catch (error) { alert(error.message || error); }
-        finally { obj.era5ClearQueueBtn.disabled = false; }
+            if ((res.cancelled || []).includes(ERA5_KEY)) setEra5Running(false); alert(res.message);
+        } catch (error) { alert(error.message || error);
+        } finally {
+            signalSender('hideOverlay'); obj.era5ClearQueueBtn.disabled = false;
+            obj.era5ClearQueueBtn.textContent = 'Clear CDS queue';
+            setTimeout(() => { era5ClearingQueue = false; }, 5000);
+        }
     });
     obj.era5SaveBtn.addEventListener('click', async () => {
         const data = getDataFromTable(obj.era5Table, true);

@@ -22,7 +22,6 @@ _ALIASES = {"degc": "degC", "°c": "degC", "c": "degC", "celsius": "degC", "k": 
     "kpa": "kPa", "kg/m3": "kg/m^3", "kg m-3": "kg/m3", "g/cm3": "g/cm^3", "ph": "-", "1": "-"
 }
 
-
 def _norm_unit(u):
     return _ALIASES.get(str(u).strip().lower(), str(u).strip()) if u is not None else None
 
@@ -92,8 +91,7 @@ def _put(container, key, value, pos=None):
         token = _trailing(container, key)
         container[key] = value
         _attach(container, key, token)
-    else:
-        container.insert(len(container) if pos is None else pos, key, value)
+    else: container.insert(len(container) if pos is None else pos, key, value)
 
 def _set_metadata(entry, **kv):
     if "metadata" not in entry: _put(entry, "metadata", CommentedMap())
@@ -136,8 +134,7 @@ def _inspect_netcdf(files, _):
                     attrs = ds[grid_mapping].attrs
                     crs_value = (attrs.get("spatial_ref") or attrs.get("crs_wkt") or attrs.get("epsg_code"))
                     if crs_value: crs = crs_value; break
-        data_vars = [v for v in ds.data_vars if ds[v].ndim >= 2]
-        nodatas = {}
+        data_vars, nodatas = [v for v in ds.data_vars if ds[v].ndim >= 2], {}
         for v in data_vars:
             nodata = ds[v].encoding.get("_FillValue")
             if nodata is None: nodata = ds[v].attrs.get("_FillValue")

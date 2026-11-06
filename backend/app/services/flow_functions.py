@@ -51,7 +51,6 @@ soil_type_reverse = {
 }
 soil_depth_reverse = {v: k for k, v in soil_depths.items()}
 
-
 FORCING_SOURCES = {
     "total_precipitation": "tp", # Precipitation
     "2m_temperature": "t2m", # Temperature
@@ -404,15 +403,15 @@ def weather_downloader(project_name, flow_name, processes, process_key, api_key,
     max_wait_hours=6, block_mb=128, n_workers=None, k_idw=4):
     # Prepare forcing data from the global model ARE5
     # Source: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download
-    project_dir = os.path.normpath(os.path.join(PROJECT_ROOT, project_name))
-    flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))
-    log_dir = os.path.normpath(os.path.join(flow_dir, "logs"))
+    project_dir = os.path.join(PROJECT_ROOT, project_name)
+    log_dir = os.path.join(project_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.normpath(os.path.join(log_dir, log_file))
     if os.path.exists(log_path): os.remove(log_path)
-    logger = setup_logger("cdsapi", log_path)
+    flow_dir = os.path.normpath(os.path.join(project_dir, "flows", flow_name))    
     forcing_dir = os.path.normpath(os.path.join(flow_dir, 'forcing'))
-    os.makedirs(forcing_dir, exist_ok=True)
+    os.makedirs(forcing_dir, exist_ok=True)    
+    logger = setup_logger(f"{process_key}:cdsapi", log_path)
     download_dir = os.path.normpath(os.path.join(forcing_dir, f"download_{uuid.uuid4().hex[:8]}"))
     forcing_path = os.path.normpath(os.path.join(forcing_dir, "weather_forcing.nc"))
     tmp_path, max_wait_s = forcing_path + ".part",  max_wait_hours * 3600

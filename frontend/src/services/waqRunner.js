@@ -55,6 +55,7 @@ async function waqComponents() {
         obj.checkboxContainer.style.display = 'block'; 
         obj.showCheckbox.dispatchEvent(new Event('change'));
     });
+    obj.waqSelector.addEventListener('change', async() => { obj.infoArea.value = ''; });
     // Run new simulation
     obj.runBtn.addEventListener('click', async () => {
         currentProject = obj.scenarioSelector.value;
@@ -76,7 +77,7 @@ async function waqComponents() {
 
 function updateLogWAQ(hydProject, waqProject, progress_bar, progress_text, info, seconds, log_file) {
     if (logIntervalWAQ) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
-    activeWAQProject = `${hydProject}_${waqProject}`;
+    activeWAQProject = `${hydProject}_${waqProject}`; lastOffsetWAQ = 0;
     const stop = () => {
         if (logIntervalWAQ) { clearInterval(logIntervalWAQ); logIntervalWAQ = null; }
         WAQRunning = false;
@@ -94,8 +95,7 @@ function updateLogWAQ(hydProject, waqProject, progress_bar, progress_text, info,
             }
             const statusRes = await jsonLoader('check_sim_status_waq', {projectName: hydProject, waqName: waqProject});
             if (!["preparing", "running", "reorganizing"].includes(statusRes.status)) {
-                info.value += "\n" + statusRes.message + "\n";
-                info.scrollTop = info.scrollHeight; stop();
+                info.value += "\n" + statusRes.message + "\n"; info.scrollTop = info.scrollHeight; stop();
             }
             progress_text.innerText = statusRes.message; progress_bar.value = statusRes.progress;
         } catch (error) { stop(); info.value = `Error: ${error.message}`; }

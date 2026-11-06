@@ -100,7 +100,7 @@
                                 </div>
                                 <div class="field-inline">
                                     <label for="threshold">Stream Order:</label>
-                                    <input type="text" id="threshold" value="1" style="max-width: 150px;">
+                                    <input type="text" id="threshold" value="4" style="max-width: 150px;">
                                     <button type="button" id="stream-btn">Extract Streams</button>
                                 </div>
                                 <div class="field-inline">
@@ -201,7 +201,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tile" style="grid-column: span 3;">
+                        <div class="tile" style="grid-column: span 5;">
                             <h3>Attribute Table</h3>
                             <div class="row">
                                 <table class="attributes-table" id="soil-attributes-table" style="margin-top: -5px;">
@@ -354,14 +354,14 @@
                     <div class="grid">
                         <div class="tile" style="grid-column: span 2;"><h3 style="margin-top: 10px;">Weather Data Import</h3>
                             <div class="row">
-                                <div class="field-inline" style="justify-content: space-around; margin-top: -10px;">
+                                <div class="field-inline" style="justify-content: space-around; margin: -10px 0 -10px 0;">
                                     <div class="row-radio">
-                                        <input type="radio" id="weather-station" name="weather" value="weather-station" checked>
-                                        <label for="weather-station">Get from a Weather Station</label>
+                                        <input type="radio" id="weather-csv" name="weather" value="weather-csv" checked>
+                                        <label for="weather-csv">Upload from CSV file</label>
                                     </div>
                                     <div class="row-radio">
-                                        <input type="radio" id="weather-csv" name="weather" value="weather-csv">
-                                        <label for="weather-csv">Upload from CSV file</label>
+                                        <input type="radio" id="weather-station" name="weather" value="weather-station">
+                                        <label for="weather-station">Get from a Weather Station</label>
                                     </div>
                                 </div>
                                 <div class="field-inline">
@@ -374,7 +374,7 @@
                                     <input type="text" class="datetime" id="weather-end-date"
                                         placeholder="YYYY-mm-dd HH:mm:ss" style="width: auto;">
                                 </div>
-                                <div class="field-inline" style="margin-top: -10px;" id="weather-station-container">
+                                <div class="field-inline" style="margin-top: -10px; display: none;" id="weather-station-container">
                                     <div class="field-inline">
                                         <label for="weather-source">Source:</label>
                                         <select id="weather-source" style="width: 100%;">
@@ -382,7 +382,7 @@
                                             <option value="era5">Climate Data Store - ERA5</option>
                                         </select>
                                     </div>
-                                    <div class="field-row" style="display: none;" id="era5-api-container">
+                                    <div class="field-row" id="era5-api-container" style="display: none;">
                                         <label for="era5-api-key">API Key:</label>
                                         <div class="input-with-icon">
                                             <input type="password" id="era5-api-key">
@@ -391,18 +391,18 @@
                                         <button type="button" id="era5-api-btn" style="max-width: 100px;">Remember</button>
                                     </div>
                                     <div class="field-inline">
-                                    <button type="button" id="weather-download-btn">Download Weather Data</button>
-                                    <button type="button" id="weather-cancel-btn">Cancel</button>
+                                        <button type="button" id="weather-download-btn">Download Weather Data</button>
+                                        <button type="button" id="weather-cancel-btn">Cancel</button>
                                     </div>
                                     <div class="field-inline">
                                         <a style="margin-top: 10px;">References:</a>
-                                        <a class="data-link"
+                                        <a class="data-link" style="margin-top: 8px;"
                                             href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=download"
                                             target="_blank">ERA5 - Hourly Data
                                         </a>
                                     </div>
                                 </div>
-                                <div class="field-inline" style="display: none;" id="weather-csv-container">
+                                <div class="field-inline" id="weather-csv-container">
                                     <label for="weather-input">CSV Data:</label>
                                     <input type="file" id="weather-input-file" accept=".csv" hidden>
                                     <input type="text" id="weather-input-text" placeholder="No file selected" readonly>
@@ -411,7 +411,7 @@
                             </div>
                         </div>
                         <div class="tile" style="grid-column: span 6;">
-                            <div class="row" id="weather-table-container" style="margin-top: -5px; display: none;">
+                            <div class="row" id="weather-table-container" style="margin-top: -5px;">
                                 <div class="row"><h3 style="margin-top: 5px;">Attribute Table</h3>
                                     <div style="margin-top: -10px;" id="interval-container">
                                         <label for="weather-interval" style="margin-top: 10px;">Interval:</label>
@@ -445,10 +445,10 @@
                                     </table>
                                 </div>
                             </div>
-                            <div class="log-container" id="weather-download-container" style="display: block; margin-top: 10px;">
+                            <div class="log-container" id="weather-download-container" style=" display: none; margin-top: 10px;">
                                 <h3>Progress Log</h3>
                                 <textarea wrap="off" class="log-text" id="weather-download-text"
-                                    style="margin-top: 10px; height: 250px;" placeholder="Log..." readonly>
+                                    style="margin-top: 10px; height: 320px;" placeholder="Log..." readonly>
                                 </textarea>
                             </div>
                         </div>
